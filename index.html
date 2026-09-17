@@ -83,6 +83,7 @@
   <span class="brand">TAE Accounting</span>
   <div id="tabs"></div>
   <div class="spacer"></div>
+  <span class="status offline" id="failedStatus" style="display:none"></span>
   <span class="status" id="netStatus"></span>
   <button class="signout" id="signOutBtn">Sign out</button>
 </div>
@@ -130,6 +131,25 @@
   }
   window.addEventListener('online', updateNetStatus);
   window.addEventListener('offline', updateNetStatus);
+
+  // localStorage is shared across same-origin iframes (unlike each module's
+  // own OfflineQueue JS object), so the shell can surface a queued op that
+  // permanently failed to sync (§14) without the module that queued it
+  // needing to still be open.
+  var failedStatusEl = document.getElementById('failedStatus');
+  function checkFailedQueue() {
+    var failed;
+    try { failed = JSON.parse(localStorage.getItem('oht:offlineQueueFailed') || '[]'); } catch (e) { failed = []; }
+    if (failed.length) {
+      failedStatusEl.style.display = '';
+      failedStatusEl.textContent = failed.length + ' change(s) could not sync — contact admin';
+      failedStatusEl.title = 'These edits could not be saved even after coming back online. They are kept in this browser only — do not clear site data before resolving.';
+    } else {
+      failedStatusEl.style.display = 'none';
+    }
+  }
+  checkFailedQueue();
+  setInterval(checkFailedQueue, 15000);
 
   function buildTabs() {
     tabsEl.innerHTML = '';

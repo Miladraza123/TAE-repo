@@ -626,11 +626,31 @@
         return;
       }
 
+      // Edit path (§14): if we're already offline, or any merge step fails
+      // with a network error, queue the whole header+lines merge as one
+      // 'doc_edit_merge' op instead of losing the in-progress edit — the
+      // original snapshots (e.originalHeader/e.originalLines) captured at
+      // open-time are exactly what the deferred merge needs to run later.
+      var newLines = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+      function queueVoucherEdit() {
+        OfflineQueue.enqueue({
+          kind: 'doc_edit_merge',
+          headerTable: 'vouchers', headerId: e.id, headerOriginal: e.originalHeader,
+          headerNew: payload, headerIgnore: IGNORE_HEADER,
+          lineTable: 'voucher_lines', lineFkCol: 'voucher_id',
+          lineOriginal: e.originalLines, lineNew: newLines
+        });
+        alert('No internet — your change is saved locally and will sync when back online.');
+        closeEditor(); loadList();
+      }
+
+      if (!navigator.onLine) { queueVoucherEdit(); return; }
+
       // Header merge
       var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
         p_table: 'vouchers', p_id: e.id, p_original: e.originalHeader, p_new: payload, p_ignore: IGNORE_HEADER
       });
-      if (mergeErr) return handleSaveError(mergeErr, errEl);
+      if (mergeErr) return OfflineQueue.isNetworkError(mergeErr) ? queueVoucherEdit() : handleSaveError(mergeErr, errEl);
       if (mergeRes.status === 'deleted') { errEl.textContent = "'" + e.originalHeader.vno + "' kisi aur ne delete kar diya hai"; return; }
       if (mergeRes.status === 'conflict') {
         // one automatic retry against the fresh current state (§14/§27)
@@ -638,7 +658,7 @@
         var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
           p_table: 'vouchers', p_id: e.id, p_original: retryOriginal, p_new: payload, p_ignore: IGNORE_HEADER
         });
-        if (retryErr) return handleSaveError(retryErr, errEl);
+        if (retryErr) return OfflineQueue.isNetworkError(retryErr) ? queueVoucherEdit() : handleSaveError(retryErr, errEl);
         if (retryRes.status === 'conflict') {
           errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + retryRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
           return;
@@ -646,12 +666,11 @@
       }
 
       // Line merge
-      var newLines = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', {
         p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id,
         p_original_lines: e.originalLines, p_new_lines: newLines
       });
-      if (lmErr) return handleSaveError(lmErr, errEl);
+      if (lmErr) return OfflineQueue.isNetworkError(lmErr) ? queueVoucherEdit() : handleSaveError(lmErr, errEl);
       if (lineMerge.status === 'conflict') {
         errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
@@ -808,19 +827,44 @@
       }
     }
 
-    var { data: inserted, error: insErr } = await sb.from('sales_returns').insert({
-      sale_id: r.sale.id, party_id: r.sale.party_id, rdate: new Date().toISOString().slice(0, 10),
+    var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
+    var headerPayload = {
+      id: newId, sale_id: r.sale.id, party_id: r.sale.party_id, rdate: new Date().toISOString().slice(0, 10),
       subtotal: toReturn.reduce(function (s, l) { return s + l.returnQty * l.rate; }, 0),
       grand_total: toReturn.reduce(function (s, l) { return s + l.returnQty * l.rate; }, 0)
-    }).select().single();
-    if (insErr) { errEl.textContent = insErr.message; return; }
+    };
+    var linesPayload = toReturn.map(function (l) {
+      return { return_id: newId, sale_line_id: l.id, item_id: l.item_id, qty: l.returnQty, rate: l.rate, amount: l.returnQty * l.rate, warehouse_id: l.warehouse_id };
+    });
 
-    var { error: lineErr } = await sb.from('sales_return_lines').insert(
-      toReturn.map(function (l) {
-        return { return_id: inserted.id, sale_line_id: l.id, item_id: l.item_id, qty: l.returnQty, rate: l.rate, amount: l.returnQty * l.rate, warehouse_id: l.warehouse_id };
-      })
-    );
-    if (lineErr) { errEl.textContent = lineErr.message; return; } // e.g. the DB's own returnable-qty cap trigger firing on a race
+    if (!navigator.onLine) {
+      OfflineQueue.enqueue({ kind: 'insert', table: 'sales_returns', payload: headerPayload });
+      OfflineQueue.enqueue({ kind: 'insert', table: 'sales_return_lines', payload: linesPayload });
+      alert('No internet — saved locally as pending. It will get its real number once synced.');
+      closeEditor(); loadReturnsList();
+      return;
+    }
+
+    var { error: insErr } = await sb.from('sales_returns').insert(headerPayload);
+    if (insErr) {
+      if (OfflineQueue.isNetworkError(insErr)) {
+        OfflineQueue.enqueue({ kind: 'insert', table: 'sales_returns', payload: headerPayload });
+        OfflineQueue.enqueue({ kind: 'insert', table: 'sales_return_lines', payload: linesPayload });
+        alert('No internet — saved locally as pending. It will get its real number once synced.');
+        closeEditor(); loadReturnsList();
+        return;
+      }
+      errEl.textContent = insErr.message; return;
+    }
+
+    var { error: lineErr } = await sb.from('sales_return_lines').insert(linesPayload);
+    if (lineErr) {
+      if (OfflineQueue.isNetworkError(lineErr)) {
+        OfflineQueue.enqueue({ kind: 'insert', table: 'sales_return_lines', payload: linesPayload });
+      } else {
+        errEl.textContent = lineErr.message; return; // e.g. the DB's own returnable-qty cap trigger firing on a race
+      }
+    }
 
     closeEditor();
     loadReturnsList();
@@ -1032,12 +1076,39 @@
 
     try {
       if (d.isNew) {
-        var { data: inserted, error: insErr } = await sb.from(cfg.table).insert(payload).select().single();
-        if (insErr) return handleSaveError(insErr, errEl);
-        var { error: lineErr } = await sb.from(cfg.lineTable).insert(
-          validLines.map(function (l) { var c = Object.assign({}, l); delete c.id; c[cfg.fk] = inserted.id; return c; })
-        );
-        if (lineErr) { errEl.textContent = lineErr.message; return; }
+        // Same client-generated-id pattern as saveVoucher (§14): lets a new
+        // quotation/PO be queued offline and still reference its lines.
+        var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
+        var headerPayload = Object.assign({ id: newId }, payload);
+        var linesPayload = validLines.map(function (l) { var c = Object.assign({}, l); delete c.id; c[cfg.fk] = newId; return c; });
+
+        if (!navigator.onLine) {
+          OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
+          OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
+          alert('No internet — saved locally as pending. It will get its real number once synced.');
+          closeEditor(); loadDocsList(d.type);
+          return;
+        }
+
+        var { data: inserted, error: insErr } = await sb.from(cfg.table).insert(headerPayload).select().single();
+        if (insErr) {
+          if (OfflineQueue.isNetworkError(insErr)) {
+            OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
+            OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
+            alert('No internet — saved locally as pending. It will get its real number once synced.');
+            closeEditor(); loadDocsList(d.type);
+            return;
+          }
+          return handleSaveError(insErr, errEl);
+        }
+        var { error: lineErr } = await sb.from(cfg.lineTable).insert(linesPayload);
+        if (lineErr) {
+          if (OfflineQueue.isNetworkError(lineErr)) {
+            OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
+          } else {
+            errEl.textContent = lineErr.message; return;
+          }
+        }
 
         if (d.convertingFrom) {
           var srcCfg = DOC_CONFIG[d.convertingFrom.type];
@@ -1047,16 +1118,33 @@
         return;
       }
 
+      // Edit path (§14): queue the whole header+lines merge on any network
+      // failure (or if already offline) instead of losing the edit — see
+      // saveVoucher's queueVoucherEdit for the same pattern.
+      function queueDocEdit() {
+        OfflineQueue.enqueue({
+          kind: 'doc_edit_merge',
+          headerTable: cfg.table, headerId: d.id, headerOriginal: d.originalHeader,
+          headerNew: payload, headerIgnore: DOC_IGNORE_MAP[d.type],
+          lineTable: cfg.lineTable, lineFkCol: cfg.fk,
+          lineOriginal: d.originalLines, lineNew: validLines
+        });
+        alert('No internet — your change is saved locally and will sync when back online.');
+        closeEditor(); loadDocsList(d.type);
+      }
+
+      if (!navigator.onLine) { queueDocEdit(); return; }
+
       var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
         p_table: cfg.table, p_id: d.id, p_original: d.originalHeader, p_new: payload, p_ignore: DOC_IGNORE_MAP[d.type]
       });
-      if (mergeErr) return handleSaveError(mergeErr, errEl);
+      if (mergeErr) return OfflineQueue.isNetworkError(mergeErr) ? queueDocEdit() : handleSaveError(mergeErr, errEl);
       if (mergeRes.status === 'deleted') { errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' kisi aur ne delete kar diya hai"; return; }
       if (mergeRes.status === 'conflict') {
         var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
           p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: payload, p_ignore: DOC_IGNORE_MAP[d.type]
         });
-        if (retryErr) return handleSaveError(retryErr, errEl);
+        if (retryErr) return OfflineQueue.isNetworkError(retryErr) ? queueDocEdit() : handleSaveError(retryErr, errEl);
         if (retryRes.status === 'conflict') {
           errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + retryRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
           return;
@@ -1066,7 +1154,7 @@
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', {
         p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines
       });
-      if (lmErr) return handleSaveError(lmErr, errEl);
+      if (lmErr) return OfflineQueue.isNetworkError(lmErr) ? queueDocEdit() : handleSaveError(lmErr, errEl);
       if (lineMerge.status === 'conflict') {
         errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
@@ -1266,25 +1354,65 @@
 
     try {
       if (d.isNew) {
-        var { data: inserted, error: insErr } = await sb.from(cfg.table).insert(d.header).select().single();
-        if (insErr) return handleSaveError(insErr, errEl);
-        var { error: lineErr } = await sb.from(cfg.lineTable).insert(
-          validLines.map(function (l) { var c = Object.assign({}, l); delete c.id; c[cfg.fk] = inserted.id; return c; })
-        );
-        if (lineErr) { errEl.textContent = lineErr.message; return; }
+        var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
+        var headerPayload = Object.assign({ id: newId }, d.header);
+        var linesPayload = validLines.map(function (l) { var c = Object.assign({}, l); delete c.id; c[cfg.fk] = newId; return c; });
+
+        if (!navigator.onLine) {
+          OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
+          OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
+          alert('No internet — saved locally as pending. It will get its real number once synced.');
+          closeEditor(); loadServiceDocsList(d.type);
+          return;
+        }
+
+        var { data: inserted, error: insErr } = await sb.from(cfg.table).insert(headerPayload).select().single();
+        if (insErr) {
+          if (OfflineQueue.isNetworkError(insErr)) {
+            OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
+            OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
+            alert('No internet — saved locally as pending. It will get its real number once synced.');
+            closeEditor(); loadServiceDocsList(d.type);
+            return;
+          }
+          return handleSaveError(insErr, errEl);
+        }
+        var { error: lineErr } = await sb.from(cfg.lineTable).insert(linesPayload);
+        if (lineErr) {
+          if (OfflineQueue.isNetworkError(lineErr)) {
+            OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
+          } else {
+            errEl.textContent = lineErr.message; return;
+          }
+        }
         closeEditor(); loadServiceDocsList(d.type);
         return;
       }
 
+      function queueSvcDocEdit() {
+        OfflineQueue.enqueue({
+          kind: 'doc_edit_merge',
+          headerTable: cfg.table, headerId: d.id, headerOriginal: d.originalHeader,
+          headerNew: d.header, headerIgnore: SVC_IGNORE,
+          lineTable: cfg.lineTable, lineFkCol: cfg.fk,
+          lineOriginal: d.originalLines, lineNew: validLines
+        });
+        alert('No internet — your change is saved locally and will sync when back online.');
+        closeEditor(); loadServiceDocsList(d.type);
+      }
+
+      if (!navigator.onLine) { queueSvcDocEdit(); return; }
+
       var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: d.originalHeader, p_new: d.header, p_ignore: SVC_IGNORE });
-      if (mergeErr) return handleSaveError(mergeErr, errEl);
+      if (mergeErr) return OfflineQueue.isNetworkError(mergeErr) ? queueSvcDocEdit() : handleSaveError(mergeErr, errEl);
       if (mergeRes.status === 'conflict') {
-        var { data: retryRes } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: d.header, p_ignore: SVC_IGNORE });
+        var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: d.header, p_ignore: SVC_IGNORE });
+        if (retryErr) return OfflineQueue.isNetworkError(retryErr) ? queueSvcDocEdit() : handleSaveError(retryErr, errEl);
         if (retryRes.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt "' + retryRes.conflicts.join(', ') + '" badal diya — taaza dekh kar dobara karein'; return; }
       }
 
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines });
-      if (lmErr) return handleSaveError(lmErr, errEl);
+      if (lmErr) return OfflineQueue.isNetworkError(lmErr) ? queueSvcDocEdit() : handleSaveError(lmErr, errEl);
       if (lineMerge.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt lines mein "' + lineMerge.conflicts.join(', ') + '" badal diya'; return; }
       await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
 
@@ -1418,15 +1546,59 @@
     if (!validLines.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
 
     if (t.isNew) {
-      var { data: inserted, error: insErr } = await sb.from('stock_transfers').insert(t.header).select().single();
-      if (insErr) { errEl.textContent = insErr.message; return; }
-      var { error: lineErr } = await sb.from('stock_transfer_lines').insert(validLines.map(function (l) { return { transfer_id: inserted.id, item_id: l.item_id, qty: l.qty }; }));
-      if (lineErr) { errEl.textContent = lineErr.message; return; }
+      var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
+      var headerPayload = Object.assign({ id: newId }, t.header);
+      var linesPayload = validLines.map(function (l) { return { transfer_id: newId, item_id: l.item_id, qty: l.qty }; });
+
+      if (!navigator.onLine) {
+        OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfers', payload: headerPayload });
+        OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfer_lines', payload: linesPayload });
+        alert('No internet — saved locally as pending. It will get its real number once synced.');
+        closeEditor(); loadTransfersList();
+        return;
+      }
+
+      var { error: insErr } = await sb.from('stock_transfers').insert(headerPayload);
+      if (insErr) {
+        if (OfflineQueue.isNetworkError(insErr)) {
+          OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfers', payload: headerPayload });
+          OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfer_lines', payload: linesPayload });
+          alert('No internet — saved locally as pending. It will get its real number once synced.');
+          closeEditor(); loadTransfersList();
+          return;
+        }
+        errEl.textContent = insErr.message; return;
+      }
+      var { error: lineErr } = await sb.from('stock_transfer_lines').insert(linesPayload);
+      if (lineErr) {
+        if (OfflineQueue.isNetworkError(lineErr)) {
+          OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfer_lines', payload: linesPayload });
+        } else {
+          errEl.textContent = lineErr.message; return;
+        }
+      }
     } else {
+      var linesPayloadEdit = validLines.map(function (l) { return { transfer_id: t.id, item_id: l.item_id, qty: l.qty }; });
+
+      if (!navigator.onLine) {
+        OfflineQueue.enqueue({ kind: 'transfer_edit_replace', table: 'stock_transfers', recordId: t.id, headerPayload: t.header, lineTable: 'stock_transfer_lines', lineFkCol: 'transfer_id', linesPayload: linesPayloadEdit });
+        alert('No internet — your change is saved locally and will sync when back online.');
+        closeEditor(); loadTransfersList();
+        return;
+      }
+
       var { error: updErr } = await sb.from('stock_transfers').update(t.header).eq('id', t.id);
-      if (updErr) { errEl.textContent = updErr.message; return; }
+      if (updErr) {
+        if (OfflineQueue.isNetworkError(updErr)) {
+          OfflineQueue.enqueue({ kind: 'transfer_edit_replace', table: 'stock_transfers', recordId: t.id, headerPayload: t.header, lineTable: 'stock_transfer_lines', lineFkCol: 'transfer_id', linesPayload: linesPayloadEdit });
+          alert('No internet — your change is saved locally and will sync when back online.');
+          closeEditor(); loadTransfersList();
+          return;
+        }
+        errEl.textContent = updErr.message; return;
+      }
       await sb.from('stock_transfer_lines').delete().eq('transfer_id', t.id);
-      await sb.from('stock_transfer_lines').insert(validLines.map(function (l) { return { transfer_id: t.id, item_id: l.item_id, qty: l.qty }; }));
+      await sb.from('stock_transfer_lines').insert(linesPayloadEdit);
     }
     closeEditor(); loadTransfersList();
   }

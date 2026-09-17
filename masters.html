@@ -182,24 +182,66 @@
             });
             var errEl = document.getElementById('formErr');
             if (id && opts.useMerge) {
+              function queueCrudMergeEdit() {
+                OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: opts.table, headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
+                alert('No internet — your change is saved locally and will sync when back online.');
+              }
+              if (!navigator.onLine) { queueCrudMergeEdit(); broadcastRefresh(opts.table); render(); return; }
               var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
                 p_table: opts.table, p_id: id, p_original: originalSnapshot, p_new: payload
               });
-              if (mergeErr) { errEl.textContent = mergeErr.message; return; }
+              if (mergeErr) {
+                if (OfflineQueue.isNetworkError(mergeErr)) { queueCrudMergeEdit(); broadcastRefresh(opts.table); render(); return; }
+                errEl.textContent = mergeErr.message; return;
+              }
               if (mergeRes.status === 'deleted') { errEl.textContent = 'This record was deleted by someone else.'; return; }
               if (mergeRes.status === 'conflict') {
                 var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
                   p_table: opts.table, p_id: id, p_original: mergeRes.current, p_new: payload
                 });
-                if (retryErr) { errEl.textContent = retryErr.message; return; }
+                if (retryErr) {
+                  if (OfflineQueue.isNetworkError(retryErr)) { queueCrudMergeEdit(); broadcastRefresh(opts.table); render(); return; }
+                  errEl.textContent = retryErr.message; return;
+                }
                 if (retryRes.status === 'conflict') {
                   errEl.textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
                   return;
                 }
               }
+            } else if (id) {
+              // No merge protection on this table (§14 offline concern still
+              // applies): queue a plain update on network failure.
+              if (!navigator.onLine) {
+                OfflineQueue.enqueue({ kind: 'update', table: opts.table, recordId: id, payload: payload });
+                alert('No internet — your change is saved locally and will sync when back online.');
+                broadcastRefresh(opts.table); render(); return;
+              }
+              var updRes = await sb.from(opts.table).update(payload).eq('id', id);
+              if (updRes.error) {
+                if (OfflineQueue.isNetworkError(updRes.error)) {
+                  OfflineQueue.enqueue({ kind: 'update', table: opts.table, recordId: id, payload: payload });
+                  alert('No internet — your change is saved locally and will sync when back online.');
+                } else {
+                  errEl.textContent = updRes.error.message; return;
+                }
+              }
             } else {
-              var res = id ? await sb.from(opts.table).update(payload).eq('id', id) : await sb.from(opts.table).insert(payload);
-              if (res.error) { errEl.textContent = res.error.message; return; }
+              var newId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
+              var withId = Object.assign({ id: newId }, payload);
+              if (!navigator.onLine) {
+                OfflineQueue.enqueue({ kind: 'insert', table: opts.table, payload: withId });
+                alert('No internet — saved locally, will sync automatically.');
+              } else {
+                var insRes = await sb.from(opts.table).insert(withId);
+                if (insRes.error) {
+                  if (OfflineQueue.isNetworkError(insRes.error)) {
+                    OfflineQueue.enqueue({ kind: 'insert', table: opts.table, payload: withId });
+                    alert('No internet — saved locally, will sync automatically.');
+                  } else {
+                    errEl.textContent = insRes.error.message; return;
+                  }
+                }
+              }
             }
             broadcastRefresh(opts.table);
             render();
@@ -303,13 +345,17 @@
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
           if (id) {
+            function queuePartyEdit() {
+              OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'parties', headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
+              alert('No internet — your change is saved locally and will sync when back online.');
+            }
+            if (!navigator.onLine) { queuePartyEdit(); broadcastRefresh('parties'); render(); return; }
             var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
               p_table: 'parties', p_id: id, p_original: originalSnapshot, p_new: payload
             });
             if (mergeErr) {
-              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(mergeErr)
-                ? 'No internet — edits to an existing party need a connection (creating a NEW party works offline).'
-                : mergeErr.message;
+              if (OfflineQueue.isNetworkError(mergeErr)) { queuePartyEdit(); broadcastRefresh('parties'); render(); return; }
+              document.getElementById('formErr').textContent = mergeErr.message;
               return;
             }
             if (mergeRes.status === 'deleted') { document.getElementById('formErr').textContent = 'This party was deleted by someone else.'; return; }
@@ -317,7 +363,11 @@
               var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
                 p_table: 'parties', p_id: id, p_original: mergeRes.current, p_new: payload
               });
-              if (retryErr) { document.getElementById('formErr').textContent = retryErr.message; return; }
+              if (retryErr) {
+                if (OfflineQueue.isNetworkError(retryErr)) { queuePartyEdit(); broadcastRefresh('parties'); render(); return; }
+                document.getElementById('formErr').textContent = retryErr.message;
+                return;
+              }
               if (retryRes.status === 'conflict') {
                 document.getElementById('formErr').textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
                 return;
@@ -446,13 +496,17 @@
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
           if (id) {
+            function queueItemEdit() {
+              OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'items', headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
+              alert('No internet — your change is saved locally and will sync when back online.');
+            }
+            if (!navigator.onLine) { queueItemEdit(); broadcastRefresh('items'); render(); return; }
             var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
               p_table: 'items', p_id: id, p_original: originalSnapshot, p_new: payload
             });
             if (mergeErr) {
-              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(mergeErr)
-                ? 'No internet — edits to an existing item need a connection (creating a NEW item works offline).'
-                : mergeErr.message;
+              if (OfflineQueue.isNetworkError(mergeErr)) { queueItemEdit(); broadcastRefresh('items'); render(); return; }
+              document.getElementById('formErr').textContent = mergeErr.message;
               return;
             }
             if (mergeRes.status === 'deleted') { document.getElementById('formErr').textContent = 'This item was deleted by someone else.'; return; }
@@ -460,7 +514,11 @@
               var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
                 p_table: 'items', p_id: id, p_original: mergeRes.current, p_new: payload
               });
-              if (retryErr) { document.getElementById('formErr').textContent = retryErr.message; return; }
+              if (retryErr) {
+                if (OfflineQueue.isNetworkError(retryErr)) { queueItemEdit(); broadcastRefresh('items'); render(); return; }
+                document.getElementById('formErr').textContent = retryErr.message;
+                return;
+              }
               if (retryRes.status === 'conflict') {
                 document.getElementById('formErr').textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
                 return;
