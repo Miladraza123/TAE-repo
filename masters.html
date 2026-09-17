@@ -1,0 +1,461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Masters — TAE Accounting</title>
+<style>
+  :root{
+    --bg:#0f172a; --bg2:#1e293b; --bg3:#141d2e; --fg:#e2e8f0; --muted:#94a3b8;
+    --accent:#3b82f6; --accent2:#2563eb; --danger:#ef4444; --ok:#22c55e; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;}
+  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:#1c2942;color:var(--fg);padding:8px 12px;font-size:13px;}
+  .tabs button{background:transparent;}
+  .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.primary:hover{background:var(--accent2);}
+  button.danger{background:transparent;border-color:var(--danger);color:var(--danger);}
+  input[type=search]{padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:var(--fg);min-width:180px;}
+  main{padding:14px;max-width:1100px;margin:0 auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+  tr.row:hover{background:var(--bg3);cursor:pointer;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px;}
+  label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;}
+  input,select,textarea{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:var(--fg);font-size:13px;}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;}
+  .card h2{margin:0 0 14px;font-size:15px;}
+  .actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;}
+  .err{color:var(--danger);font-size:13px;margin-top:8px;min-height:16px;}
+  .ok{color:var(--ok);font-size:13px;margin-top:8px;min-height:16px;}
+  .chk{display:flex;align-items:center;gap:6px;}
+  .balance{font-size:11px;color:var(--muted);}
+  img.thumb{max-height:40px;max-width:80px;border-radius:4px;background:#fff;padding:2px;}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Masters</h1>
+  <div class="tabs" id="tabs"></div>
+  <input type="search" id="search" placeholder="Search...">
+</div>
+
+<main id="content"></main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var SUPABASE_URL = 'https://zvzxoxbrwzjgevvkjaiu.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2enhveGJyd3pqZ2V2dmtqYWl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2NTYxMzQsImV4cCI6MjEwNTIzMjEzNH0.hyK-JevmCcK9D4iUbCC95ixVukGS1NPy_0pkbY1AXMk';
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: false }
+  });
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (!d || d.oht !== 'active') return;
+    d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+  });
+
+  function broadcastRefresh(kind) {
+    window.parent.postMessage({ oht: 'refresh', kind: kind }, '*');
+  }
+
+  var TABS = [
+    { key: 'parties', label: 'Parties' },
+    { key: 'items', label: 'Items' },
+    { key: 'companies', label: 'Firms' },
+    { key: 'warehouses', label: 'Warehouses' },
+    { key: 'users', label: 'Manage Users' }
+  ];
+  var activeTab = 'parties';
+  var me = { isAdmin: false, perms: {} };
+
+  function buildTabs() {
+    var tabsEl = document.getElementById('tabs');
+    tabsEl.innerHTML = '';
+    TABS.forEach(function (t) {
+      var b = document.createElement('button');
+      b.textContent = t.label;
+      b.className = t.key === activeTab ? 'active' : '';
+      b.addEventListener('click', function () { activeTab = t.key; buildTabs(); render(); });
+      tabsEl.appendChild(b);
+    });
+  }
+
+  document.getElementById('search').addEventListener('input', render);
+
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  }); }
+
+  // ===================================================================
+  // Generic simple-table CRUD helper (used by Companies/Warehouses)
+  // ===================================================================
+  function simpleCrud(opts) {
+    // opts: {table, perm, editPerm, deletePerm, columns:[{key,label,type}], title}
+    return {
+      async render() {
+        var term = (document.getElementById('search').value || '').toLowerCase();
+        var { data, error } = await sb.from(opts.table).select('*').is('deleted_at', null).order(opts.columns[0].key);
+        var rows = (data || []).filter(function (r) {
+          return !term || opts.columns.some(function (c) { return String(r[c.key] || '').toLowerCase().indexOf(term) >= 0; });
+        });
+        var html = '<div class="card"><h2>' + opts.title + '</h2>';
+        html += '<button class="primary" id="addBtn">+ Add ' + opts.title.replace(/s$/, '') + '</button></div>';
+        html += '<table><thead><tr>' + opts.columns.map(function (c) { return '<th>' + c.label + '</th>'; }).join('') + '<th></th></tr></thead><tbody>';
+        (rows || []).forEach(function (r) {
+          html += '<tr class="row" data-id="' + r.id + '">' +
+            opts.columns.map(function (c) {
+              if (c.type === 'image') return '<td>' + (r[c.key] ? '<img class="thumb" src="' + r[c.key] + '">' : '') + '</td>';
+              if (c.type === 'bool') return '<td>' + (r[c.key] ? '✓' : '') + '</td>';
+              return '<td>' + esc(r[c.key]) + '</td>';
+            }).join('') +
+            '</tr>';
+        });
+        html += '</tbody></table>';
+        document.getElementById('content').innerHTML = html;
+        document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
+        Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+          tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
+        });
+
+        function openForm(id, rows) {
+          var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : {};
+          var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' ' + opts.title.replace(/s$/, '') + '</h2><div class="grid">';
+          opts.columns.forEach(function (c) {
+            if (c.type === 'bool') {
+              html2 += '<div class="chk"><input type="checkbox" id="f_' + c.key + '"' + (rec[c.key] ? ' checked' : '') + '><label style="margin:0">' + c.label + '</label></div>';
+            } else if (c.type === 'image') {
+              html2 += '<div><label>' + c.label + '</label><input type="file" accept="image/*" id="f_' + c.key + '_file">' +
+                (rec[c.key] ? '<img class="thumb" src="' + rec[c.key] + '" style="margin-top:6px">' : '') + '</div>';
+            } else {
+              html2 += '<div><label>' + c.label + '</label><input id="f_' + c.key + '" value="' + esc(rec[c.key]) + '"></div>';
+            }
+          });
+          html2 += '</div><div class="err" id="formErr"></div><div class="actions">' +
+            (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
+            '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
+          document.getElementById('content').innerHTML = html2;
+
+          var pendingImages = {};
+          opts.columns.filter(function (c) { return c.type === 'image'; }).forEach(function (c) {
+            var fileEl = document.getElementById('f_' + c.key + '_file');
+            fileEl.addEventListener('change', function () {
+              var file = fileEl.files[0];
+              if (!file) return;
+              var reader = new FileReader();
+              reader.onload = function () { pendingImages[c.key] = reader.result; };
+              reader.readAsDataURL(file);
+            });
+          });
+
+          document.getElementById('cancelBtn').addEventListener('click', render);
+          document.getElementById('saveBtn').addEventListener('click', async function () {
+            var payload = {};
+            opts.columns.forEach(function (c) {
+              if (c.type === 'bool') payload[c.key] = document.getElementById('f_' + c.key).checked;
+              else if (c.type === 'image') { if (pendingImages[c.key] !== undefined) payload[c.key] = pendingImages[c.key]; }
+              else payload[c.key] = document.getElementById('f_' + c.key).value;
+            });
+            var errEl = document.getElementById('formErr');
+            var res = id ? await sb.from(opts.table).update(payload).eq('id', id) : await sb.from(opts.table).insert(payload);
+            if (res.error) { errEl.textContent = res.error.message; return; }
+            broadcastRefresh(opts.table);
+            render();
+          });
+          var delBtn = document.getElementById('delBtn');
+          if (delBtn) delBtn.addEventListener('click', async function () {
+            if (!confirm('Delete this ' + opts.title.replace(/s$/, '').toLowerCase() + '?')) return;
+            var res = await sb.from(opts.table).update({ deleted_at: new Date().toISOString() }).eq('id', id);
+            if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+            broadcastRefresh(opts.table);
+            render();
+          });
+        }
+      }
+    };
+  }
+
+  var companiesCrud = simpleCrud({
+    table: 'companies', title: 'Firms',
+    columns: [
+      { key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'phone', label: 'Phone' },
+      { key: 'ntn', label: 'NTN' }, { key: 'is_default', label: 'Default', type: 'bool' },
+      { key: 'logo', label: 'Logo', type: 'image' }, { key: 'signature', label: 'Signature', type: 'image' }, { key: 'stamp', label: 'Stamp', type: 'image' }
+    ]
+  });
+  var warehousesCrud = simpleCrud({
+    table: 'warehouses', title: 'Warehouses',
+    columns: [{ key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'is_default', label: 'Default', type: 'bool' }, { key: 'active', label: 'Active', type: 'bool' }]
+  });
+
+  // ===================================================================
+  // Parties (customer/supplier/both/expense)
+  // ===================================================================
+  var partiesView = {
+    async render() {
+      var term = (document.getElementById('search').value || '').toLowerCase();
+      var { data } = await sb.from('parties').select('*').is('deleted_at', null).order('name');
+      var rows = (data || []).filter(function (p) { return !term || p.name.toLowerCase().indexOf(term) >= 0; });
+      var html = '<div class="card"><h2>Parties</h2><button class="primary" id="addBtn">+ Add Party</button></div>';
+      html += '<table><thead><tr><th>Name</th><th>Kind</th><th>City</th><th>Phone</th><th>Opening</th></tr></thead><tbody>';
+      rows.forEach(function (p) {
+        html += '<tr class="row" data-id="' + p.id + '"><td>' + esc(p.name) + '</td><td>' + p.kind + '</td><td>' + esc(p.city) + '</td><td>' + esc(p.phone) + '</td>' +
+          '<td>' + (p.opening || 0) + ' ' + p.opening_side + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
+      Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+        tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
+      });
+
+      function openForm(id, rows) {
+        var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { kind: 'customer', opening_side: 'dr', credit_days: 0, active: true };
+        var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Party</h2><div class="grid">' +
+          '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
+          '<div><label>Kind</label><select id="f_kind">' +
+            ['customer', 'supplier', 'both', 'expense'].map(function (k) { return '<option value="' + k + '"' + (k === rec.kind ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
+          '</select></div>' +
+          '<div><label>Phone</label><input id="f_phone" value="' + esc(rec.phone) + '"></div>' +
+          '<div><label>City</label><input id="f_city" value="' + esc(rec.city) + '"></div>' +
+          '<div><label>Address</label><input id="f_address" value="' + esc(rec.address) + '"></div>' +
+          '<div><label>NTN</label><input id="f_ntn" value="' + esc(rec.ntn) + '"></div>' +
+          '<div><label>Opening</label><input type="number" step="0.01" id="f_opening" value="' + (rec.opening || 0) + '"></div>' +
+          '<div><label>Opening side</label><select id="f_opening_side"><option value="dr"' + (rec.opening_side === 'dr' ? ' selected' : '') + '>Dr</option><option value="cr"' + (rec.opening_side === 'cr' ? ' selected' : '') + '>Cr</option></select></div>' +
+          '<div><label>Opening date</label><input type="date" id="f_opening_date" value="' + (rec.opening_date || '') + '"></div>' +
+          '<div><label>Credit days</label><input type="number" id="f_credit_days" value="' + (rec.credit_days || 0) + '"></div>' +
+          '<div id="expenseTypeWrap" style="display:' + (rec.kind === 'expense' ? 'block' : 'none') + '"><label>Expense type</label><select id="f_expense_type"><option value="">Operating</option><option value="bank_charges"' + (rec.expense_type === 'bank_charges' ? ' selected' : '') + '>Bank charges</option></select></div>' +
+          '</div><div><label>Notes</label><textarea id="f_notes">' + esc(rec.notes) + '</textarea></div>' +
+          '<div class="err" id="formErr"></div><div class="actions">' +
+          (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
+          '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
+        document.getElementById('content').innerHTML = html2;
+
+        document.getElementById('f_kind').addEventListener('change', function () {
+          document.getElementById('expenseTypeWrap').style.display = this.value === 'expense' ? 'block' : 'none';
+        });
+        document.getElementById('cancelBtn').addEventListener('click', render);
+        document.getElementById('saveBtn').addEventListener('click', async function () {
+          var payload = {
+            name: document.getElementById('f_name').value,
+            kind: document.getElementById('f_kind').value,
+            phone: document.getElementById('f_phone').value || null,
+            city: document.getElementById('f_city').value || null,
+            address: document.getElementById('f_address').value || null,
+            ntn: document.getElementById('f_ntn').value || null,
+            opening: Number(document.getElementById('f_opening').value) || 0,
+            opening_side: document.getElementById('f_opening_side').value,
+            opening_date: document.getElementById('f_opening_date').value || null,
+            credit_days: Number(document.getElementById('f_credit_days').value) || 0,
+            expense_type: document.getElementById('f_expense_type') ? (document.getElementById('f_expense_type').value || null) : null,
+            notes: document.getElementById('f_notes').value || null
+          };
+          if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
+          var res = id ? await sb.from('parties').update(payload).eq('id', id) : await sb.from('parties').insert(payload);
+          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          broadcastRefresh('parties');
+          render();
+        });
+        var delBtn = document.getElementById('delBtn');
+        if (delBtn) delBtn.addEventListener('click', async function () {
+          if (!confirm('Delete this party?')) return;
+          var res = await sb.from('parties').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          broadcastRefresh('parties');
+          render();
+        });
+      }
+    }
+  };
+
+  // ===================================================================
+  // Items
+  // ===================================================================
+  var itemsView = {
+    async render() {
+      var term = (document.getElementById('search').value || '').toLowerCase();
+      var { data } = await sb.from('items').select('*').is('deleted_at', null).order('name');
+      var rows = (data || []).filter(function (i) { return !term || i.name.toLowerCase().indexOf(term) >= 0; });
+      var html = '<div class="card"><h2>Items</h2><button class="primary" id="addBtn">+ Add Item</button></div>';
+      html += '<table><thead><tr><th>Name</th><th>Unit</th><th>Sale rate</th><th>Buy rate</th><th>Stock</th><th>Avg cost</th></tr></thead><tbody>';
+      rows.forEach(function (i) {
+        var low = i.reorder_level && i.stock_qty <= i.reorder_level;
+        html += '<tr class="row" data-id="' + i.id + '"><td>' + esc(i.name) + (low ? ' <span style="color:#f59e0b">● low</span>' : '') + '</td><td>' + esc(i.unit) + '</td>' +
+          '<td>' + i.sale_rate + '</td><td>' + i.buy_rate + '</td><td>' + i.stock_qty + '</td><td>' + i.avg_cost + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
+      Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+        tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
+      });
+
+      function openForm(id, rows) {
+        var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { unit: 'pcs', active: true };
+        var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Item</h2><div class="grid">' +
+          '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
+          '<div><label>Unit</label><input id="f_unit" value="' + esc(rec.unit) + '"></div>' +
+          '<div><label>Sale rate</label><input type="number" step="0.01" id="f_sale_rate" value="' + (rec.sale_rate || 0) + '"></div>' +
+          '<div><label>Buy rate</label><input type="number" step="0.01" id="f_buy_rate" value="' + (rec.buy_rate || 0) + '"></div>' +
+          '<div><label>Tax %</label><input type="number" step="0.01" id="f_tax_pct" value="' + (rec.tax_pct || 0) + '"></div>' +
+          '<div><label>Opening qty</label><input type="number" step="0.001" id="f_opening_qty" value="' + (rec.opening_qty || 0) + '"' + (id ? '' : '') + '></div>' +
+          '<div><label>Opening rate</label><input type="number" step="0.01" id="f_opening_rate" value="' + (rec.opening_rate || 0) + '"></div>' +
+          '<div><label>Reorder level</label><input type="number" step="0.001" id="f_reorder_level" value="' + (rec.reorder_level || 0) + '"></div>' +
+          '<div><label>HS code</label><input id="f_hs_code" value="' + esc(rec.hs_code) + '"></div>' +
+          '</div>' +
+          (id ? '<p class="balance">Live stock: ' + rec.stock_qty + ' @ avg cost ' + rec.avg_cost + ' (computed by the costing engine — not editable directly)</p>' : '') +
+          '<div class="err" id="formErr"></div><div class="actions">' +
+          (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
+          '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
+        document.getElementById('content').innerHTML = html2;
+
+        document.getElementById('cancelBtn').addEventListener('click', render);
+        document.getElementById('saveBtn').addEventListener('click', async function () {
+          var payload = {
+            name: document.getElementById('f_name').value,
+            unit: document.getElementById('f_unit').value || 'pcs',
+            sale_rate: Number(document.getElementById('f_sale_rate').value) || 0,
+            buy_rate: Number(document.getElementById('f_buy_rate').value) || 0,
+            tax_pct: Number(document.getElementById('f_tax_pct').value) || 0,
+            opening_qty: Number(document.getElementById('f_opening_qty').value) || 0,
+            opening_rate: Number(document.getElementById('f_opening_rate').value) || 0,
+            reorder_level: Number(document.getElementById('f_reorder_level').value) || 0,
+            hs_code: document.getElementById('f_hs_code').value || null
+          };
+          if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
+          var res = id ? await sb.from('items').update(payload).eq('id', id) : await sb.from('items').insert(payload);
+          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          broadcastRefresh('items');
+          render();
+        });
+        var delBtn = document.getElementById('delBtn');
+        if (delBtn) delBtn.addEventListener('click', async function () {
+          if (!confirm('Delete this item?')) return;
+          var res = await sb.from('items').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          broadcastRefresh('items');
+          render();
+        });
+      }
+    }
+  };
+
+  // ===================================================================
+  // Manage Users (§7/§22) — admin-provisions-users model
+  // ===================================================================
+  var PERM_GROUPS = {
+    'Bills & Entries': ['bill_create', 'bill_edit', 'bill_delete', 'ledger_create', 'ledger_delete'],
+    'Masters': ['masters_edit', 'masters_categories', 'masters_import', 'masters_delete'],
+    'Reports & Tools': ['reports_view', 'period_lock', 'backup_restore', 'recycle_bin'],
+    'Quotations & Purchase Orders': ['quotation_create', 'quotation_edit', 'quotation_delete', 'po_create', 'po_edit', 'po_delete']
+  };
+
+  var usersView = {
+    async render() {
+      if (!me.isAdmin) {
+        document.getElementById('content').innerHTML = '<div class="card"><p>Only admins can manage users.</p></div>';
+        return;
+      }
+      var { data } = await sb.from('app_users').select('*').order('username');
+      var rows = data || [];
+      var { count: activeCount } = await sb.from('app_users').select('id', { count: 'exact', head: true }).eq('is_active', true);
+      var html = '<div class="card"><h2>Manage Users</h2><p class="balance">' + (activeCount || 0) + ' / 15 active users (Professional plan limit)</p>' +
+        '<button class="primary" id="addBtn">+ New user</button></div>';
+      html += '<table><thead><tr><th>Username</th><th>Admin</th><th>Active</th></tr></thead><tbody>';
+      rows.forEach(function (u) {
+        html += '<tr class="row" data-id="' + u.id + '"><td>' + esc(u.username) + '</td><td>' + (u.is_admin ? '✓' : '') + '</td><td>' + (u.is_active ? '✓' : '✗') + '</td></tr>';
+      });
+      html += '</tbody></table>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
+      Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+        tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
+      });
+
+      function openForm(id, rows) {
+        var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { is_active: true, perms: {} };
+        var perms = rec.perms || {};
+        var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' User</h2><div class="grid">';
+        if (!id) html2 += '<div style="grid-column:1/-1"><label>Supabase Auth User ID</label><input id="f_id" placeholder="paste the auth.users id created in Supabase Dashboard"></div>';
+        html2 += '<div><label>Username</label><input id="f_username" value="' + esc(rec.username) + '"></div>' +
+          '<div class="chk"><input type="checkbox" id="f_is_admin"' + (rec.is_admin ? ' checked' : '') + '><label style="margin:0">Admin (bypasses all permission checks)</label></div>' +
+          '<div class="chk"><input type="checkbox" id="f_is_active"' + (rec.is_active ? ' checked' : '') + '><label style="margin:0">Active</label></div>' +
+          '</div>';
+        Object.keys(PERM_GROUPS).forEach(function (group) {
+          html2 += '<div style="margin-top:10px"><strong style="font-size:12px">' + group + '</strong> <button type="button" class="selectAllBtn" data-group="' + esc(group) + '" style="margin-left:8px;font-size:11px;padding:2px 8px">select all</button><div class="grid">';
+          PERM_GROUPS[group].forEach(function (key) {
+            html2 += '<div class="chk"><input type="checkbox" class="permChk" data-group="' + esc(group) + '" data-key="' + key + '"' + (perms[key] ? ' checked' : '') + '><label style="margin:0">' + key + '</label></div>';
+          });
+          html2 += '</div></div>';
+        });
+        html2 += '<div class="err" id="formErr"></div><div class="actions">' +
+          '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
+        document.getElementById('content').innerHTML = html2;
+
+        Array.prototype.forEach.call(document.querySelectorAll('.selectAllBtn'), function (btn) {
+          btn.addEventListener('click', function () {
+            Array.prototype.forEach.call(document.querySelectorAll('.permChk[data-group="' + btn.dataset.group + '"]'), function (c) { c.checked = true; });
+          });
+        });
+
+        document.getElementById('cancelBtn').addEventListener('click', render);
+        document.getElementById('saveBtn').addEventListener('click', async function () {
+          var newPerms = {};
+          Array.prototype.forEach.call(document.querySelectorAll('.permChk'), function (c) { newPerms[c.dataset.key] = c.checked; });
+          var payload = {
+            username: document.getElementById('f_username').value,
+            is_admin: document.getElementById('f_is_admin').checked,
+            is_active: document.getElementById('f_is_active').checked,
+            perms: newPerms
+          };
+          var errEl = document.getElementById('formErr');
+          if (!payload.username) { errEl.textContent = 'Username is required'; return; }
+          var res;
+          if (id) {
+            res = await sb.from('app_users').update(payload).eq('id', id);
+          } else {
+            var authId = document.getElementById('f_id').value.trim();
+            if (!authId) { errEl.textContent = 'Paste the Supabase Auth user ID (create it in the Dashboard first)'; return; }
+            res = await sb.from('app_users').insert(Object.assign({ id: authId }, payload));
+          }
+          if (res.error) { errEl.textContent = res.error.message; return; }
+          render();
+        });
+      }
+    }
+  };
+
+  var VIEWS = { parties: partiesView, items: itemsView, companies: companiesCrud, warehouses: warehousesCrud, users: usersView };
+
+  async function render() {
+    var v = VIEWS[activeTab];
+    if (v) await v.render();
+  }
+
+  (async function init() {
+    var { data: userData } = await sb.auth.getUser();
+    if (!userData || !userData.user) {
+      document.getElementById('content').innerHTML = '<p>Please sign in from the main app.</p>';
+      return;
+    }
+    var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
+    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
+    buildTabs();
+    render();
+  })();
+})();
+</script>
+</body>
+</html>
