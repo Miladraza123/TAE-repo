@@ -1,0 +1,664 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Billing — TAE Accounting</title>
+<style>
+  :root{
+    --bg:#0f172a; --bg2:#1e293b; --bg3:#141d2e; --fg:#e2e8f0; --muted:#94a3b8;
+    --accent:#3b82f6; --accent2:#2563eb; --danger:#ef4444; --ok:#22c55e; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
+  .toolbar input[type=search]{flex:1;min-width:140px;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:var(--fg);}
+  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:#1c2942;color:var(--fg);padding:8px 12px;font-size:13px;}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  button.primary:hover{background:var(--accent2);}
+  button.danger{background:transparent;border-color:var(--danger);color:var(--danger);}
+  button:disabled{opacity:.5;cursor:not-allowed;}
+  .tabs{display:flex;gap:4px;}
+  .tabs button{background:transparent;}
+  .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  main{padding:14px;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+  tr.row:hover{background:var(--bg3);cursor:pointer;}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;background:#1c2942;color:var(--muted);}
+  .date-group{color:var(--muted);font-size:12px;margin:16px 0 4px;text-transform:uppercase;letter-spacing:.05em;}
+  #editorOverlay{position:fixed;inset:0;background:rgba(0,0,0,.5);display:none;align-items:flex-start;justify-content:center;overflow:auto;padding:20px;z-index:50;}
+  #editorOverlay.open{display:flex;}
+  .editor-card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;width:100%;max-width:900px;padding:20px;}
+  .editor-card h2{margin:0 0 14px;font-size:16px;}
+  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;margin-bottom:12px;}
+  label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;}
+  input,select,textarea{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:var(--fg);font-size:13px;}
+  textarea{min-height:50px;resize:vertical;}
+  .charges-row{display:flex;gap:14px;flex-wrap:wrap;margin-bottom:12px;padding:10px;background:var(--bg3);border-radius:8px;}
+  .charges-row .chg{display:flex;align-items:center;gap:6px;}
+  .lines-table th,.lines-table td{padding:5px 6px;}
+  .lines-table input,.lines-table select{padding:5px 6px;font-size:12px;}
+  .totals{margin-top:12px;display:flex;justify-content:flex-end;}
+  .totals table{width:280px;}
+  .totals td{padding:4px 8px;}
+  .totals td:last-child{text-align:right;font-variant-numeric:tabular-nums;}
+  .err{color:var(--danger);font-size:13px;margin-top:8px;min-height:18px;}
+  .actions{display:flex;gap:8px;margin-top:16px;justify-content:flex-end;}
+  .party-hint{font-size:12px;color:var(--muted);margin-top:4px;}
+  #printArea{display:none;}
+  @media print{
+    body *{visibility:hidden;}
+    #printArea, #printArea *{visibility:visible;}
+    #printArea{display:block;position:absolute;left:0;top:0;width:100%;padding:20px;color:#000;background:#fff;}
+  }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Billing</h1>
+  <div class="tabs">
+    <button id="tabSale" class="active">Sales</button>
+    <button id="tabPurchase">Purchases</button>
+  </div>
+  <input type="search" id="search" placeholder="Search by number, party...">
+  <button class="primary" id="newBtn">+ New</button>
+</div>
+
+<main>
+  <div id="listArea"></div>
+</main>
+
+<div id="editorOverlay">
+  <div class="editor-card" id="editorCard"></div>
+</div>
+
+<div id="printArea"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var SUPABASE_URL = 'https://zvzxoxbrwzjgevvkjaiu.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2enhveGJyd3pqZ2V2dmtqYWl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2NTYxMzQsImV4cCI6MjEwNTIzMjEzNH0.hyK-JevmCcK9D4iUbCC95ixVukGS1NPy_0pkbY1AXMk';
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: false }
+  });
+
+  // ---- Foreground-tab auth refresh signaling (§3/§14) ----
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (!d || d.oht !== 'active') return;
+    sb.auth.startAutoRefresh ? (d.active ? sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh()) : null;
+  });
+
+  var state = {
+    vtype: 'sale',
+    vouchers: [],
+    parties: [],
+    items: [],
+    companies: [],
+    warehouses: [],
+    itemUnits: {}, // item_id -> [{unit,factor}]
+    editing: null, // { isNew, original, header, lines, originalLines }
+  };
+
+  // ---------------------------------------------------------------
+  // Master-data cache (needed by the editor)
+  // ---------------------------------------------------------------
+  async function loadMasters() {
+    var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }] = await Promise.all([
+      sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
+      sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty').is('deleted_at', null).order('name'),
+      sb.from('companies').select('id,name,is_default').is('deleted_at', null).order('name'),
+      sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
+      sb.from('item_units').select('id,item_id,unit,factor').is('deleted_at', null)
+    ]);
+    state.parties = parties || [];
+    state.items = items || [];
+    state.companies = companies || [];
+    state.warehouses = warehouses || [];
+    state.itemUnits = {};
+    (units || []).forEach(function (u) {
+      (state.itemUnits[u.item_id] = state.itemUnits[u.item_id] || []).push(u);
+    });
+  }
+
+  function fmtMoney(n) {
+    n = Number(n || 0);
+    return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  // ---------------------------------------------------------------
+  // List view
+  // ---------------------------------------------------------------
+  async function loadList() {
+    var q = sb.from('vouchers')
+      .select('id,vno,vdate,party_id,grand_total,paid,deleted_at')
+      .eq('vtype', state.vtype)
+      .is('deleted_at', null)
+      .order('vdate', { ascending: false })
+      .order('vno', { ascending: false })
+      .limit(500);
+    var { data, error } = await q;
+    if (error) { document.getElementById('listArea').innerHTML = '<p class="err">' + error.message + '</p>'; return; }
+    state.vouchers = data || [];
+    renderList();
+  }
+
+  function partyName(id) {
+    var p = state.parties.filter(function (x) { return x.id === id; })[0];
+    return p ? p.name : '—';
+  }
+
+  function renderList() {
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = state.vouchers.filter(function (v) {
+      if (!term) return true;
+      return (v.vno || '').toLowerCase().indexOf(term) >= 0 ||
+             partyName(v.party_id).toLowerCase().indexOf(term) >= 0;
+    });
+
+    var byDate = {};
+    rows.forEach(function (v) { (byDate[v.vdate] = byDate[v.vdate] || []).push(v); });
+    var dates = Object.keys(byDate).sort().reverse();
+
+    var html = '';
+    if (!dates.length) html = '<p style="color:var(--muted)">No ' + state.vtype + ' invoices yet.</p>';
+    dates.forEach(function (d) {
+      html += '<div class="date-group">' + d + '</div><table><tbody>';
+      byDate[d].forEach(function (v) {
+        var balance = v.grand_total - v.paid;
+        html += '<tr class="row" data-id="' + v.id + '">' +
+          '<td style="width:110px"><strong>' + v.vno + '</strong></td>' +
+          '<td>' + partyName(v.party_id) + '</td>' +
+          '<td style="text-align:right">' + fmtMoney(v.grand_total) + '</td>' +
+          '<td style="text-align:right;width:140px">' +
+            (balance > 0.004 ? '<span class="badge" style="color:#f59e0b">Due ' + fmtMoney(balance) + '</span>' : '<span class="badge" style="color:var(--ok)">Paid</span>') +
+          '</td></tr>';
+      });
+      html += '</tbody></table>';
+    });
+    document.getElementById('listArea').innerHTML = html;
+
+    Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+      tr.addEventListener('click', function () { openEditor(tr.dataset.id); });
+    });
+  }
+
+  document.getElementById('search').addEventListener('input', renderList);
+  document.getElementById('tabSale').addEventListener('click', function () { switchTab('sale'); });
+  document.getElementById('tabPurchase').addEventListener('click', function () { switchTab('purchase'); });
+  function switchTab(vt) {
+    state.vtype = vt;
+    document.getElementById('tabSale').classList.toggle('active', vt === 'sale');
+    document.getElementById('tabPurchase').classList.toggle('active', vt === 'purchase');
+    loadList();
+  }
+  document.getElementById('newBtn').addEventListener('click', function () { openEditor(null); });
+
+  // ---------------------------------------------------------------
+  // Editor
+  // ---------------------------------------------------------------
+  var IGNORE_HEADER = ['id','vno','created_at','created_by','updated_at','updated_by','version','deleted_at','sub_total','tax_total','grand_total'];
+
+  function blankHeader() {
+    var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
+    return {
+      vtype: state.vtype, vdate: new Date().toISOString().slice(0, 10), due_date: null,
+      party_id: null, company_id: defCompany ? defCompany.id : null, narration: '',
+      tax_on: false, discount: 0, paid: 0,
+      loading_on: false, loading_amt: 0, cartage_on: false, cartage_amt: 0,
+      cutting_on: false, cutting_amt: 0
+    };
+  }
+
+  function blankLine() {
+    return { id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0,
+      pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1 };
+  }
+
+  function defaultWarehouseId() {
+    var w = state.warehouses.filter(function (x) { return x.is_default; })[0] || state.warehouses[0];
+    return w ? w.id : null;
+  }
+
+  async function openEditor(id) {
+    await loadMasters();
+    if (!id) {
+      state.editing = { isNew: true, id: null, header: blankHeader(), lines: [blankLine()], originalHeader: null, originalLines: [] };
+    } else {
+      var [{ data: header }, { data: lines }] = await Promise.all([
+        sb.from('vouchers').select('*').eq('id', id).single(),
+        sb.from('voucher_lines').select('*').eq('voucher_id', id).order('line_no')
+      ]);
+      if (!header) { alert('This record was deleted by someone else.'); loadList(); return; }
+      // Snapshot captured ONCE, at open time — never re-derived at save time (§14/§25's critical rule).
+      state.editing = {
+        isNew: false, id: id,
+        header: JSON.parse(JSON.stringify(header)),
+        lines: JSON.parse(JSON.stringify(lines || [])),
+        originalHeader: JSON.parse(JSON.stringify(header)),
+        originalLines: JSON.parse(JSON.stringify(lines || []))
+      };
+    }
+    renderEditor();
+    document.getElementById('editorOverlay').classList.add('open');
+  }
+
+  function closeEditor() {
+    document.getElementById('editorOverlay').classList.remove('open');
+    state.editing = null;
+  }
+
+  function partyOptions(selected) {
+    var role = state.vtype === 'sale' ? ['customer', 'both'] : ['supplier', 'both'];
+    return state.parties.filter(function (p) { return role.indexOf(p.kind) >= 0; })
+      .map(function (p) { return '<option value="' + p.id + '"' + (p.id === selected ? ' selected' : '') + '>' + p.name + '</option>'; }).join('');
+  }
+  function itemOptions(selected) {
+    return '<option value="">Pick item…</option>' + state.items.map(function (it) {
+      return '<option value="' + it.id + '"' + (it.id === selected ? ' selected' : '') + '>' + it.name + '</option>';
+    }).join('');
+  }
+  function warehouseOptions(selected) {
+    return state.warehouses.map(function (w) {
+      return '<option value="' + w.id + '"' + (w.id === selected ? ' selected' : '') + '>' + w.name + '</option>';
+    }).join('');
+  }
+
+  function computeTotals() {
+    var e = state.editing;
+    var sub = 0, tax = 0;
+    e.lines.forEach(function (l) {
+      var amt = (Number(l.qty) || 0) * (Number(l.rate) || 0);
+      l.amount = amt;
+      sub += amt;
+      if (e.header.tax_on) tax += amt * (Number(l.tax_pct) || 0) / 100;
+    });
+    var extra = 0;
+    if (e.header.loading_on) extra += Number(e.header.loading_amt) || 0;
+    if (e.header.cartage_on) extra += Number(e.header.cartage_amt) || 0;
+    if (e.header.cutting_on) extra += Number(e.header.cutting_amt) || 0;
+    var disc = Number(e.header.discount) || 0;
+    // Loading/cartage/cutting are billed to the party either way (sale or
+    // purchase) — §21 governs their P&L classification (Other Income vs.
+    // landed cost), not whether they appear on the invoice total.
+    var grand = sub - disc + tax + extra;
+    return { sub: sub, tax: tax, grand: grand, extra: extra };
+  }
+
+  function renderEditor() {
+    var e = state.editing;
+    var h = e.header;
+    var totals = computeTotals();
+    var isSale = state.vtype === 'sale';
+    var showCompany = state.companies.length > 1;
+    var showWarehouseCol = state.warehouses.length > 1;
+
+    var html = '<h2>' + (isSale ? 'Sales Invoice' : 'Purchase Bill') + (e.isNew ? ' — New' : ' — ' + h.vno) + '</h2>';
+    html += '<div class="grid">';
+    if (showCompany) {
+      html += '<div><label>Firm</label><select id="f_company">' +
+        state.companies.map(function (c) { return '<option value="' + c.id + '"' + (c.id === h.company_id ? ' selected' : '') + '>' + c.name + '</option>'; }).join('') +
+        '</select></div>';
+    }
+    html += '<div><label>Date</label><input type="date" id="f_vdate" value="' + h.vdate + '"></div>';
+    html += '<div><label>Due date</label><input type="date" id="f_due" value="' + (h.due_date || '') + '"></div>';
+    html += '<div><label>' + (isSale ? 'Sold to' : 'Bought from') + '</label><select id="f_party"><option value="">Pick party…</option>' + partyOptions(h.party_id) + '</select></div>';
+    html += '<div><label><input type="checkbox" id="f_taxon"' + (h.tax_on ? ' checked' : '') + '> Sales tax</label></div>';
+    html += '<div><label>Discount</label><input type="number" step="0.01" id="f_discount" value="' + h.discount + '"></div>';
+    html += '<div><label>Paid now</label><input type="number" step="0.01" id="f_paid" value="' + h.paid + '"></div>';
+    html += '</div>';
+
+    if (h.party_id) {
+      var p = state.parties.filter(function (x) { return x.id === h.party_id; })[0];
+      html += '<div class="party-hint" id="partyHint">Loading balance…</div>';
+      setTimeout(function () { loadPartyBalance(h.party_id); }, 0);
+    }
+
+    html += '<div class="charges-row">';
+    ['loading', 'cartage', 'cutting'].forEach(function (k) {
+      var label = k.charAt(0).toUpperCase() + k.slice(1);
+      html += '<div class="chg"><label style="margin:0"><input type="checkbox" id="f_' + k + '_on"' + (h[k + '_on'] ? ' checked' : '') + '> ' + label + '</label>' +
+        '<input type="number" step="0.01" style="width:100px" id="f_' + k + '_amt" value="' + h[k + '_amt'] + '"></div>';
+    });
+    html += '</div>';
+
+    html += '<table class="lines-table"><thead><tr><th>Item</th><th style="width:90px">Qty</th>' +
+      (isSale ? '<th style="width:110px">Unit</th>' : '') +
+      '<th style="width:90px">Rate</th>' + (h.tax_on ? '<th style="width:70px">Tax%</th>' : '') +
+      (showWarehouseCol ? '<th style="width:120px">Warehouse</th>' : '') +
+      '<th style="width:100px">Amount</th><th style="width:30px"></th></tr></thead><tbody id="linesBody"></tbody></table>';
+    html += '<button type="button" id="addLineBtn" style="margin-top:8px">+ Add line</button>';
+
+    html += '<div><label style="margin-top:12px">Narration</label><textarea id="f_narration">' + (h.narration || '') + '</textarea></div>';
+
+    html += '<div class="totals"><table>' +
+      '<tr><td>Sub total</td><td>' + fmtMoney(totals.sub) + '</td></tr>' +
+      '<tr><td>Discount</td><td>-' + fmtMoney(h.discount) + '</td></tr>' +
+      (h.tax_on ? '<tr><td>Tax</td><td>' + fmtMoney(totals.tax) + '</td></tr>' : '') +
+      (totals.extra ? '<tr><td>Loading/Cartage/Cutting</td><td>' + fmtMoney(totals.extra) + '</td></tr>' : '') +
+      '<tr><td><strong>Grand total</strong></td><td><strong>' + fmtMoney(totals.grand) + '</strong></td></tr>' +
+      '<tr><td>Paid</td><td>' + fmtMoney(h.paid) + '</td></tr>' +
+      '<tr><td>Balance</td><td>' + fmtMoney(totals.grand - h.paid) + '</td></tr>' +
+      '</table></div>';
+
+    html += '<div class="err" id="editorErr"></div>';
+    html += '<div class="actions">' +
+      (e.isNew ? '' : '<button class="danger" id="deleteBtn">Delete</button><button id="printBtn">Print</button>') +
+      '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div>';
+
+    document.getElementById('editorCard').innerHTML = html;
+    renderLines();
+    wireEditorEvents();
+  }
+
+  async function loadPartyBalance(partyId) {
+    // Lightweight running balance hint (full ledger logic lives in reports.html/§11).
+    var el = document.getElementById('partyHint');
+    if (!el) return;
+    var { data: p } = await sb.from('parties').select('opening,opening_side').eq('id', partyId).single();
+    var { data: vs } = await sb.from('vouchers').select('vtype,grand_total,paid').eq('party_id', partyId).is('deleted_at', null);
+    var bal = p ? (p.opening_side === 'dr' ? p.opening : -p.opening) : 0;
+    (vs || []).forEach(function (v) {
+      if (v.vtype === 'sale') bal += v.grand_total - v.paid;
+      else bal -= v.grand_total - v.paid;
+    });
+    el.textContent = 'Current balance: ' + fmtMoney(Math.abs(bal)) + ' ' + (bal >= 0 ? 'Dr' : 'Cr');
+  }
+
+  function renderLines() {
+    var e = state.editing;
+    var isSale = state.vtype === 'sale';
+    var showWarehouseCol = state.warehouses.length > 1;
+    var body = document.getElementById('linesBody');
+    body.innerHTML = e.lines.map(function (l, idx) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      var units = item ? (state.itemUnits[item.id] || []) : [];
+      var unitCell = '';
+      if (isSale && units.length) {
+        unitCell = '<td><select data-i="' + idx + '" data-f="sale_unit" class="lf"><option value="">' + (item ? item.unit : '') + '</option>' +
+          units.map(function (u) { return '<option value="' + u.unit + '"' + (u.unit === l.sale_unit ? ' selected' : '') + '>' + u.unit + '</option>'; }).join('') +
+          '</select></td>';
+      } else if (isSale) {
+        unitCell = '<td style="color:var(--muted);font-size:12px">' + (item ? item.unit : '') + '</td>';
+      }
+      return '<tr>' +
+        '<td><select data-i="' + idx + '" data-f="item_id" class="lf">' + itemOptions(l.item_id) + '</select></td>' +
+        '<td><input type="number" step="0.001" data-i="' + idx + '" data-f="qty" class="lf" value="' + (l.sale_unit ? (l.sale_qty != null ? l.sale_qty : '') : l.qty) + '"></td>' +
+        unitCell +
+        '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="rate" class="lf" value="' + l.rate + '"></td>' +
+        (e.header.tax_on ? '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="tax_pct" class="lf" value="' + l.tax_pct + '"></td>' : '') +
+        (showWarehouseCol ? '<td><select data-i="' + idx + '" data-f="warehouse_id" class="lf">' + warehouseOptions(l.warehouse_id) + '</select></td>' : '') +
+        '<td style="text-align:right">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>' +
+        '<td><button type="button" data-i="' + idx + '" class="rmLine" style="color:var(--danger)">✕</button></td>' +
+        '</tr>';
+    }).join('');
+
+    Array.prototype.forEach.call(body.querySelectorAll('.lf'), function (el) {
+      el.addEventListener('change', function () { onLineFieldChange(el); });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.rmLine'), function (btn) {
+      btn.addEventListener('click', function () {
+        state.editing.lines.splice(Number(btn.dataset.i), 1);
+        renderLines();
+        refreshTotalsDisplay();
+      });
+    });
+  }
+
+  function onLineFieldChange(el) {
+    var idx = Number(el.dataset.i), field = el.dataset.f;
+    var line = state.editing.lines[idx];
+    var val = el.type === 'number' ? Number(el.value) : el.value;
+
+    if (field === 'qty') {
+      // qty is ALWAYS the base-unit, stock/cost-affecting quantity. When an
+      // alt sale unit is active, what the user types is sale_qty, and
+      // qty = sale_qty × unit_factor, recomputed on every keystroke (§9).
+      if (line.sale_unit) {
+        line.sale_qty = val;
+        line.qty = (Number(val) || 0) * (Number(line.unit_factor) || 1);
+      } else {
+        line.qty = val;
+        line.sale_qty = null;
+      }
+    } else {
+      line[field] = val;
+    }
+
+    if (field === 'item_id') {
+      var item = state.items.filter(function (x) { return x.id === val; })[0];
+      if (item) {
+        if (!line.rate) line.rate = state.vtype === 'sale' ? item.sale_rate : item.buy_rate;
+        if (!line.tax_pct) line.tax_pct = item.tax_pct;
+      }
+      line.sale_unit = null; line.sale_qty = null; line.unit_factor = 1;
+      renderLines();
+    }
+    if (field === 'sale_unit') {
+      var u = (state.itemUnits[line.item_id] || []).filter(function (x) { return x.unit === val; })[0];
+      line.unit_factor = u ? u.factor : 1;
+      if (!val) { line.sale_qty = null; } // reverted to base unit: qty typed directly from now on
+      else { line.sale_qty = line.sale_qty != null ? line.sale_qty : line.qty; line.qty = (Number(line.sale_qty) || 0) * line.unit_factor; }
+      renderLines();
+    }
+    refreshTotalsDisplay();
+  }
+
+  function refreshTotalsDisplay() { renderEditor(); }
+
+  function wireEditorEvents() {
+    var e = state.editing;
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    document.getElementById('addLineBtn').addEventListener('click', function () {
+      e.lines.push(blankLine()); renderLines();
+    });
+    ['vdate', 'due', 'party', 'discount', 'paid', 'narration'].forEach(function (k) {
+      var el = document.getElementById('f_' + k);
+      if (el) el.addEventListener('input', function () {
+        var map = { vdate: 'vdate', due: 'due_date', party: 'party_id', discount: 'discount', paid: 'paid', narration: 'narration' };
+        e.header[map[k]] = el.type === 'number' ? Number(el.value) : (el.value || null);
+      });
+    });
+    var companyEl = document.getElementById('f_company');
+    if (companyEl) companyEl.addEventListener('change', function () { e.header.company_id = companyEl.value; });
+    document.getElementById('f_taxon').addEventListener('change', function () {
+      e.header.tax_on = document.getElementById('f_taxon').checked; renderEditor();
+    });
+    ['loading', 'cartage', 'cutting'].forEach(function (k) {
+      document.getElementById('f_' + k + '_on').addEventListener('change', function () {
+        e.header[k + '_on'] = document.getElementById('f_' + k + '_on').checked; refreshTotalsDisplay();
+      });
+      document.getElementById('f_' + k + '_amt').addEventListener('input', function () {
+        e.header[k + '_amt'] = Number(document.getElementById('f_' + k + '_amt').value) || 0; refreshTotalsDisplay();
+      });
+    });
+    document.getElementById('saveBtn').addEventListener('click', saveVoucher);
+    var delBtn = document.getElementById('deleteBtn');
+    if (delBtn) delBtn.addEventListener('click', deleteVoucher);
+    var printBtn = document.getElementById('printBtn');
+    if (printBtn) printBtn.addEventListener('click', printVoucher);
+  }
+
+  // ---------------------------------------------------------------
+  // Validation (§9's exact conditions)
+  // ---------------------------------------------------------------
+  function validate() {
+    var e = state.editing;
+    if (!e.header.party_id) return 'Pick a party first';
+    var validLines = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+    if (!validLines.length) return 'Add at least one item with a quantity';
+    for (var i = 0; i < e.lines.length; i++) {
+      var l = e.lines[i];
+      if (l.sale_unit && !l.unit_factor) {
+        var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+        return "'" + (item ? item.name : 'Item') + "' par " + l.sale_unit + " chuna hai — conversion likhna zaroori hai (1 " + l.sale_unit + " = kitne " + (item ? item.unit : 'base') + ").";
+      }
+    }
+    return null;
+  }
+
+  // ---------------------------------------------------------------
+  // Save — via smart_merge_update / smart_merge_lines / apply_merged_lines
+  // ---------------------------------------------------------------
+  async function saveVoucher() {
+    var e = state.editing;
+    var errEl = document.getElementById('editorErr');
+    errEl.textContent = '';
+    var vErr = validate();
+    if (vErr) { errEl.textContent = vErr; return; }
+
+    var totals = computeTotals();
+
+    var payload = Object.assign({}, e.header, {
+      sub_total: totals.sub, tax_total: totals.tax, grand_total: totals.grand
+    });
+
+    try {
+      if (e.isNew) {
+        var { data: inserted, error: insErr } = await sb.from('vouchers').insert(payload).select().single();
+        if (insErr) return handleSaveError(insErr, errEl);
+        var linesPayload = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; })
+          .map(function (l) { var c = Object.assign({}, l); delete c.id; return c; });
+        var { error: lineErr } = await sb.from('voucher_lines').insert(
+          linesPayload.map(function (l) { return Object.assign({}, l, { voucher_id: inserted.id }); })
+        );
+        if (lineErr) { errEl.textContent = lineErr.message; return; }
+        closeEditor(); loadList();
+        return;
+      }
+
+      // Header merge
+      var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
+        p_table: 'vouchers', p_id: e.id, p_original: e.originalHeader, p_new: payload, p_ignore: IGNORE_HEADER
+      });
+      if (mergeErr) return handleSaveError(mergeErr, errEl);
+      if (mergeRes.status === 'deleted') { errEl.textContent = "'" + e.originalHeader.vno + "' kisi aur ne delete kar diya hai"; return; }
+      if (mergeRes.status === 'conflict') {
+        // one automatic retry against the fresh current state (§14/§27)
+        var retryOriginal = mergeRes.current;
+        var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
+          p_table: 'vouchers', p_id: e.id, p_original: retryOriginal, p_new: payload, p_ignore: IGNORE_HEADER
+        });
+        if (retryErr) return handleSaveError(retryErr, errEl);
+        if (retryRes.status === 'conflict') {
+          errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + retryRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
+          return;
+        }
+      }
+
+      // Line merge
+      var newLines = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+      var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', {
+        p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id,
+        p_original_lines: e.originalLines, p_new_lines: newLines
+      });
+      if (lmErr) return handleSaveError(lmErr, errEl);
+      if (lineMerge.status === 'conflict') {
+        errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
+        return;
+      }
+      await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+
+      closeEditor();
+      loadList();
+    } catch (ex) {
+      errEl.textContent = ex.message || String(ex);
+    }
+  }
+
+  function handleSaveError(error, errEl) {
+    if (error.code === '23505') {
+      errEl.textContent = 'Ye number pehle se istemal ho chuka — dobara button dabakar naya number lein';
+    } else if (!navigator.onLine || /network|fetch/i.test(error.message || '')) {
+      errEl.textContent = 'No internet — your change is saved locally and will sync when back online.';
+    } else {
+      errEl.textContent = error.message;
+    }
+  }
+
+  async function deleteVoucher() {
+    var e = state.editing;
+    if (!confirm('Delete ' + e.header.vno + '? It can be restored from the Recycle Bin.')) return;
+    var { error } = await sb.from('vouchers').update({ deleted_at: new Date().toISOString() }).eq('id', e.id);
+    if (error) { document.getElementById('editorErr').textContent = error.message; return; }
+    closeEditor(); loadList();
+  }
+
+  // ---------------------------------------------------------------
+  // Print (§9/§25) — basic letterhead + line table + footer totals
+  // ---------------------------------------------------------------
+  function printVoucher() {
+    var e = state.editing;
+    var h = e.header;
+    var totals = computeTotals();
+    var company = state.companies.filter(function (c) { return c.id === h.company_id; })[0];
+    var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
+    var isSale = state.vtype === 'sale';
+
+    var rows = e.lines.filter(function (l) { return l.item_id; }).map(function (l, i) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      return '<tr><td>' + (i + 1) + '</td><td>' + (item ? item.name : '') + '</td><td>' + l.qty + '</td><td>' + l.rate + '</td><td>' + fmtMoney(l.qty * l.rate) + '</td></tr>';
+    }).join('');
+
+    var html = '<div style="font-family:Arial,sans-serif">' +
+      '<h2>' + (company ? company.name : 'TAE Accounting') + '</h2>' +
+      '<div>' + (company ? (company.address || '') + ' ' + (company.phone || '') : '') + '</div>' +
+      '<h3>' + (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' · Sales Tax' : '') + '</h3>' +
+      '<div>No: ' + (h.vno || 'PREVIEW') + ' | Date: ' + h.vdate + '</div>' +
+      '<div>' + (isSale ? 'Sold to' : 'Bought from') + ': ' + (party ? party.name : '') + '</div>' +
+      '<table border="1" cellspacing="0" cellpadding="4" style="width:100%;margin-top:10px;border-collapse:collapse">' +
+      '<tr><th>#</th><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>' + rows + '</table>' +
+      '<div style="margin-top:10px;text-align:right">' +
+      'Sub total: ' + fmtMoney(totals.sub) + '<br>' +
+      'Discount: ' + fmtMoney(h.discount) + '<br>' +
+      (h.tax_on ? 'Tax: ' + fmtMoney(totals.tax) + '<br>' : '') +
+      '<strong>Grand total: ' + fmtMoney(totals.grand) + '</strong><br>' +
+      'Paid: ' + fmtMoney(h.paid) + '<br>' +
+      'Balance: ' + fmtMoney(totals.grand - h.paid) +
+      '</div></div>';
+
+    document.getElementById('printArea').innerHTML = html;
+    var oldTitle = document.title;
+    document.title = (h.vno || 'invoice') + '.pdf';
+    window.top.document.title = document.title;
+    window.addEventListener('afterprint', function restore() {
+      document.title = oldTitle; window.top.document.title = oldTitle;
+      window.removeEventListener('afterprint', restore);
+    });
+    window.print();
+  }
+
+  // ---------------------------------------------------------------
+  // Cross-module refresh (§14): parties/items/companies changed elsewhere
+  // ---------------------------------------------------------------
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (d && d.oht === 'refresh' && ['parties', 'items', 'companies', 'warehouses'].indexOf(d.kind) >= 0) {
+      loadMasters();
+    }
+  });
+
+  // ---------------------------------------------------------------
+  // Boot
+  // ---------------------------------------------------------------
+  (async function init() {
+    var { data: userData } = await sb.auth.getUser();
+    if (!userData || !userData.user) {
+      document.getElementById('listArea').innerHTML = '<p>Please sign in from the main app.</p>';
+      return;
+    }
+    await loadMasters();
+    await loadList();
+  })();
+})();
+</script>
+</body>
+</html>
