@@ -51,6 +51,7 @@
 <main id="content"></main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
 <script>
 (function () {
   'use strict';
@@ -76,7 +77,9 @@
     { key: 'items', label: 'Items' },
     { key: 'companies', label: 'Firms' },
     { key: 'warehouses', label: 'Warehouses' },
-    { key: 'users', label: 'Manage Users' }
+    { key: 'users', label: 'Manage Users' },
+    { key: 'recyclebin', label: 'Recycle Bin' },
+    { key: 'backup', label: 'Backup / Restore' }
   ];
   var activeTab = 'parties';
   var me = { isAdmin: false, perms: {} };
@@ -437,7 +440,149 @@
     }
   };
 
-  var VIEWS = { parties: partiesView, items: itemsView, companies: companiesCrud, warehouses: warehousesCrud, users: usersView };
+  // ===================================================================
+  // Recycle Bin (§22/§28: gated by the recycle_bin permission via the
+  // enforce_perm_on_update trigger — this UI just calls the same UPDATE
+  // ...set deleted_at=null every restore path uses, and lets the trigger
+  // accept or reject it)
+  // ===================================================================
+  var RECYCLE_TABLES = [
+    { table: 'parties', label: 'Parties', field: 'name' },
+    { table: 'items', label: 'Items', field: 'name' },
+    { table: 'companies', label: 'Firms', field: 'name' },
+    { table: 'warehouses', label: 'Warehouses', field: 'name' },
+    { table: 'vouchers', label: 'Sales/Purchase Invoices', field: 'vno' },
+    { table: 'sales_returns', label: 'Sales Returns', field: 'rno' },
+    { table: 'quotations', label: 'Quotations', field: 'qno' },
+    { table: 'purchase_orders', label: 'Purchase Orders', field: 'pono' },
+    { table: 'service_invoices', label: 'Service Invoices', field: 'sino' },
+    { table: 'service_quotations', label: 'Service Quotations', field: 'sqno' },
+    { table: 'stock_transfers', label: 'Stock Transfers', field: 'tno' },
+    { table: 'stock_adjustments', label: 'Stock Adjustments', field: 'reason' },
+    { table: 'sheets', label: 'Daily Cash Book sheets', field: 'sheet_date' }
+  ];
+
+  var recycleBinView = {
+    async render() {
+      var html = '<div class="card"><h2>Recycle Bin</h2><p class="balance">Soft-deleted records across every module. Restoring requires the recycle_bin permission (or admin).</p></div>';
+      document.getElementById('content').innerHTML = html + '<div id="rb_rows">Loading…</div>';
+      var rowsHtml = '';
+      for (var i = 0; i < RECYCLE_TABLES.length; i++) {
+        var t = RECYCLE_TABLES[i];
+        var { data, error } = await sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50);
+        if (error || !data || !data.length) continue;
+        rowsHtml += '<div class="card"><h2>' + t.label + '</h2><table><tbody>';
+        data.forEach(function (r) {
+          rowsHtml += '<tr><td>' + esc(r[t.field]) + '</td><td style="color:var(--muted);font-size:11px">deleted ' + (r.deleted_at || '').slice(0, 19) + '</td>' +
+            '<td><button class="restoreBtn" data-table="' + t.table + '" data-id="' + r.id + '">Restore</button></td></tr>';
+        });
+        rowsHtml += '</tbody></table></div>';
+      }
+      document.getElementById('rb_rows').innerHTML = rowsHtml || '<p style="color:var(--muted)">Recycle Bin is empty.</p>';
+      Array.prototype.forEach.call(document.querySelectorAll('.restoreBtn'), function (btn) {
+        btn.addEventListener('click', async function () {
+          var res = await sb.from(btn.dataset.table).update({ deleted_at: null }).eq('id', btn.dataset.id);
+          if (res.error) { alert(res.error.message); return; }
+          recycleBinView.render();
+        });
+      });
+    }
+  };
+
+  // ===================================================================
+  // Backup / Restore (§23) — in-app "Backup now" (plain JSON) and restore
+  // (auto-detects plain .json or .json.gz; .json.enc from the nightly
+  // encrypted email needs decrypting locally first — not supported in this
+  // lightweight in-browser tool). Restore here is a MERGE (upsert by id
+  // into whichever tables the file contains) — it never deletes rows the
+  // backup doesn't mention, which is the safe default for recovering from
+  // an accidental change without risking a wider wipe.
+  // ===================================================================
+  var BACKUP_TABLES = ['app_users', 'companies', 'warehouses', 'period_lock', 'party_kinds', 'parties',
+    'items', 'item_units', 'services', 'vouchers', 'voucher_lines', 'sales_returns', 'sales_return_lines',
+    'stock_adjustments', 'quotations', 'quotation_lines', 'purchase_orders', 'po_lines',
+    'service_invoices', 'service_invoice_lines', 'service_quotations', 'service_quotation_lines',
+    'recurring_service_templates', 'stock_transfers', 'stock_transfer_lines', 'sheets'];
+
+  var backupView = {
+    async render() {
+      if (!me.isAdmin) {
+        document.getElementById('content').innerHTML = '<div class="card"><p>Only admins can back up or restore.</p></div>';
+        return;
+      }
+      var html = '<div class="card"><h2>Backup now</h2><p class="balance">Downloads a plain, unencrypted JSON snapshot of every table for local safekeeping.</p>' +
+        '<button class="primary" id="bk_run">Download backup.json</button></div>';
+      html += '<div class="card"><h2>Restore (merge)</h2><p class="balance">Upserts by id into whichever tables the file contains — never deletes anything the file doesn\'t mention. Accepts .json or .json.gz.</p>' +
+        '<input type="file" id="rs_file" accept=".json,.gz"> <button class="primary" id="rs_run" disabled>Restore</button>' +
+        '<div class="err" id="rs_err"></div><div class="ok" id="rs_ok"></div></div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('bk_run').addEventListener('click', backupView.runBackup);
+
+      var fileEl = document.getElementById('rs_file');
+      var picked = null;
+      fileEl.addEventListener('change', function () { picked = fileEl.files[0]; document.getElementById('rs_run').disabled = !picked; });
+      document.getElementById('rs_run').addEventListener('click', function () { backupView.runRestore(picked); });
+    },
+
+    async runBackup() {
+      var out = { exported_at: new Date().toISOString(), tables: {} };
+      for (var i = 0; i < BACKUP_TABLES.length; i++) {
+        var table = BACKUP_TABLES[i];
+        var all = [], from = 0;
+        for (;;) {
+          var { data, error } = await sb.from(table).select('*').range(from, from + 999);
+          if (error) break; // table not present yet, or no read access — skip silently like the nightly job does
+          all = all.concat(data);
+          if (data.length < 1000) break;
+          from += 1000;
+        }
+        out.tables[table] = all;
+      }
+      var blob = new Blob([JSON.stringify(out)], { type: 'application/json' });
+      var a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'TAE-Backup-' + new Date().toISOString().slice(0, 10) + '.json';
+      a.click();
+    },
+
+    async runRestore(file) {
+      var errEl = document.getElementById('rs_err'), okEl = document.getElementById('rs_ok');
+      errEl.textContent = ''; okEl.textContent = '';
+      if (!file) { errEl.textContent = 'Pick a file first'; return; }
+      try {
+        var buf = await file.arrayBuffer();
+        var bytes = new Uint8Array(buf);
+        var isGzip = bytes[0] === 0x1f && bytes[1] === 0x8b;
+        var text;
+        if (isGzip) {
+          if (typeof pako === 'undefined') { errEl.textContent = 'Gzip support failed to load — try again, or ungzip the file locally first.'; return; }
+          text = pako.inflate(bytes, { to: 'string' });
+        } else if (file.name.endsWith('.enc')) {
+          errEl.textContent = 'Encrypted (.json.enc) backups must be decrypted locally first — this in-app tool only accepts plain .json or .json.gz.';
+          return;
+        } else {
+          text = new TextDecoder('utf-8').decode(bytes);
+        }
+        var parsed = JSON.parse(text);
+        var tables = parsed.tables || {};
+        var counts = {};
+        for (var table in tables) {
+          if (BACKUP_TABLES.indexOf(table) < 0) continue;
+          var rows = tables[table];
+          if (!rows || !rows.length) continue;
+          var res = await sb.from(table).upsert(rows, { onConflict: 'id' });
+          if (res.error) { errEl.textContent += table + ': ' + res.error.message + '\n'; continue; }
+          counts[table] = rows.length;
+        }
+        okEl.textContent = 'Restored: ' + Object.keys(counts).map(function (t) { return t + ' (' + counts[t] + ')'; }).join(', ');
+        Object.keys(counts).forEach(broadcastRefresh);
+      } catch (e) {
+        errEl.textContent = e.message || String(e);
+      }
+    }
+  };
+
+  var VIEWS = { parties: partiesView, items: itemsView, companies: companiesCrud, warehouses: warehousesCrud, users: usersView, recyclebin: recycleBinView, backup: backupView };
 
   async function render() {
     var v = VIEWS[activeTab];
