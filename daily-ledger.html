@@ -47,6 +47,7 @@
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="offline-queue.js"></script>
 <script>
 (function () {
   'use strict';
@@ -63,52 +64,41 @@
     d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
   });
 
-  var state = { date: new Date().toISOString().slice(0, 10), sheet: null, parties: [], dirty: false, prevClosing: 0 };
+  var state = { date: new Date().toISOString().slice(0, 10), sheet: null, originalSheet: null, parties: [], dirty: false, prevClosing: 0 };
 
   var LOCAL_KEY_PREFIX = 'oht:sheet:';
-  var OFFLINE_QUEUE_KEY = 'oht:offlineQueue';
 
   function todayStr() { return new Date().toISOString().slice(0, 10); }
 
   function updateNetStatus() {
     document.getElementById('netStatus').textContent = navigator.onLine ? 'Online' : 'Offline — will sync when back online';
   }
-  window.addEventListener('online', function () { updateNetStatus(); flushQueue(); });
+  window.addEventListener('online', function () { updateNetStatus(); syncNow(); });
   window.addEventListener('offline', updateNetStatus);
 
   // ---------------------------------------------------------------
-  // Offline queue (§14): append-only, processed strictly in order,
-  // duplicate-key on retry treated as already-succeeded.
+  // Offline queue (§14): uses the shared OfflineQueue module (same
+  // localStorage key this page's own inline queue used before) instead of
+  // duplicating its retry/dedup logic here.
   // ---------------------------------------------------------------
-  function getQueue() {
-    try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); } catch (e) { return []; }
+  function sheetDateOfOp(op) {
+    if (op.table === 'sheets' && op.payload) return op.payload.sheet_date;
+    if (op.kind === 'doc_edit_merge' && op.headerTable === 'sheets' && op.headerNew) return op.headerNew.sheet_date;
+    return null;
   }
-  function setQueue(q) {
-    try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); } catch (e) {}
+  // Once a queued write for the currently-viewed date actually lands, pull
+  // the real row back down (real id, fresh version) so the NEXT save goes
+  // through the merge path below instead of staying stuck re-queuing blind
+  // upserts — but never if the user typed more since queueing (state.dirty),
+  // or that unsaved typing would be silently overwritten by the reload.
+  function onQueueDrained(op, res) {
+    var d = sheetDateOfOp(op);
+    if (!d || d !== state.date || state.dirty) return;
+    if (res && res.error && res.error.code !== '23505') return; // genuine failure — leave local state as-is
+    loadSheet(state.date);
   }
-  function enqueue(op) {
-    var q = getQueue(); q.push(op); setQueue(q);
-  }
-  var flushing = false;
-  async function flushQueue() {
-    if (flushing || !navigator.onLine) return;
-    flushing = true;
-    try {
-      var q = getQueue();
-      while (q.length) {
-        var op = q[0];
-        var res = await sb.from(op.table).upsert(op.payload, { onConflict: op.conflictCol || 'sheet_date' });
-        if (res.error && res.error.code !== '23505') {
-          break; // stop on genuine failure, retry later; duplicate key = already applied, continue
-        }
-        q.shift();
-        setQueue(q);
-      }
-    } finally {
-      flushing = false;
-    }
-  }
-  setInterval(flushQueue, 15000); // backstop poll, §14
+  function syncNow() { OfflineQueue.flush(sb, onQueueDrained); }
+  setInterval(syncNow, 15000); // backstop poll, §14
 
   async function loadParties() {
     var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name');
@@ -125,9 +115,18 @@
 
     var { data } = await sb.from('sheets').select('*').eq('sheet_date', date).is('deleted_at', null).maybeSingle();
     if (data) {
+      // The server's row is the merge baseline (§27) for this browser's
+      // NEXT save — captured fresh here so a second user's changes made
+      // before this load are never mistaken for this session's own edits.
       state.sheet = data;
+      state.originalSheet = JSON.parse(JSON.stringify(data));
     } else if (!cached) {
-      state.sheet = { sheet_date: date, opening: 0, side: 'dr', firm: '', page: '', rows: [emptyRow()], version: 1 };
+      state.sheet = { sheet_date: date, opening: 0, side: 'dr', firm: '', page: '', rows: [emptyRow()] };
+      state.originalSheet = null; // never persisted yet — first save bootstraps the row
+    } else {
+      // Offline (or the fetch failed) with only a locally-cached copy —
+      // use it as the merge baseline only if it was ever actually saved.
+      state.originalSheet = cached.id ? JSON.parse(JSON.stringify(cached)) : null;
     }
     try { localStorage.setItem(LOCAL_KEY_PREFIX + date, JSON.stringify(state.sheet)); } catch (e) {}
 
@@ -268,6 +267,19 @@
     document.body.appendChild(pickerEl);
   }
 
+  // After ANY successful save (online or just-queued-offline), re-baseline
+  // both state.sheet and the merge original to it. This editor, unlike the
+  // others, stays open across many "Save day" clicks in one sitting — so
+  // without re-baselining, the SECOND save of the session would diff
+  // against pre-first-save data and see its own earlier save as a phantom
+  // conflict (server current would differ from the stale original on every
+  // field this session itself already changed).
+  function afterSaveSuccess(newState) {
+    state.sheet = Object.assign({}, state.sheet, newState);
+    state.originalSheet = JSON.parse(JSON.stringify(state.sheet));
+    try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(state.sheet)); } catch (e) {}
+  }
+
   async function saveSheet() {
     var errEl = document.getElementById('ledgerErr');
     errEl.textContent = '';
@@ -281,26 +293,79 @@
     };
     try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(Object.assign({}, state.sheet, payload))); } catch (e) {}
 
-    if (!navigator.onLine) {
-      enqueue({ table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
-      errEl.textContent = 'No internet — saved locally, will sync automatically.';
+    if (!state.sheet.id) {
+      // This day's sheet has never been persisted — bootstrap it with a
+      // plain upsert. Racing another user's very first save for the same
+      // day is a narrow edge case; from the second save onward (once this
+      // row has a real id) every save goes through the merge path below.
+      if (!navigator.onLine) {
+        OfflineQueue.enqueue({ kind: 'upsert', table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
+        afterSaveSuccess(payload);
+        errEl.textContent = 'No internet — saved locally, will sync automatically.';
+        state.dirty = false;
+        return;
+      }
+      var { data, error } = await sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' }).select().single();
+      if (error) {
+        if (OfflineQueue.isNetworkError(error)) {
+          OfflineQueue.enqueue({ kind: 'upsert', table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
+          afterSaveSuccess(payload);
+          errEl.textContent = 'No internet — saved locally, will sync automatically.';
+          state.dirty = false;
+        } else {
+          errEl.textContent = error.message;
+        }
+        return;
+      }
+      afterSaveSuccess(data);
       state.dirty = false;
       return;
     }
 
-    var { data, error } = await sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' }).select().single();
-    if (error) {
-      if (/network|fetch/i.test(error.message || '')) {
-        enqueue({ table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
-        errEl.textContent = 'No internet — saved locally, will sync automatically.';
-      } else {
-        errEl.textContent = error.message;
-      }
+    // Existing sheet (§27): 3-way merge against the snapshot captured the
+    // last time this browser confirmed the server's true state, so a
+    // second user editing the SAME day concurrently is caught as a
+    // conflict instead of one save silently overwriting the other's entries.
+    var mergeOriginal = state.originalSheet;
+    var headerId = state.sheet.id;
+
+    function queueSheetEdit() {
+      OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'sheets', headerId: headerId, headerOriginal: mergeOriginal, headerNew: payload });
+      afterSaveSuccess(payload);
+      errEl.textContent = 'No internet — saved locally and will sync when back online.';
+      state.dirty = false;
+    }
+
+    if (!navigator.onLine) { queueSheetEdit(); return; }
+
+    var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
+      p_table: 'sheets', p_id: headerId, p_original: mergeOriginal, p_new: payload
+    });
+    if (mergeErr) {
+      if (OfflineQueue.isNetworkError(mergeErr)) { queueSheetEdit(); return; }
+      errEl.textContent = mergeErr.message;
       return;
     }
-    state.sheet = data;
+    if (mergeRes.status === 'deleted') { errEl.textContent = 'This day\'s sheet was deleted by someone else.'; return; }
+    if (mergeRes.status === 'conflict') {
+      var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
+        p_table: 'sheets', p_id: headerId, p_original: mergeRes.current, p_new: payload
+      });
+      if (retryErr) {
+        if (OfflineQueue.isNetworkError(retryErr)) { queueSheetEdit(); return; }
+        errEl.textContent = retryErr.message;
+        return;
+      }
+      if (retryRes.status === 'conflict') {
+        errEl.textContent = 'Kisi aur ne isi waqt is din ki sheet mein "' + retryRes.conflicts.join(', ') + '" badal diya — reload karke dobara try karein.';
+        return;
+      }
+      afterSaveSuccess(retryRes.current);
+      state.dirty = false;
+      return;
+    }
+    afterSaveSuccess(mergeRes.current);
     state.dirty = false;
-    try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(data)); } catch (e) {}
   }
 
   function gotoDate(d) {
@@ -328,7 +393,7 @@
     }
     await loadParties();
     await loadSheet(state.date);
-    flushQueue();
+    syncNow();
   })();
 })();
 </script>
