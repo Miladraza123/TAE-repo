@@ -653,16 +653,13 @@
       if (mergeErr) return OfflineQueue.isNetworkError(mergeErr) ? queueVoucherEdit() : handleSaveError(mergeErr, errEl);
       if (mergeRes.status === 'deleted') { errEl.textContent = "'" + e.originalHeader.vno + "' kisi aur ne delete kar diya hai"; return; }
       if (mergeRes.status === 'conflict') {
-        // one automatic retry against the fresh current state (§14/§27)
-        var retryOriginal = mergeRes.current;
-        var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
-          p_table: 'vouchers', p_id: e.id, p_original: retryOriginal, p_new: payload, p_ignore: IGNORE_HEADER
-        });
-        if (retryErr) return OfflineQueue.isNetworkError(retryErr) ? queueVoucherEdit() : handleSaveError(retryErr, errEl);
-        if (retryRes.status === 'conflict') {
-          errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + retryRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
-          return;
-        }
+        // NOT auto-retried: retrying with the current row as the new
+        // "original" but the SAME unchanged payload would make the merge
+        // see "nobody changed it since [now]" and silently overwrite
+        // whatever the other person just saved — the opposite of what
+        // conflict detection is for. Surface it instead (§14/§27).
+        errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + mergeRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
+        return;
       }
 
       // Line merge
@@ -1141,14 +1138,11 @@
       if (mergeErr) return OfflineQueue.isNetworkError(mergeErr) ? queueDocEdit() : handleSaveError(mergeErr, errEl);
       if (mergeRes.status === 'deleted') { errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' kisi aur ne delete kar diya hai"; return; }
       if (mergeRes.status === 'conflict') {
-        var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
-          p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: payload, p_ignore: DOC_IGNORE_MAP[d.type]
-        });
-        if (retryErr) return OfflineQueue.isNetworkError(retryErr) ? queueDocEdit() : handleSaveError(retryErr, errEl);
-        if (retryRes.status === 'conflict') {
-          errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + retryRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
-          return;
-        }
+        // NOT auto-retried — see saveVoucher's identical comment: a retry
+        // with the current row as the new "original" would silently
+        // overwrite the other person's change instead of surfacing it.
+        errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + mergeRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
+        return;
       }
 
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', {
@@ -1406,9 +1400,9 @@
       var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: d.originalHeader, p_new: d.header, p_ignore: SVC_IGNORE });
       if (mergeErr) return OfflineQueue.isNetworkError(mergeErr) ? queueSvcDocEdit() : handleSaveError(mergeErr, errEl);
       if (mergeRes.status === 'conflict') {
-        var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: d.header, p_ignore: SVC_IGNORE });
-        if (retryErr) return OfflineQueue.isNetworkError(retryErr) ? queueSvcDocEdit() : handleSaveError(retryErr, errEl);
-        if (retryRes.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt "' + retryRes.conflicts.join(', ') + '" badal diya — taaza dekh kar dobara karein'; return; }
+        // NOT auto-retried — see saveVoucher's identical comment.
+        errEl.textContent = 'Kisi aur ne isi waqt "' + mergeRes.conflicts.join(', ') + '" badal diya — taaza dekh kar dobara karein';
+        return;
       }
 
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines });

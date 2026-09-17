@@ -348,20 +348,12 @@
     }
     if (mergeRes.status === 'deleted') { errEl.textContent = 'This day\'s sheet was deleted by someone else.'; return; }
     if (mergeRes.status === 'conflict') {
-      var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
-        p_table: 'sheets', p_id: headerId, p_original: mergeRes.current, p_new: payload
-      });
-      if (retryErr) {
-        if (OfflineQueue.isNetworkError(retryErr)) { queueSheetEdit(); return; }
-        errEl.textContent = retryErr.message;
-        return;
-      }
-      if (retryRes.status === 'conflict') {
-        errEl.textContent = 'Kisi aur ne isi waqt is din ki sheet mein "' + retryRes.conflicts.join(', ') + '" badal diya — reload karke dobara try karein.';
-        return;
-      }
-      afterSaveSuccess(retryRes.current);
-      state.dirty = false;
+      // NOT auto-retried: retrying with the current row as the new
+      // "original" but the SAME unchanged payload would make the merge see
+      // "nobody changed it since [now]" and silently overwrite whatever
+      // the other person just saved — the opposite of what this whole
+      // feature is for. Surface it instead (§14/§27).
+      errEl.textContent = 'Kisi aur ne isi waqt is din ki sheet mein "' + mergeRes.conflicts.join(', ') + '" badal diya — reload karke dobara try karein.';
       return;
     }
     afterSaveSuccess(mergeRes.current);

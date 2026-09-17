@@ -196,17 +196,12 @@
               }
               if (mergeRes.status === 'deleted') { errEl.textContent = 'This record was deleted by someone else.'; return; }
               if (mergeRes.status === 'conflict') {
-                var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
-                  p_table: opts.table, p_id: id, p_original: mergeRes.current, p_new: payload
-                });
-                if (retryErr) {
-                  if (OfflineQueue.isNetworkError(retryErr)) { queueCrudMergeEdit(); broadcastRefresh(opts.table); render(); return; }
-                  errEl.textContent = retryErr.message; return;
-                }
-                if (retryRes.status === 'conflict') {
-                  errEl.textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
-                  return;
-                }
+                // NOT auto-retried: retrying with the current row as the
+                // new "original" but the SAME unchanged payload would make
+                // the merge see "nobody changed it since [now]" and
+                // silently overwrite what the other person just saved.
+                errEl.textContent = 'Someone else changed "' + mergeRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
+                return;
               }
             } else if (id) {
               // No merge protection on this table (§14 offline concern still
@@ -360,18 +355,10 @@
             }
             if (mergeRes.status === 'deleted') { document.getElementById('formErr').textContent = 'This party was deleted by someone else.'; return; }
             if (mergeRes.status === 'conflict') {
-              var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
-                p_table: 'parties', p_id: id, p_original: mergeRes.current, p_new: payload
-              });
-              if (retryErr) {
-                if (OfflineQueue.isNetworkError(retryErr)) { queuePartyEdit(); broadcastRefresh('parties'); render(); return; }
-                document.getElementById('formErr').textContent = retryErr.message;
-                return;
-              }
-              if (retryRes.status === 'conflict') {
-                document.getElementById('formErr').textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
-                return;
-              }
+              // NOT auto-retried — see the identical comment in simpleCrud's
+              // save handler above.
+              document.getElementById('formErr').textContent = 'Someone else changed "' + mergeRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
+              return;
             }
           } else {
             var newId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -511,18 +498,10 @@
             }
             if (mergeRes.status === 'deleted') { document.getElementById('formErr').textContent = 'This item was deleted by someone else.'; return; }
             if (mergeRes.status === 'conflict') {
-              var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
-                p_table: 'items', p_id: id, p_original: mergeRes.current, p_new: payload
-              });
-              if (retryErr) {
-                if (OfflineQueue.isNetworkError(retryErr)) { queueItemEdit(); broadcastRefresh('items'); render(); return; }
-                document.getElementById('formErr').textContent = retryErr.message;
-                return;
-              }
-              if (retryRes.status === 'conflict') {
-                document.getElementById('formErr').textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
-                return;
-              }
+              // NOT auto-retried — see the identical comment in simpleCrud's
+              // save handler above.
+              document.getElementById('formErr').textContent = 'Someone else changed "' + mergeRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
+              return;
             }
           } else {
             var newItemId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));

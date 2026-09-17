@@ -66,14 +66,13 @@ window.OfflineQueue = (function () {
       });
       if (hm.error) return hm;
       if (hm.data.status === 'conflict') {
-        var retry = await sb.rpc('smart_merge_update', {
-          p_table: op.headerTable, p_id: op.headerId, p_original: hm.data.current,
-          p_new: op.headerNew, p_ignore: op.headerIgnore
-        });
-        if (retry.error) return retry;
-        if (retry.data.status === 'conflict') {
-          return { error: { message: 'Deferred sync conflict on ' + op.headerTable + ': ' + retry.data.conflicts.join(', ') + ' — edit again from the current version.' } };
-        }
+        // NOT auto-retried: retrying with the current row as the new
+        // "original" but the SAME queued (now-stale) payload would make the
+        // merge see "nobody changed it since [now]" and silently overwrite
+        // whatever the other person saved while this device was offline —
+        // exactly the data loss this queue exists to prevent. Surface it as
+        // a permanent failure (pushed to the failed-queue, §14) instead.
+        return { error: { message: 'Deferred sync conflict on ' + op.headerTable + ': ' + hm.data.conflicts.join(', ') + ' — edit again from the current version.' } };
       }
     }
 
