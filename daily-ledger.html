@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Daily Ledger — TAE Accounting</title>
+<style>
+  :root{
+    --bg:#0f172a; --bg2:#1e293b; --bg3:#141d2e; --fg:#e2e8f0; --muted:#94a3b8;
+    --accent:#3b82f6; --accent2:#2563eb; --danger:#ef4444; --ok:#22c55e; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
+  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:#1c2942;color:var(--fg);padding:8px 12px;font-size:13px;}
+  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+  input,select{padding:7px 8px;border-radius:6px;border:1px solid var(--border);background:#0b1220;color:var(--fg);font-size:12px;}
+  main{padding:14px;max-width:1200px;margin:0 auto;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th,td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
+  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;}
+  .side-label{text-align:center;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;padding:8px 0;}
+  .amt{width:90px;} .rem{min-width:220px;} .chk{width:30px;text-align:center;}
+  .totals-row td{font-weight:700;background:var(--bg3);}
+  .err{color:var(--danger);font-size:13px;margin:8px 0;}
+  .party-chip{font-size:10px;color:var(--accent);display:block;margin-bottom:2px;}
+  .partylist{position:absolute;background:var(--bg2);border:1px solid var(--border);border-radius:6px;max-height:160px;overflow:auto;z-index:20;min-width:200px;}
+  .partylist div{padding:6px 10px;cursor:pointer;font-size:12px;}
+  .partylist div:hover{background:var(--accent);}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Daily Cash Book</h1>
+  <button id="prevBtn">‹ Prev day</button>
+  <input type="date" id="dateInput">
+  <button id="nextBtn">Next day ›</button>
+  <button id="todayBtn">Today</button>
+  <span id="netStatus" style="margin-left:auto;font-size:12px;color:var(--muted)"></span>
+</div>
+
+<main>
+  <div id="ledgerArea"></div>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var SUPABASE_URL = 'https://zvzxoxbrwzjgevvkjaiu.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2enhveGJyd3pqZ2V2dmtqYWl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2NTYxMzQsImV4cCI6MjEwNTIzMjEzNH0.hyK-JevmCcK9D4iUbCC95ixVukGS1NPy_0pkbY1AXMk';
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: false }
+  });
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (!d || d.oht !== 'active') return;
+    d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+  });
+
+  var state = { date: new Date().toISOString().slice(0, 10), sheet: null, parties: [], dirty: false, prevClosing: 0 };
+
+  var LOCAL_KEY_PREFIX = 'oht:sheet:';
+  var OFFLINE_QUEUE_KEY = 'oht:offlineQueue';
+
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+  function updateNetStatus() {
+    document.getElementById('netStatus').textContent = navigator.onLine ? 'Online' : 'Offline — will sync when back online';
+  }
+  window.addEventListener('online', function () { updateNetStatus(); flushQueue(); });
+  window.addEventListener('offline', updateNetStatus);
+
+  // ---------------------------------------------------------------
+  // Offline queue (§14): append-only, processed strictly in order,
+  // duplicate-key on retry treated as already-succeeded.
+  // ---------------------------------------------------------------
+  function getQueue() {
+    try { return JSON.parse(localStorage.getItem(OFFLINE_QUEUE_KEY) || '[]'); } catch (e) { return []; }
+  }
+  function setQueue(q) {
+    try { localStorage.setItem(OFFLINE_QUEUE_KEY, JSON.stringify(q)); } catch (e) {}
+  }
+  function enqueue(op) {
+    var q = getQueue(); q.push(op); setQueue(q);
+  }
+  var flushing = false;
+  async function flushQueue() {
+    if (flushing || !navigator.onLine) return;
+    flushing = true;
+    try {
+      var q = getQueue();
+      while (q.length) {
+        var op = q[0];
+        var res = await sb.from(op.table).upsert(op.payload, { onConflict: op.conflictCol || 'sheet_date' });
+        if (res.error && res.error.code !== '23505') {
+          break; // stop on genuine failure, retry later; duplicate key = already applied, continue
+        }
+        q.shift();
+        setQueue(q);
+      }
+    } finally {
+      flushing = false;
+    }
+  }
+  setInterval(flushQueue, 15000); // backstop poll, §14
+
+  async function loadParties() {
+    var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name');
+    state.parties = data || [];
+  }
+
+  function emptyRow() { return [0, '', 0, '', false, false, null, null]; }
+
+  async function loadSheet(date) {
+    // Optimistic local-first read (§14): show cached copy immediately, then reconcile.
+    var cached = null;
+    try { cached = JSON.parse(localStorage.getItem(LOCAL_KEY_PREFIX + date) || 'null'); } catch (e) {}
+    if (cached) { state.sheet = cached; render(); }
+
+    var { data } = await sb.from('sheets').select('*').eq('sheet_date', date).is('deleted_at', null).maybeSingle();
+    if (data) {
+      state.sheet = data;
+    } else if (!cached) {
+      state.sheet = { sheet_date: date, opening: 0, side: 'dr', firm: '', page: '', rows: [emptyRow()], version: 1 };
+    }
+    try { localStorage.setItem(LOCAL_KEY_PREFIX + date, JSON.stringify(state.sheet)); } catch (e) {}
+
+    // Previous day's closing, for display continuity.
+    var prevDate = new Date(date); prevDate.setDate(prevDate.getDate() - 1);
+    var { data: prevSheet } = await sb.from('sheets').select('*').eq('sheet_date', prevDate.toISOString().slice(0, 10)).is('deleted_at', null).maybeSingle();
+    state.prevClosing = prevSheet ? computeClosing(prevSheet) : 0;
+
+    render();
+  }
+
+  function computeClosing(sheet) {
+    var bal = sheet.side === 'dr' ? sheet.opening : -sheet.opening;
+    (sheet.rows || []).forEach(function (r) { bal += (Number(r[0]) || 0) - (Number(r[2]) || 0); });
+    return bal;
+  }
+
+  function partyName(id) {
+    if (!id) return '';
+    var p = state.parties.filter(function (x) { return x.id === id; })[0];
+    return p ? p.name : '';
+  }
+
+  function render() {
+    var s = state.sheet;
+    if (!s) { document.getElementById('ledgerArea').innerHTML = '<p>Loading…</p>'; return; }
+    document.getElementById('dateInput').value = state.date;
+
+    var running = s.side === 'dr' ? s.opening : -s.opening;
+    var html = '<table><thead><tr>' +
+      '<th class="amt">Debit</th><th class="rem">Remarks</th>' +
+      '<th class="amt">Credit</th><th class="rem">Remarks</th>' +
+      '<th class="chk">✓D</th><th class="chk">✓C</th><th class="amt">Balance</th><th></th>' +
+      '</tr></thead><tbody>';
+
+    html += '<tr><td colspan="6" style="text-align:right"><strong>Opening (' + s.side.toUpperCase() + ')</strong></td>' +
+      '<td colspan="2"><input type="number" step="0.01" id="f_opening" value="' + s.opening + '" style="width:100px"> ' +
+      '<select id="f_side"><option value="dr"' + (s.side === 'dr' ? ' selected' : '') + '>Dr</option><option value="cr"' + (s.side === 'cr' ? ' selected' : '') + '>Cr</option></select></td></tr>';
+
+    (s.rows || []).forEach(function (r, idx) {
+      running += (Number(r[0]) || 0) - (Number(r[2]) || 0);
+      var dLinked = r[7] ? '<span class="party-chip">🔗 ' + partyName(r[7]) + '</span>' : '';
+      var cLinked = r[6] ? '<span class="party-chip">🔗 ' + partyName(r[6]) + '</span>' : '';
+      html += '<tr data-idx="' + idx + '">' +
+        '<td><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="0" value="' + (r[0] || 0) + '"></td>' +
+        '<td>' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="1" data-partyslot="7" value="' + esc(r[1]) + '"></td>' +
+        '<td><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="2" value="' + (r[2] || 0) + '"></td>' +
+        '<td>' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="3" data-partyslot="6" value="' + esc(r[3]) + '"></td>' +
+        '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="4"' + (r[4] ? ' checked' : '') + '></td>' +
+        '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="5"' + (r[5] ? ' checked' : '') + '></td>' +
+        '<td style="text-align:right">' + running.toFixed(2) + '</td>' +
+        '<td><button type="button" class="rmRow" data-idx="' + idx + '" style="color:var(--danger)">✕</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div style="margin-top:8px"><button id="addRowBtn">+ Add row</button> <button class="primary" id="saveBtn" style="margin-left:8px">Save day</button></div>';
+    html += '<div class="err" id="ledgerErr"></div>';
+    html += '<p style="color:var(--muted);font-size:12px">Closing balance: ' + running.toFixed(2) + ' ' + (running >= 0 ? 'Dr' : 'Cr') + '</p>';
+
+    document.getElementById('ledgerArea').innerHTML = html;
+    wireEvents();
+  }
+
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+
+  function wireEvents() {
+    document.getElementById('f_opening').addEventListener('input', function () {
+      state.sheet.opening = Number(this.value) || 0; state.dirty = true; render();
+    });
+    document.getElementById('f_side').addEventListener('change', function () {
+      state.sheet.side = this.value; state.dirty = true; render();
+    });
+    document.getElementById('addRowBtn').addEventListener('click', function () {
+      state.sheet.rows.push(emptyRow()); state.dirty = true; render();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.rmRow'), function (btn) {
+      btn.addEventListener('click', function () {
+        state.sheet.rows.splice(Number(btn.dataset.idx), 1); state.dirty = true; render();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.cell'), function (el) {
+      el.addEventListener('input', function () {
+        var idx = Number(el.dataset.idx), f = Number(el.dataset.f);
+        var row = state.sheet.rows[idx];
+        row[f] = (f === 0 || f === 2) ? Number(el.value) || 0 : el.value;
+        // Re-derive party link: keep it only if the remarks text still starts with the linked party's name.
+        if (el.dataset.partyslot) {
+          var slot = Number(el.dataset.partyslot);
+          var linkedName = partyName(row[slot]);
+          if (linkedName && row[f].toLowerCase().indexOf(linkedName.toLowerCase()) !== 0) {
+            row[slot] = null;
+          }
+        }
+        state.dirty = true;
+        if (f === 0 || f === 2) render(); // running balance changed
+      });
+      if (el.dataset.partyslot) {
+        el.addEventListener('focus', function () { showPartyPicker(el); });
+        el.addEventListener('blur', function () { setTimeout(hidePartyPicker, 150); });
+      }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.cellchk'), function (el) {
+      el.addEventListener('change', function () {
+        var idx = Number(el.dataset.idx), f = Number(el.dataset.f);
+        state.sheet.rows[idx][f] = el.checked; state.dirty = true;
+      });
+    });
+    document.getElementById('saveBtn').addEventListener('click', saveSheet);
+  }
+
+  var pickerEl = null;
+  function hidePartyPicker() { if (pickerEl) { pickerEl.remove(); pickerEl = null; } }
+  function showPartyPicker(inputEl) {
+    hidePartyPicker();
+    var term = inputEl.value.toLowerCase();
+    var matches = state.parties.filter(function (p) { return p.name.toLowerCase().indexOf(term) >= 0; }).slice(0, 8);
+    if (!matches.length) return;
+    pickerEl = document.createElement('div');
+    pickerEl.className = 'partylist';
+    var rect = inputEl.getBoundingClientRect();
+    pickerEl.style.left = (rect.left + window.scrollX) + 'px';
+    pickerEl.style.top = (rect.bottom + window.scrollY) + 'px';
+    matches.forEach(function (p) {
+      var opt = document.createElement('div');
+      opt.textContent = p.name;
+      opt.addEventListener('mousedown', function () {
+        var idx = Number(inputEl.dataset.idx), f = Number(inputEl.dataset.f), slot = Number(inputEl.dataset.partyslot);
+        var row = state.sheet.rows[idx];
+        var rest = row[f].replace(new RegExp('^' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').trim();
+        row[f] = p.name + (rest ? ' ' + rest : ' ');
+        row[slot] = p.id;
+        state.dirty = true;
+        hidePartyPicker();
+        render();
+      });
+      pickerEl.appendChild(opt);
+    });
+    document.body.appendChild(pickerEl);
+  }
+
+  async function saveSheet() {
+    var errEl = document.getElementById('ledgerErr');
+    errEl.textContent = '';
+    var payload = {
+      sheet_date: state.sheet.sheet_date || state.date,
+      opening: state.sheet.opening,
+      side: state.sheet.side,
+      firm: state.sheet.firm || null,
+      page: state.sheet.page || null,
+      rows: state.sheet.rows
+    };
+    try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(Object.assign({}, state.sheet, payload))); } catch (e) {}
+
+    if (!navigator.onLine) {
+      enqueue({ table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
+      errEl.textContent = 'No internet — saved locally, will sync automatically.';
+      state.dirty = false;
+      return;
+    }
+
+    var { data, error } = await sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' }).select().single();
+    if (error) {
+      if (/network|fetch/i.test(error.message || '')) {
+        enqueue({ table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
+        errEl.textContent = 'No internet — saved locally, will sync automatically.';
+      } else {
+        errEl.textContent = error.message;
+      }
+      return;
+    }
+    state.sheet = data;
+    state.dirty = false;
+    try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(data)); } catch (e) {}
+  }
+
+  function gotoDate(d) {
+    if (state.dirty && !confirm('Unsaved changes — discard and switch day?')) return;
+    state.date = d;
+    state.dirty = false;
+    loadSheet(d);
+  }
+
+  document.getElementById('dateInput').addEventListener('change', function () { gotoDate(this.value); });
+  document.getElementById('prevBtn').addEventListener('click', function () {
+    var d = new Date(state.date); d.setDate(d.getDate() - 1); gotoDate(d.toISOString().slice(0, 10));
+  });
+  document.getElementById('nextBtn').addEventListener('click', function () {
+    var d = new Date(state.date); d.setDate(d.getDate() + 1); gotoDate(d.toISOString().slice(0, 10));
+  });
+  document.getElementById('todayBtn').addEventListener('click', function () { gotoDate(todayStr()); });
+
+  (async function init() {
+    updateNetStatus();
+    var { data: userData } = await sb.auth.getUser();
+    if (!userData || !userData.user) {
+      document.getElementById('ledgerArea').innerHTML = '<p>Please sign in from the main app.</p>';
+      return;
+    }
+    await loadParties();
+    await loadSheet(state.date);
+    flushQueue();
+  })();
+})();
+</script>
+</body>
+</html>
