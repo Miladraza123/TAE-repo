@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Reports — TAE Accounting</title>
+<style>
+  :root{
+    --bg:#0f172a; --bg2:#1e293b; --bg3:#141d2e; --fg:#e2e8f0; --muted:#94a3b8;
+    --accent:#3b82f6; --accent2:#2563eb; --danger:#ef4444; --ok:#22c55e; --border:#334155;
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;margin:0;}
+  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
+  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
+  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
+  .tabs{display:flex;gap:4px;flex-wrap:wrap;}
+  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:#1c2942;color:var(--fg);padding:8px 12px;font-size:13px;}
+  .tabs button{background:transparent;}
+  .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+  main{padding:14px;max-width:1100px;margin:0 auto;}
+  table{width:100%;border-collapse:collapse;font-size:13px;}
+  th,td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;}
+  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
+  .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;}
+  label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;}
+  input,select{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:var(--fg);font-size:13px;}
+  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;}
+  .stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;min-width:150px;}
+  .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;}
+  .stat .val{font-size:20px;font-weight:700;margin-top:4px;}
+  .statrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
+  .bucket-b0{color:#f59e0b;} .bucket-b30{color:#f97316;} .bucket-b60{color:#ef4444;} .bucket-b90{color:#b91c1c;}
+  .warn{color:var(--danger);}
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <h1>Reports</h1>
+  <div class="tabs" id="tabs"></div>
+</div>
+
+<main id="content"></main>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script>
+(function () {
+  'use strict';
+
+  var SUPABASE_URL = 'https://zvzxoxbrwzjgevvkjaiu.supabase.co';
+  var SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inp2enhveGJyd3pqZ2V2dmtqYWl1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODk2NTYxMzQsImV4cCI6MjEwNTIzMjEzNH0.hyK-JevmCcK9D4iUbCC95ixVukGS1NPy_0pkbY1AXMk';
+  var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: { persistSession: true, autoRefreshToken: false }
+  });
+
+  window.addEventListener('message', function (ev) {
+    var d = ev.data;
+    if (!d || d.oht !== 'active') return;
+    d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+  });
+
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function fmt(n) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+  var TABS = [
+    { key: 'trial', label: 'Trial Balance' },
+    { key: 'aging', label: 'Receivable Aging' },
+    { key: 'pl', label: 'Profit & Loss' },
+    { key: 'statement', label: 'Statement of Account' },
+    { key: 'stockledger', label: 'Item Stock Ledger' }
+  ];
+  var activeTab = 'trial';
+  var partiesCache = [], itemsCache = [];
+
+  function buildTabs() {
+    var el = document.getElementById('tabs');
+    el.innerHTML = '';
+    TABS.forEach(function (t) {
+      var b = document.createElement('button');
+      b.textContent = t.label;
+      b.className = t.key === activeTab ? 'active' : '';
+      b.addEventListener('click', function () { activeTab = t.key; buildTabs(); render(); });
+      el.appendChild(b);
+    });
+  }
+
+  // ===================================================================
+  // Trial Balance (§19)
+  // ===================================================================
+  var trialView = {
+    async render() {
+      var asOf = document.getElementById('tb_asof') ? document.getElementById('tb_asof').value : todayStr();
+      var html = '<div class="filters"><div><label>As of</label><input type="date" id="tb_asof" value="' + asOf + '"></div>' +
+        '<button id="tb_reload">Refresh</button> <button id="tb_reconcile">Run reconciliation check</button></div>';
+      html += '<div id="tb_body">Loading…</div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('tb_reload').addEventListener('click', trialView.render);
+      document.getElementById('tb_reconcile').addEventListener('click', trialView.runReconcile);
+
+      var { data, error } = await sb.rpc('trial_balance', { p_as_of: asOf });
+      var body = document.getElementById('tb_body');
+      if (error) { body.innerHTML = '<p class="warn">' + error.message + '</p>'; return; }
+      var totalDr = 0, totalCr = 0;
+      (data || []).forEach(function (r) { if (r.side === 'dr') totalDr += Number(r.balance); else totalCr += Number(r.balance); });
+      var h = '<div class="statrow"><div class="stat"><div class="label">Total Dr</div><div class="val">' + fmt(totalDr) + '</div></div>' +
+        '<div class="stat"><div class="label">Total Cr</div><div class="val">' + fmt(totalCr) + '</div></div></div>';
+      h += '<table><thead><tr><th>Party</th><th style="text-align:right">Balance</th><th>Side</th></tr></thead><tbody>';
+      (data || []).forEach(function (r) {
+        h += '<tr><td>' + esc(r.party_name) + '</td><td style="text-align:right">' + fmt(r.balance) + '</td><td>' + r.side.toUpperCase() + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    },
+    async runReconcile() {
+      var asOf = document.getElementById('tb_asof').value;
+      var { data, error } = await sb.rpc('aging_reconcile', { p_as_of: asOf });
+      if (error) { alert(error.message); return; }
+      if (!data || !data.length) { alert('Reconciliation OK — Trial Balance and Receivable Aging agree for every party.'); }
+      else { alert('Reconciliation found ' + data.length + ' discrepant part(ies):\n' + data.map(function (r) { return r.party_name + ': diff ' + fmt(r.difference); }).join('\n')); }
+    }
+  };
+
+  // ===================================================================
+  // Receivable Aging (§20)
+  // ===================================================================
+  var agingView = {
+    async render() {
+      var asOf = document.getElementById('ag_asof') ? document.getElementById('ag_asof').value : todayStr();
+      var html = '<div class="filters"><div><label>As of</label><input type="date" id="ag_asof" value="' + asOf + '"></div><button id="ag_reload">Refresh</button></div>';
+      html += '<div id="ag_body">Loading…</div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('ag_reload').addEventListener('click', agingView.render);
+
+      var { data, error } = await sb.rpc('receivable_aging', { p_as_of: asOf });
+      var body = document.getElementById('ag_body');
+      if (error) { body.innerHTML = '<p class="warn">' + error.message + '</p>'; return; }
+      var rows = (data || []).sort(function (a, b) { return b.outstanding - a.outstanding; });
+      var buckets = { notdue: 0, b0: 0, b30: 0, b60: 0, b90: 0, payable: 0, advance: 0 };
+      rows.forEach(function (r) { buckets[r.bucket] = (buckets[r.bucket] || 0) + Number(r.outstanding); });
+      var h = '<div class="statrow">' +
+        ['notdue', 'b0', 'b30', 'b60', 'b90'].map(function (k) {
+          var labels = { notdue: 'Not due', b0: '1-30 days', b30: '31-60 days', b60: '61-90 days', b90: '90+ days' };
+          return '<div class="stat"><div class="label">' + labels[k] + '</div><div class="val bucket-' + k + '">' + fmt(buckets[k]) + '</div></div>';
+        }).join('') + '</div>';
+      h += '<table><thead><tr><th>Party</th><th>Doc</th><th>Date</th><th>Due</th><th style="text-align:right">Original</th><th style="text-align:right">Outstanding</th><th>Days</th><th>Bucket</th></tr></thead><tbody>';
+      rows.forEach(function (r) {
+        h += '<tr><td>' + esc(r.party_name) + '</td><td>' + esc(r.doc_no) + '</td><td>' + (r.doc_date || '') + '</td><td>' + (r.due_date || '') + '</td>' +
+          '<td style="text-align:right">' + fmt(r.original_amount) + '</td><td style="text-align:right">' + fmt(r.outstanding) + '</td>' +
+          '<td>' + (r.days_overdue || 0) + '</td><td class="bucket-' + r.bucket + '">' + r.bucket + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  // ===================================================================
+  // Profit & Loss (§21) — computed client-side per spec, no DB function
+  // ===================================================================
+  var plView = {
+    async render() {
+      var from = document.getElementById('pl_from') ? document.getElementById('pl_from').value : firstOfMonth();
+      var to = document.getElementById('pl_to') ? document.getElementById('pl_to').value : todayStr();
+      var html = '<div class="filters">' +
+        '<div><label>From</label><input type="date" id="pl_from" value="' + from + '"></div>' +
+        '<div><label>To</label><input type="date" id="pl_to" value="' + to + '"></div>' +
+        '<button id="pl_today">Today</button><button id="pl_month">This month</button><button id="pl_lastmonth">Last month</button><button id="pl_year">This year</button>' +
+        '<button class="primary" id="pl_run">Run</button></div>';
+      html += '<div id="pl_body">Pick a range and click Run.</div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('pl_run').addEventListener('click', plView.run);
+      document.getElementById('pl_today').addEventListener('click', function () { setRange(todayStr(), todayStr()); });
+      document.getElementById('pl_month').addEventListener('click', function () { setRange(firstOfMonth(), todayStr()); });
+      document.getElementById('pl_lastmonth').addEventListener('click', function () {
+        var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+        var f = d.toISOString().slice(0, 10);
+        var endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+        setRange(f, endD.toISOString().slice(0, 10));
+      });
+      document.getElementById('pl_year').addEventListener('click', function () {
+        var y = new Date().getFullYear();
+        setRange(y + '-01-01', todayStr());
+      });
+      function setRange(f, t) { document.getElementById('pl_from').value = f; document.getElementById('pl_to').value = t; plView.run(); }
+      function firstOfMonth() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01'; }
+      plView.run();
+    },
+
+    async run() {
+      var from = document.getElementById('pl_from').value, to = document.getElementById('pl_to').value;
+      var body = document.getElementById('pl_body');
+      body.innerHTML = 'Computing…';
+
+      var [{ data: sales }, { data: returns }, { data: linesData }, { data: serviceInv }, { data: expenseSheets }] = await Promise.all([
+        sb.from('vouchers').select('id,sub_total,discount,grand_total,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
+          .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to),
+        sb.from('sales_returns').select('id,grand_total,sale_id,deleted_at').gte('rdate', from).lte('rdate', to),
+        sb.from('voucher_lines').select('voucher_id,cost_amount'),
+        sb.from('service_invoices').select('sub_total,discount').neq('status', 'cancelled').is('deleted_at', null).gte('sidate', from).lte('sidate', to),
+        sb.from('sheets').select('rows').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to)
+      ]);
+
+      var grossSales = (sales || []).reduce(function (s, v) { return s + Number(v.sub_total); }, 0);
+      var discounts = (sales || []).reduce(function (s, v) { return s + Number(v.discount); }, 0);
+      var salesReturnsInRange = (returns || []).filter(function (r) { return !r.deleted_at; }).reduce(function (s, r) { return s + Number(r.grand_total); }, 0);
+      var netSales = grossSales - salesReturnsInRange - discounts;
+
+      var saleIds = (sales || []).map(function (v) { return v.id; });
+      var cogs = (linesData || []).filter(function (l) { return saleIds.indexOf(l.voucher_id) >= 0; })
+        .reduce(function (s, l) { return s + Number(l.cost_amount || 0); }, 0);
+
+      // Returns' cost is removed from COGS too — need each in-range return's lines' cost_amount,
+      // filtered to non-deleted parent returns only (§21's documented real bug to avoid).
+      var { data: returnLines } = await sb.from('sales_return_lines').select('return_id,cost_amount');
+      var validReturnIds = (returns || []).filter(function (r) { return !r.deleted_at; }).map(function (r) { return r.id; });
+      var returnsCost = (returnLines || []).filter(function (rl) { return validReturnIds.indexOf(rl.return_id) >= 0; })
+        .reduce(function (s, rl) { return s + Number(rl.cost_amount || 0); }, 0);
+      cogs -= returnsCost;
+
+      var grossProfit = netSales - cogs;
+      var grossMarginPct = netSales !== 0 ? (grossProfit / netSales) * 100 : 0;
+
+      var otherIncome = (sales || []).reduce(function (s, v) {
+        return s + (v.loading_on ? Number(v.loading_amt) : 0) + (v.cartage_on ? Number(v.cartage_amt) : 0) + (v.cutting_on ? Number(v.cutting_amt) : 0);
+      }, 0);
+
+      var serviceRevenue = (serviceInv || []).reduce(function (s, si) { return s + (Number(si.sub_total) - Number(si.discount)); }, 0);
+      var totalRevenue = netSales + serviceRevenue;
+
+      // Operating expenses / finance charges: cash-book DEBIT rows linked to an expense-kind party.
+      var { data: expenseParties } = await sb.from('parties').select('id,expense_type').eq('kind', 'expense').is('deleted_at', null);
+      var expenseMap = {}; (expenseParties || []).forEach(function (p) { expenseMap[p.id] = p.expense_type; });
+      var opEx = 0, financeCharges = 0;
+      (expenseSheets || []).forEach(function (s) {
+        (s.rows || []).forEach(function (r) {
+          var partyId = r[7];
+          if (partyId && expenseMap.hasOwnProperty(partyId)) {
+            var amt = Number(r[0]) || 0;
+            if (expenseMap[partyId] === 'bank_charges') financeCharges += amt; else opEx += amt;
+          }
+        });
+      });
+
+      var operatingProfit = grossProfit + serviceRevenue + otherIncome - opEx;
+      var netProfit = operatingProfit - financeCharges;
+      var netMarginPct = netSales !== 0 ? (netProfit / netSales) * 100 : 0;
+
+      function row(label, val, bold) {
+        return '<tr' + (bold ? ' style="font-weight:700;background:var(--bg3)"' : '') + '><td>' + label + '</td><td style="text-align:right">' + fmt(val) + '</td></tr>';
+      }
+      var h = '<table><tbody>' +
+        row('Gross Sales', grossSales) + row('Sales Returns', -salesReturnsInRange) + row('Discounts', -discounts) +
+        row('Net Sales', netSales, true) + row('COGS', -cogs) + row('Gross Profit', grossProfit, true) +
+        '<tr><td colspan="2" style="color:var(--muted)">Gross Margin: ' + grossMarginPct.toFixed(1) + '%</td></tr>' +
+        row('Other Income (Loading/Cartage/Cutting)', otherIncome) + row('Service Revenue', serviceRevenue) +
+        row('Total Revenue (Net Sales + Service Revenue)', totalRevenue) +
+        row('Operating Expenses', -opEx) + row('Operating Profit', operatingProfit, true) +
+        row('Finance/Bank Charges', -financeCharges) + row('Net Profit', netProfit, true) +
+        '<tr><td colspan="2" style="color:var(--muted)">Net Margin: ' + netMarginPct.toFixed(1) + '%</td></tr>' +
+        '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  // ===================================================================
+  // Statement of Account (§11) — live-reconstructed party ledger
+  // ===================================================================
+  var statementView = {
+    async render() {
+      if (!partiesCache.length) { var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name'); partiesCache = data || []; }
+      var html = '<div class="filters"><div><label>Party</label><select id="st_party"><option value="">Pick…</option>' +
+        partiesCache.map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
+        '<button id="st_run">Show</button></div><div id="st_body"></div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('st_run').addEventListener('click', statementView.run);
+    },
+    async run() {
+      var partyId = document.getElementById('st_party').value;
+      var body = document.getElementById('st_body');
+      if (!partyId) { body.innerHTML = ''; return; }
+      body.innerHTML = 'Loading…';
+
+      var events = await buildLedgerEvents(partyId);
+      var h = '<table><thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Dr</th><th style="text-align:right">Cr</th><th style="text-align:right">Balance</th></tr></thead><tbody>';
+      events.forEach(function (e) {
+        h += '<tr><td>' + e.date + '</td><td>' + esc(e.desc) + '</td><td style="text-align:right">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
+          '<td style="text-align:right">' + (e.cr ? fmt(e.cr) : '') + '</td><td style="text-align:right">' + fmt(Math.abs(e.running)) + ' ' + (e.running >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  // Shared event-building function (§11) — used by both screen and (future) print.
+  async function buildLedgerEvents(partyId) {
+    var { data: party } = await sb.from('parties').select('*').eq('id', partyId).single();
+    var events = [];
+    if (party.opening) {
+      events.push({ date: party.opening_date || '0000-01-01', desc: 'Opening balance', dr: party.opening_side === 'dr' ? party.opening : 0, cr: party.opening_side === 'cr' ? party.opening : 0 });
+    }
+    var { data: sales } = await sb.from('vouchers').select('vno,vdate,grand_total,paid').eq('party_id', partyId).eq('vtype', 'sale').is('deleted_at', null);
+    (sales || []).forEach(function (v) {
+      events.push({ date: v.vdate, desc: 'Sale ' + v.vno, dr: v.grand_total, cr: 0 });
+      if (v.paid > 0) events.push({ date: v.vdate, desc: 'Received with ' + v.vno, dr: 0, cr: v.paid });
+    });
+    var { data: purchases } = await sb.from('vouchers').select('vno,vdate,grand_total,paid').eq('party_id', partyId).eq('vtype', 'purchase').is('deleted_at', null);
+    (purchases || []).forEach(function (v) {
+      events.push({ date: v.vdate, desc: 'Purchase ' + v.vno, dr: 0, cr: v.grand_total });
+      if (v.paid > 0) events.push({ date: v.vdate, desc: 'Paid with ' + v.vno, dr: v.paid, cr: 0 });
+    });
+    var { data: returns } = await sb.from('sales_returns').select('rno,rdate,grand_total').eq('party_id', partyId).is('deleted_at', null);
+    (returns || []).forEach(function (r) { events.push({ date: r.rdate, desc: 'Return ' + r.rno, dr: 0, cr: r.grand_total }); });
+    var { data: svc } = await sb.from('service_invoices').select('sino,sidate,grand_total,paid').eq('party_id', partyId).neq('status', 'cancelled').is('deleted_at', null);
+    (svc || []).forEach(function (si) {
+      events.push({ date: si.sidate, desc: 'Service ' + si.sino, dr: si.grand_total, cr: 0 });
+      if (si.paid > 0) events.push({ date: si.sidate, desc: 'Received with ' + si.sino, dr: 0, cr: si.paid });
+    });
+    var { data: sheetsData } = await sb.from('sheets').select('sheet_date,rows').is('deleted_at', null);
+    var normName = party.name.trim().toLowerCase().replace(/\s+/g, ' ');
+    (sheetsData || []).forEach(function (s) {
+      (s.rows || []).forEach(function (r) {
+        if (r[6] === partyId) { // credit-side link: cash received FROM them
+          var remark = stripOwnName(r[3] || '', normName);
+          events.push({ date: s.sheet_date, desc: remark || 'Cash received', dr: 0, cr: Number(r[2]) || 0 });
+        }
+        if (r[7] === partyId) { // debit-side link: cash paid TO them
+          var remark2 = stripOwnName(r[1] || '', normName);
+          events.push({ date: s.sheet_date, desc: remark2 || 'Cash paid', dr: Number(r[0]) || 0, cr: 0 });
+        }
+      });
+    });
+
+    events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+    var running = 0;
+    events.forEach(function (e) { running += (e.dr || 0) - (e.cr || 0); e.running = running; });
+    return events;
+  }
+
+  function stripOwnName(text, normName) {
+    var norm = text.trim().toLowerCase().replace(/\s+/g, ' ');
+    if (norm.indexOf(normName) === 0) {
+      return text.trim().slice(normName.length).trim();
+    }
+    return text;
+  }
+
+  // ===================================================================
+  // Item Stock Ledger (§12) — single-item transaction history
+  // ===================================================================
+  var stockLedgerView = {
+    async render() {
+      if (!itemsCache.length) { var { data } = await sb.from('items').select('id,name,unit,stock_qty,avg_cost').is('deleted_at', null).order('name'); itemsCache = data || []; }
+      var html = '<div class="filters"><div><label>Item</label><select id="sl_item"><option value="">Pick…</option>' +
+        itemsCache.map(function (i) { return '<option value="' + i.id + '">' + esc(i.name) + '</option>'; }).join('') + '</select></div>' +
+        '<button id="sl_run">Show</button></div><div id="sl_body"></div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('sl_run').addEventListener('click', stockLedgerView.run);
+    },
+    async run() {
+      var itemId = document.getElementById('sl_item').value;
+      var body = document.getElementById('sl_body');
+      if (!itemId) { body.innerHTML = ''; return; }
+      body.innerHTML = 'Loading…';
+      var item = itemsCache.filter(function (i) { return i.id === itemId; })[0];
+
+      var [{ data: lines }, { data: returnLines }, { data: adj }] = await Promise.all([
+        sb.from('voucher_lines').select('qty,cost_amount,voucher_id,vouchers(vno,vtype,vdate)').eq('item_id', itemId),
+        sb.from('sales_return_lines').select('qty,cost_amount,return_id,sales_returns(rno,rdate)').eq('item_id', itemId),
+        sb.from('stock_adjustments').select('qty,reason,adj_date').eq('item_id', itemId).is('deleted_at', null)
+      ]);
+
+      var events = [];
+      (lines || []).forEach(function (l) {
+        if (!l.vouchers) return;
+        events.push({ date: l.vouchers.vdate, desc: (l.vouchers.vtype === 'sale' ? 'Sale ' : 'Purchase ') + l.vouchers.vno, qty: l.vouchers.vtype === 'sale' ? -l.qty : l.qty });
+      });
+      (returnLines || []).forEach(function (rl) {
+        if (!rl.sales_returns) return;
+        events.push({ date: rl.sales_returns.rdate, desc: 'Return ' + rl.sales_returns.rno, qty: rl.qty });
+      });
+      (adj || []).forEach(function (a) { events.push({ date: a.adj_date, desc: 'Adjustment: ' + (a.reason || ''), qty: a.qty }); });
+      events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
+
+      var running = 0;
+      var h = '<div class="statrow"><div class="stat"><div class="label">Live stock</div><div class="val">' + item.stock_qty + ' ' + item.unit + '</div></div>' +
+        '<div class="stat"><div class="label">Avg cost</div><div class="val">' + fmt(item.avg_cost) + '</div></div></div>';
+      h += '<table><thead><tr><th>Date</th><th>Event</th><th style="text-align:right">Qty ±</th><th style="text-align:right">Running</th></tr></thead><tbody>';
+      events.forEach(function (e) {
+        running += Number(e.qty) || 0;
+        h += '<tr><td>' + e.date + '</td><td>' + esc(e.desc) + '</td><td style="text-align:right">' + e.qty + '</td><td style="text-align:right">' + running + '</td></tr>';
+      });
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  var VIEWS = { trial: trialView, aging: agingView, pl: plView, statement: statementView, stockledger: stockLedgerView };
+
+  async function render() {
+    var v = VIEWS[activeTab];
+    if (v) await v.render();
+  }
+
+  (async function init() {
+    var { data: userData } = await sb.auth.getUser();
+    if (!userData || !userData.user) {
+      document.getElementById('content').innerHTML = '<p>Please sign in from the main app.</p>';
+      return;
+    }
+    buildTabs();
+    render();
+  })();
+})();
+</script>
+</body>
+</html>
