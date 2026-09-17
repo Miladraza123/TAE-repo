@@ -65,6 +65,8 @@
     <button id="tabSale" class="active">Sales</button>
     <button id="tabPurchase">Purchases</button>
     <button id="tabReturns">Returns</button>
+    <button id="tabQuotations">Quotations</button>
+    <button id="tabPOs">Purchase Orders</button>
   </div>
   <input type="search" id="search" placeholder="Search by number, party...">
   <button class="primary" id="newBtn">+ New</button>
@@ -193,19 +195,28 @@
   }
 
   document.getElementById('search').addEventListener('input', function () {
-    state.mode === 'return' ? renderReturnsList() : renderList();
+    if (state.mode === 'return') renderReturnsList();
+    else if (state.mode === 'quotation' || state.mode === 'po') renderDocsList(state.mode);
+    else renderList();
   });
   document.getElementById('tabSale').addEventListener('click', function () { switchTab('sale'); });
   document.getElementById('tabPurchase').addEventListener('click', function () { switchTab('purchase'); });
   document.getElementById('tabReturns').addEventListener('click', function () { switchTab('return'); });
+  document.getElementById('tabQuotations').addEventListener('click', function () { switchTab('quotation'); });
+  document.getElementById('tabPOs').addEventListener('click', function () { switchTab('po'); });
   state.mode = 'voucher';
   function switchTab(vt) {
     document.getElementById('tabSale').classList.toggle('active', vt === 'sale');
     document.getElementById('tabPurchase').classList.toggle('active', vt === 'purchase');
     document.getElementById('tabReturns').classList.toggle('active', vt === 'return');
+    document.getElementById('tabQuotations').classList.toggle('active', vt === 'quotation');
+    document.getElementById('tabPOs').classList.toggle('active', vt === 'po');
     if (vt === 'return') {
       state.mode = 'return';
       loadReturnsList();
+    } else if (vt === 'quotation' || vt === 'po') {
+      state.mode = vt;
+      loadDocsList(vt);
     } else {
       state.mode = 'voucher';
       state.vtype = vt;
@@ -213,7 +224,9 @@
     }
   }
   document.getElementById('newBtn').addEventListener('click', function () {
-    state.mode === 'return' ? openReturnEditor(null) : openEditor(null);
+    if (state.mode === 'return') openReturnEditor(null);
+    else if (state.mode === 'quotation' || state.mode === 'po') openDocEditor(state.mode, null);
+    else openEditor(null);
   });
 
   // ---------------------------------------------------------------
@@ -545,6 +558,15 @@
           linesPayload.map(function (l) { return Object.assign({}, l, { voucher_id: inserted.id }); })
         );
         if (lineErr) { errEl.textContent = lineErr.message; return; }
+
+        // If this invoice was created via "Convert to Sale/Purchase" from a
+        // quotation/PO, stamp the SOURCE doc as converted only now that the
+        // real invoice actually exists — never before, so a cancelled
+        // conversion never leaves an orphaned "converted" doc (§15/§16).
+        if (e.convertingFrom && typeof DOC_CONFIG !== 'undefined') {
+          var srcCfg = DOC_CONFIG[e.convertingFrom.type];
+          await sb.from(srcCfg.table).update({ status: 'converted', converted_invoice_id: inserted.id, converted_at: new Date().toISOString() }).eq('id', e.convertingFrom.id);
+        }
         closeEditor(); loadList();
         return;
       }
@@ -755,6 +777,277 @@
     var { error } = await sb.from('sales_returns').update({ deleted_at: new Date().toISOString() }).eq('id', r.id);
     if (error) { document.getElementById('editorErr').textContent = error.message; return; }
     closeEditor(); loadReturnsList();
+  }
+
+  // ---------------------------------------------------------------
+  // Quotations (goods) + Purchase Orders (§15/§16) — paper-only documents,
+  // zero stock/ledger impact until converted into a real Sales/Purchase
+  // Invoice. Reuses the shared smart_merge save path (§8's "build once").
+  // ---------------------------------------------------------------
+  var DOC_CONFIG = {
+    quotation: { table: 'quotations', lineTable: 'quotation_lines', fk: 'quotation_id', numField: 'qno', dateField: 'qdate',
+      partyRoles: ['customer', 'both'], hasCharges: true, convertVtype: 'sale', convertLabel: 'Convert to Sale', title: 'Quotation' },
+    po: { table: 'purchase_orders', lineTable: 'po_lines', fk: 'po_id', numField: 'pono', dateField: 'podate',
+      partyRoles: ['supplier', 'both'], hasCharges: false, convertVtype: 'purchase', convertLabel: 'Convert to Purchase', title: 'Purchase Order' }
+  };
+  var docsState = { list: [] };
+  var docEditing = null;
+  var DOC_IGNORE = ['id', 'created_at', 'created_by', 'updated_at', 'updated_by', 'version', 'deleted_at', 'sub_total', 'tax_total', 'grand_total', 'status', 'converted_invoice_id', 'converted_at'];
+  var DOC_IGNORE_MAP = { quotation: DOC_IGNORE.concat(['qno']), po: DOC_IGNORE.concat(['pono']) };
+
+  async function loadDocsList(type) {
+    var cfg = DOC_CONFIG[type];
+    var { data, error } = await sb.from(cfg.table).select('*').is('deleted_at', null)
+      .order(cfg.dateField, { ascending: false }).limit(500);
+    if (error) { document.getElementById('listArea').innerHTML = '<p class="err">' + error.message + '</p>'; return; }
+    docsState.list = data || [];
+    renderDocsList(type);
+  }
+
+  function renderDocsList(type) {
+    var cfg = DOC_CONFIG[type];
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = docsState.list.filter(function (d) {
+      return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0;
+    });
+    var html = rows.length ? '<table><tbody>' : '<p style="color:var(--muted)">No ' + cfg.title.toLowerCase() + 's yet.</p>';
+    rows.forEach(function (d) {
+      html += '<tr class="row" data-id="' + d.id + '"><td style="width:110px"><strong>' + d[cfg.numField] + '</strong></td>' +
+        '<td>' + d[cfg.dateField] + '</td><td>' + partyName(d.party_id) + '</td><td style="text-align:right">' + fmtMoney(d.grand_total) + '</td>' +
+        '<td><span class="badge">' + d.status + '</span></td></tr>';
+    });
+    if (rows.length) html += '</tbody></table>';
+    document.getElementById('listArea').innerHTML = html;
+    Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+      tr.addEventListener('click', function () { openDocEditor(type, tr.dataset.id); });
+    });
+  }
+
+  function blankDocHeader(type) {
+    var cfg = DOC_CONFIG[type];
+    var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
+    var h = { party_id: null, company_id: defCompany ? defCompany.id : null, narration: '', tax_on: false, discount: 0, status: 'open' };
+    h[cfg.dateField] = new Date().toISOString().slice(0, 10);
+    if (cfg.hasCharges) { h.loading_on = false; h.loading_amt = 0; h.cartage_on = false; h.cartage_amt = 0; h.cutting_on = false; h.cutting_amt = 0; }
+    return h;
+  }
+
+  async function openDocEditor(type, id) {
+    await loadMasters();
+    var cfg = DOC_CONFIG[type];
+    if (!id) {
+      docEditing = { type: type, isNew: true, id: null, header: blankDocHeader(type), lines: [{ id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0 }], originalHeader: null, originalLines: [] };
+    } else {
+      var [{ data: header }, { data: lines }] = await Promise.all([
+        sb.from(cfg.table).select('*').eq('id', id).single(),
+        sb.from(cfg.lineTable).select('*').eq(cfg.fk, id).order('line_no')
+      ]);
+      if (!header) { alert('This record was deleted by someone else.'); loadDocsList(type); return; }
+      docEditing = {
+        type: type, isNew: false, id: id,
+        header: JSON.parse(JSON.stringify(header)), lines: JSON.parse(JSON.stringify(lines || [])),
+        originalHeader: JSON.parse(JSON.stringify(header)), originalLines: JSON.parse(JSON.stringify(lines || []))
+      };
+    }
+    renderDocEditor();
+    document.getElementById('editorOverlay').classList.add('open');
+  }
+
+  function docTotals() {
+    var d = docEditing, cfg = DOC_CONFIG[d.type];
+    var sub = 0, tax = 0;
+    d.lines.forEach(function (l) {
+      var amt = (Number(l.qty) || 0) * (Number(l.rate) || 0);
+      l.amount = amt; sub += amt;
+      if (d.header.tax_on) tax += amt * (Number(l.tax_pct) || 0) / 100;
+    });
+    var extra = 0;
+    if (cfg.hasCharges) {
+      if (d.header.loading_on) extra += Number(d.header.loading_amt) || 0;
+      if (d.header.cartage_on) extra += Number(d.header.cartage_amt) || 0;
+      if (d.header.cutting_on) extra += Number(d.header.cutting_amt) || 0;
+    }
+    var disc = Number(d.header.discount) || 0;
+    return { sub: sub, tax: tax, extra: extra, grand: sub - disc + tax + extra };
+  }
+
+  function renderDocEditor() {
+    var d = docEditing, cfg = DOC_CONFIG[d.type], h = d.header;
+    var totals = docTotals();
+    var html = '<h2>' + cfg.title + (d.isNew ? ' — New' : ' — ' + h[cfg.numField]) + (h.status && h.status !== 'open' ? ' (' + h.status + ')' : '') + '</h2>';
+    html += '<div class="grid">' +
+      '<div><label>Date</label><input type="date" id="d_date" value="' + h[cfg.dateField] + '"></div>' +
+      '<div><label>Party</label><select id="d_party"><option value="">Pick…</option>' +
+      state.parties.filter(function (p) { return cfg.partyRoles.indexOf(p.kind) >= 0; })
+        .map(function (p) { return '<option value="' + p.id + '"' + (p.id === h.party_id ? ' selected' : '') + '>' + p.name + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div><label><input type="checkbox" id="d_taxon"' + (h.tax_on ? ' checked' : '') + '> Sales tax</label></div>' +
+      '<div><label>Discount</label><input type="number" step="0.01" id="d_discount" value="' + h.discount + '"></div>' +
+      '</div>';
+    html += '<p class="party-hint" style="color:var(--muted);font-size:12px">This is only a document — it never affects the party\'s account balance.</p>';
+
+    if (cfg.hasCharges) {
+      html += '<div class="charges-row">';
+      ['loading', 'cartage', 'cutting'].forEach(function (k) {
+        html += '<div class="chg"><label style="margin:0"><input type="checkbox" id="d_' + k + '_on"' + (h[k + '_on'] ? ' checked' : '') + '> ' + k + '</label>' +
+          '<input type="number" step="0.01" style="width:100px" id="d_' + k + '_amt" value="' + h[k + '_amt'] + '"></div>';
+      });
+      html += '</div>';
+    }
+
+    html += '<table class="lines-table"><thead><tr><th>Item</th><th>Qty</th><th>Rate</th>' + (h.tax_on ? '<th>Tax%</th>' : '') + '<th>Amount</th><th></th></tr></thead><tbody id="docLinesBody"></tbody></table>';
+    html += '<button type="button" id="docAddLineBtn" style="margin-top:8px">+ Add line</button>';
+    html += '<div><label style="margin-top:12px">Note</label><textarea id="d_narration">' + (h.narration || '') + '</textarea></div>';
+    html += '<div class="totals"><table>' +
+      '<tr><td>Sub total</td><td>' + fmtMoney(totals.sub) + '</td></tr>' +
+      '<tr><td>Discount</td><td>-' + fmtMoney(h.discount) + '</td></tr>' +
+      (h.tax_on ? '<tr><td>Tax</td><td>' + fmtMoney(totals.tax) + '</td></tr>' : '') +
+      (totals.extra ? '<tr><td>Loading/Cartage/Cutting</td><td>' + fmtMoney(totals.extra) + '</td></tr>' : '') +
+      '<tr><td><strong>Grand total</strong></td><td><strong>' + fmtMoney(totals.grand) + '</strong></td></tr>' +
+      '</table></div>';
+    html += '<div class="err" id="editorErr"></div>';
+    html += '<div class="actions">' +
+      (!d.isNew ? '<button class="danger" id="docDeleteBtn">Delete</button>' : '') +
+      (!d.isNew && h.status === 'open' ? '<button id="docConvertBtn">' + cfg.convertLabel + '</button>' : '') +
+      '<button id="cancelBtn">Cancel</button><button class="primary" id="docSaveBtn">Save</button></div>';
+
+    document.getElementById('editorCard').innerHTML = html;
+    renderDocLines();
+
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    document.getElementById('d_date').addEventListener('input', function () { h[cfg.dateField] = this.value; });
+    document.getElementById('d_party').addEventListener('change', function () { h.party_id = this.value || null; });
+    document.getElementById('d_taxon').addEventListener('change', function () { h.tax_on = this.checked; renderDocEditor(); });
+    document.getElementById('d_discount').addEventListener('input', function () { h.discount = Number(this.value) || 0; renderDocEditor(); });
+    document.getElementById('d_narration').addEventListener('input', function () { h.narration = this.value; });
+    if (cfg.hasCharges) {
+      ['loading', 'cartage', 'cutting'].forEach(function (k) {
+        document.getElementById('d_' + k + '_on').addEventListener('change', function () { h[k + '_on'] = this.checked; renderDocEditor(); });
+        document.getElementById('d_' + k + '_amt').addEventListener('input', function () { h[k + '_amt'] = Number(this.value) || 0; renderDocEditor(); });
+      });
+    }
+    document.getElementById('docAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0 }); renderDocLines(); });
+    document.getElementById('docSaveBtn').addEventListener('click', saveDoc);
+    var delBtn = document.getElementById('docDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteDoc);
+    var convBtn = document.getElementById('docConvertBtn'); if (convBtn) convBtn.addEventListener('click', convertDoc);
+  }
+
+  function renderDocLines() {
+    var d = docEditing, h = d.header;
+    var body = document.getElementById('docLinesBody');
+    body.innerHTML = d.lines.map(function (l, idx) {
+      return '<tr>' +
+        '<td><select data-i="' + idx + '" data-f="item_id" class="dlf">' + itemOptions(l.item_id) + '</select></td>' +
+        '<td><input type="number" step="0.001" data-i="' + idx + '" data-f="qty" class="dlf" value="' + l.qty + '"></td>' +
+        '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="rate" class="dlf" value="' + l.rate + '"></td>' +
+        (h.tax_on ? '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="tax_pct" class="dlf" value="' + l.tax_pct + '"></td>' : '') +
+        '<td style="text-align:right">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>' +
+        '<td><button type="button" data-i="' + idx + '" class="dRmLine" style="color:var(--danger)">✕</button></td></tr>';
+    }).join('');
+    Array.prototype.forEach.call(body.querySelectorAll('.dlf'), function (el) {
+      el.addEventListener('change', function () {
+        var idx = Number(el.dataset.i), f = el.dataset.f;
+        var line = d.lines[idx];
+        line[f] = el.type === 'number' ? Number(el.value) : el.value;
+        if (f === 'item_id') {
+          var item = state.items.filter(function (x) { return x.id === el.value; })[0];
+          if (item) {
+            if (!line.rate) line.rate = d.type === 'quotation' ? item.sale_rate : item.buy_rate;
+            if (!line.tax_pct) line.tax_pct = item.tax_pct;
+          }
+        }
+        renderDocEditor();
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.dRmLine'), function (btn) {
+      btn.addEventListener('click', function () { d.lines.splice(Number(btn.dataset.i), 1); renderDocEditor(); });
+    });
+  }
+
+  async function saveDoc() {
+    var d = docEditing, cfg = DOC_CONFIG[d.type];
+    var errEl = document.getElementById('editorErr');
+    errEl.textContent = '';
+    if (!d.header.party_id) { errEl.textContent = 'Pick a party first'; return; }
+    var validLines = d.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+    if (!validLines.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
+
+    var totals = docTotals();
+    var payload = Object.assign({}, d.header, { sub_total: totals.sub, tax_total: totals.tax, grand_total: totals.grand });
+
+    try {
+      if (d.isNew) {
+        var { data: inserted, error: insErr } = await sb.from(cfg.table).insert(payload).select().single();
+        if (insErr) return handleSaveError(insErr, errEl);
+        var { error: lineErr } = await sb.from(cfg.lineTable).insert(
+          validLines.map(function (l) { var c = Object.assign({}, l); delete c.id; c[cfg.fk] = inserted.id; return c; })
+        );
+        if (lineErr) { errEl.textContent = lineErr.message; return; }
+
+        if (d.convertingFrom) {
+          var srcCfg = DOC_CONFIG[d.convertingFrom.type];
+          await sb.from(srcCfg.table).update({ status: 'converted', converted_invoice_id: inserted.id, converted_at: new Date().toISOString() }).eq('id', d.convertingFrom.id);
+        }
+        closeEditor(); loadDocsList(d.type);
+        return;
+      }
+
+      var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
+        p_table: cfg.table, p_id: d.id, p_original: d.originalHeader, p_new: payload, p_ignore: DOC_IGNORE_MAP[d.type]
+      });
+      if (mergeErr) return handleSaveError(mergeErr, errEl);
+      if (mergeRes.status === 'deleted') { errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' kisi aur ne delete kar diya hai"; return; }
+      if (mergeRes.status === 'conflict') {
+        var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
+          p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: payload, p_ignore: DOC_IGNORE_MAP[d.type]
+        });
+        if (retryErr) return handleSaveError(retryErr, errEl);
+        if (retryRes.status === 'conflict') {
+          errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + retryRes.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
+          return;
+        }
+      }
+
+      var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', {
+        p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines
+      });
+      if (lmErr) return handleSaveError(lmErr, errEl);
+      if (lineMerge.status === 'conflict') {
+        errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
+        return;
+      }
+      await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+
+      closeEditor(); loadDocsList(d.type);
+    } catch (ex) {
+      errEl.textContent = ex.message || String(ex);
+    }
+  }
+
+  async function deleteDoc() {
+    var d = docEditing, cfg = DOC_CONFIG[d.type];
+    if (!confirm('Delete ' + d.header[cfg.numField] + '? It never affected stock or the ledger — nothing to reverse.')) return;
+    var { error } = await sb.from(cfg.table).update({ deleted_at: new Date().toISOString() }).eq('id', d.id);
+    if (error) { document.getElementById('editorErr').textContent = error.message; return; }
+    closeEditor(); loadDocsList(d.type);
+  }
+
+  function convertDoc() {
+    var d = docEditing, cfg = DOC_CONFIG[d.type];
+    var newHeader = {
+      vtype: cfg.convertVtype, vdate: new Date().toISOString().slice(0, 10), due_date: null,
+      party_id: d.header.party_id, company_id: d.header.company_id, narration: d.header.narration,
+      tax_on: d.header.tax_on, discount: d.header.discount, paid: 0,
+      loading_on: cfg.hasCharges ? d.header.loading_on : false, loading_amt: cfg.hasCharges ? d.header.loading_amt : 0,
+      cartage_on: cfg.hasCharges ? d.header.cartage_on : false, cartage_amt: cfg.hasCharges ? d.header.cartage_amt : 0,
+      cutting_on: cfg.hasCharges ? d.header.cutting_on : false, cutting_amt: cfg.hasCharges ? d.header.cutting_amt : 0
+    };
+    var newLines = d.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; }).map(function (l) {
+      return { id: null, item_id: l.item_id, qty: l.qty, rate: l.rate, tax_pct: l.tax_pct, amount: l.amount, pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1 };
+    });
+    state.vtype = cfg.convertVtype;
+    state.editing = { isNew: true, id: null, header: newHeader, lines: newLines, originalHeader: null, originalLines: [], convertingFrom: { type: d.type, id: d.id } };
+    renderEditor();
   }
 
   // ---------------------------------------------------------------
