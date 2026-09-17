@@ -1,0 +1,79 @@
+name: Daily Backup
+
+on:
+  schedule:
+    # 21:00 UTC = 02:00 Pakistan time (§23)
+    - cron: '0 21 * * *'
+  workflow_dispatch: {}
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install backup job dependencies
+        working-directory: backup-job
+        run: npm install --omit=dev
+
+      # Schema-only dump is a nice-to-have, never a hard dependency of the
+      # main backup (§23) — continue-on-error so a pg_dump/runner mismatch
+      # never blocks the actual data backup below.
+      - name: Optional schema-only dump
+        if: ${{ secrets.SUPABASE_DB_URL != '' }}
+        continue-on-error: true
+        env:
+          PGCONNECT_TIMEOUT: '10'
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          pg_dump "${{ secrets.SUPABASE_DB_URL }}" --schema-only --no-owner --no-privileges \
+            > backup-job/out-schema.sql || true
+
+      - name: Run backup
+        working-directory: backup-job
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          BACKUP_EMAIL: ${{ secrets.BACKUP_EMAIL }}
+          BACKUP_PASSWORD: ${{ secrets.BACKUP_PASSWORD }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          BACKUP_TO_EMAIL: ${{ secrets.BACKUP_TO_EMAIL }}
+          BACKUP_PASSPHRASE: ${{ secrets.BACKUP_PASSPHRASE }}
+          BACKUP_SCHEMA_FILE: ${{ github.workspace }}/backup-job/out-schema.sql
+        run: npm run backup
+
+      # Public-repo Actions artifacts are downloadable by anyone — email is
+      # the only distribution channel for backup files (§23). Do NOT add an
+      # actions/upload-artifact step here unless this repository is private.
+
+  keepalive:
+    # Independent of backup success/failure — GitHub auto-disables scheduled
+    # workflows after 60 days with no commits to the repo. Runs once a month
+    # only, so it doesn't spam history the other 29 days.
+    runs-on: ubuntu-latest
+    if: always()
+    needs: backup
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Monthly keepalive commit
+        run: |
+          today=$(date -u +%d)
+          if [ "$today" != "01" ]; then
+            echo "Not the 1st of the month, skipping keepalive commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          mkdir -p backup-job
+          echo "Last backup workflow run: $(date -u +%Y-%m-%d)" > backup-job/.last-run
+          git add backup-job/.last-run
+          git diff --cached --quiet || git commit -m "chore: monthly keepalive commit (backup workflow)"
+          git push
