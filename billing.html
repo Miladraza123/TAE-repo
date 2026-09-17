@@ -64,6 +64,7 @@
   <div class="tabs">
     <button id="tabSale" class="active">Sales</button>
     <button id="tabPurchase">Purchases</button>
+    <button id="tabReturns">Returns</button>
   </div>
   <input type="search" id="search" placeholder="Search by number, party...">
   <button class="primary" id="newBtn">+ New</button>
@@ -191,16 +192,29 @@
     });
   }
 
-  document.getElementById('search').addEventListener('input', renderList);
+  document.getElementById('search').addEventListener('input', function () {
+    state.mode === 'return' ? renderReturnsList() : renderList();
+  });
   document.getElementById('tabSale').addEventListener('click', function () { switchTab('sale'); });
   document.getElementById('tabPurchase').addEventListener('click', function () { switchTab('purchase'); });
+  document.getElementById('tabReturns').addEventListener('click', function () { switchTab('return'); });
+  state.mode = 'voucher';
   function switchTab(vt) {
-    state.vtype = vt;
     document.getElementById('tabSale').classList.toggle('active', vt === 'sale');
     document.getElementById('tabPurchase').classList.toggle('active', vt === 'purchase');
-    loadList();
+    document.getElementById('tabReturns').classList.toggle('active', vt === 'return');
+    if (vt === 'return') {
+      state.mode = 'return';
+      loadReturnsList();
+    } else {
+      state.mode = 'voucher';
+      state.vtype = vt;
+      loadList();
+    }
   }
-  document.getElementById('newBtn').addEventListener('click', function () { openEditor(null); });
+  document.getElementById('newBtn').addEventListener('click', function () {
+    state.mode === 'return' ? openReturnEditor(null) : openEditor(null);
+  });
 
   // ---------------------------------------------------------------
   // Editor
@@ -590,6 +604,157 @@
     var { error } = await sb.from('vouchers').update({ deleted_at: new Date().toISOString() }).eq('id', e.id);
     if (error) { document.getElementById('editorErr').textContent = error.message; return; }
     closeEditor(); loadList();
+  }
+
+  // ---------------------------------------------------------------
+  // Sales Returns (§6/§18) — always tied to a specific original sale.
+  // Returnable-qty cap and cost-carry-back are enforced authoritatively
+  // by DB triggers (tested directly against the database, §31 step 5/8);
+  // this UI just needs to pick a sale + line(s) and let the trigger reject
+  // anything invalid.
+  // ---------------------------------------------------------------
+  var returnsState = { returns: [] };
+
+  async function loadReturnsList() {
+    var { data, error } = await sb.from('sales_returns').select('id,rno,rdate,party_id,grand_total,sale_id').is('deleted_at', null)
+      .order('rdate', { ascending: false }).order('rno', { ascending: false }).limit(500);
+    if (error) { document.getElementById('listArea').innerHTML = '<p class="err">' + error.message + '</p>'; return; }
+    returnsState.returns = data || [];
+    renderReturnsList();
+  }
+
+  function renderReturnsList() {
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = returnsState.returns.filter(function (r) {
+      return !term || (r.rno || '').toLowerCase().indexOf(term) >= 0 || partyName(r.party_id).toLowerCase().indexOf(term) >= 0;
+    });
+    var html = rows.length ? '<table><tbody>' : '<p style="color:var(--muted)">No sales returns yet.</p>';
+    rows.forEach(function (r) {
+      html += '<tr class="row" data-id="' + r.id + '"><td style="width:110px"><strong>' + r.rno + '</strong></td>' +
+        '<td>' + r.rdate + '</td><td>' + partyName(r.party_id) + '</td><td style="text-align:right">' + fmtMoney(r.grand_total) + '</td></tr>';
+    });
+    if (rows.length) html += '</tbody></table>';
+    document.getElementById('listArea').innerHTML = html;
+    Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
+      tr.addEventListener('click', function () { openReturnEditor(tr.dataset.id); });
+    });
+  }
+
+  var returnEditing = null;
+
+  async function openReturnEditor(id) {
+    await loadMasters();
+    if (!id) {
+      returnEditing = { isNew: true, id: null, sale: null, saleLines: [], picked: [] };
+    } else {
+      var { data: header } = await sb.from('sales_returns').select('*').eq('id', id).single();
+      if (!header) { alert('This record was deleted by someone else.'); loadReturnsList(); return; }
+      var { data: lines } = await sb.from('sales_return_lines').select('*').eq('return_id', id);
+      returnEditing = { isNew: false, id: id, header: header, picked: lines || [] };
+    }
+    renderReturnEditor();
+    document.getElementById('editorOverlay').classList.add('open');
+  }
+
+  async function renderReturnEditor() {
+    var r = returnEditing;
+    var html = '<h2>Sales Return' + (r.isNew ? ' — New' : ' — ' + r.header.rno) + '</h2>';
+
+    if (r.isNew) {
+      html += '<div class="grid"><div><label>Pick original sale</label><select id="rt_sale"><option value="">Pick…</option></select></div></div>';
+      // Sales list is fetched fresh here rather than reused from state.vouchers,
+      // since the Sales tab may never have been opened this session.
+      var { data: sales } = await sb.from('vouchers').select('id,vno,vdate,party_id,grand_total').eq('vtype', 'sale').is('deleted_at', null).order('vdate', { ascending: false }).limit(200);
+      document.getElementById('editorCard').innerHTML = html;
+      var sel = document.getElementById('rt_sale');
+      sel.innerHTML = '<option value="">Pick…</option>' + sales.map(function (v) {
+        return '<option value="' + v.id + '">' + v.vno + ' — ' + partyName(v.party_id) + ' (' + v.vdate + ')</option>';
+      }).join('');
+      sel.addEventListener('change', async function () {
+        var saleId = sel.value;
+        if (!saleId) return;
+        var { data: saleHeader } = await sb.from('vouchers').select('*').eq('id', saleId).single();
+        var { data: saleLines } = await sb.from('voucher_lines').select('*').eq('voucher_id', saleId);
+        var { data: existingReturns } = await sb.from('sales_return_lines').select('sale_line_id,qty').in('sale_line_id', (saleLines || []).map(function (l) { return l.id; }));
+        r.sale = saleHeader;
+        r.saleLines = (saleLines || []).map(function (l) {
+          var already = (existingReturns || []).filter(function (er) { return er.sale_line_id === l.id; }).reduce(function (s, er) { return s + Number(er.qty); }, 0);
+          return Object.assign({}, l, { returnable: l.qty - already, returnQty: 0 });
+        });
+        renderReturnEditorLines();
+      });
+      return;
+    }
+
+    document.getElementById('editorCard').innerHTML = html + '<div id="rt_linesWrap"></div>' +
+      '<div class="err" id="editorErr"></div><div class="actions"><button class="danger" id="rt_deleteBtn">Delete</button><button id="cancelBtn">Cancel</button></div>';
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    document.getElementById('rt_deleteBtn').addEventListener('click', deleteReturn);
+    var linesHtml = '<table><thead><tr><th>Item</th><th>Qty returned</th><th>Rate</th><th>Amount</th></tr></thead><tbody>';
+    r.picked.forEach(function (l) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      linesHtml += '<tr><td>' + (item ? item.name : '') + '</td><td>' + l.qty + '</td><td>' + l.rate + '</td><td>' + fmtMoney(l.amount) + '</td></tr>';
+    });
+    linesHtml += '</tbody></table>';
+    document.getElementById('rt_linesWrap').innerHTML = linesHtml;
+  }
+
+  function renderReturnEditorLines() {
+    var r = returnEditing;
+    var html = '<h2>Sales Return — New (against ' + r.sale.vno + ')</h2>';
+    html += '<table><thead><tr><th>Item</th><th>Sold qty</th><th>Still returnable</th><th>Return qty</th><th>Rate</th></tr></thead><tbody>';
+    r.saleLines.forEach(function (l, idx) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      html += '<tr><td>' + (item ? item.name : '') + '</td><td>' + l.qty + '</td><td>' + l.returnable + '</td>' +
+        '<td><input type="number" step="0.001" min="0" max="' + l.returnable + '" data-idx="' + idx + '" class="rtQty" value="' + l.returnQty + '" style="width:90px"></td>' +
+        '<td>' + l.rate + '</td></tr>';
+    });
+    html += '</tbody></table>';
+    html += '<div class="err" id="editorErr"></div><div class="actions"><button id="cancelBtn">Cancel</button><button class="primary" id="rt_saveBtn">Save Return</button></div>';
+    document.getElementById('editorCard').innerHTML = '<h2>Sales Return — New</h2>' + html;
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    Array.prototype.forEach.call(document.querySelectorAll('.rtQty'), function (el) {
+      el.addEventListener('input', function () { r.saleLines[Number(el.dataset.idx)].returnQty = Number(el.value) || 0; });
+    });
+    document.getElementById('rt_saveBtn').addEventListener('click', saveReturn);
+  }
+
+  async function saveReturn() {
+    var r = returnEditing;
+    var errEl = document.getElementById('editorErr');
+    var toReturn = r.saleLines.filter(function (l) { return l.returnQty > 0; });
+    if (!toReturn.length) { errEl.textContent = 'Enter a return quantity for at least one line'; return; }
+    for (var i = 0; i < toReturn.length; i++) {
+      if (toReturn[i].returnQty > toReturn[i].returnable + 0.0001) {
+        errEl.textContent = 'Return quantity exceeds what is still returnable on that line';
+        return;
+      }
+    }
+
+    var { data: inserted, error: insErr } = await sb.from('sales_returns').insert({
+      sale_id: r.sale.id, party_id: r.sale.party_id, rdate: new Date().toISOString().slice(0, 10),
+      subtotal: toReturn.reduce(function (s, l) { return s + l.returnQty * l.rate; }, 0),
+      grand_total: toReturn.reduce(function (s, l) { return s + l.returnQty * l.rate; }, 0)
+    }).select().single();
+    if (insErr) { errEl.textContent = insErr.message; return; }
+
+    var { error: lineErr } = await sb.from('sales_return_lines').insert(
+      toReturn.map(function (l) {
+        return { return_id: inserted.id, sale_line_id: l.id, item_id: l.item_id, qty: l.returnQty, rate: l.rate, amount: l.returnQty * l.rate, warehouse_id: l.warehouse_id };
+      })
+    );
+    if (lineErr) { errEl.textContent = lineErr.message; return; } // e.g. the DB's own returnable-qty cap trigger firing on a race
+
+    closeEditor();
+    loadReturnsList();
+  }
+
+  async function deleteReturn() {
+    var r = returnEditing;
+    if (!confirm('Delete return ' + r.header.rno + '?')) return;
+    var { error } = await sb.from('sales_returns').update({ deleted_at: new Date().toISOString() }).eq('id', r.id);
+    if (error) { document.getElementById('editorErr').textContent = error.message; return; }
+    closeEditor(); loadReturnsList();
   }
 
   // ---------------------------------------------------------------
