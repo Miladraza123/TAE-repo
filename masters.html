@@ -76,8 +76,10 @@
   var TABS = [
     { key: 'parties', label: 'Parties' },
     { key: 'items', label: 'Items' },
+    { key: 'services', label: 'Services' },
     { key: 'companies', label: 'Firms' },
     { key: 'warehouses', label: 'Warehouses' },
+    { key: 'partykinds', label: 'Party Kinds' },
     { key: 'users', label: 'Manage Users' },
     { key: 'recyclebin', label: 'Recycle Bin' },
     { key: 'backup', label: 'Backup / Restore' }
@@ -136,6 +138,12 @@
 
         function openForm(id, rows) {
           var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : {};
+          // Captured ONCE, at open time — never re-derived at save time. This
+          // matters most for image fields (§25's exact critical gotcha):
+          // picking a logo mutates the live editing object immediately, so a
+          // save-time-derived "original" would look identical to "new" and
+          // the merge would wrongly conclude nothing changed.
+          var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null;
           var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' ' + opts.title.replace(/s$/, '') + '</h2><div class="grid">';
           opts.columns.forEach(function (c) {
             if (c.type === 'bool') {
@@ -173,8 +181,26 @@
               else payload[c.key] = document.getElementById('f_' + c.key).value;
             });
             var errEl = document.getElementById('formErr');
-            var res = id ? await sb.from(opts.table).update(payload).eq('id', id) : await sb.from(opts.table).insert(payload);
-            if (res.error) { errEl.textContent = res.error.message; return; }
+            if (id && opts.useMerge) {
+              var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
+                p_table: opts.table, p_id: id, p_original: originalSnapshot, p_new: payload
+              });
+              if (mergeErr) { errEl.textContent = mergeErr.message; return; }
+              if (mergeRes.status === 'deleted') { errEl.textContent = 'This record was deleted by someone else.'; return; }
+              if (mergeRes.status === 'conflict') {
+                var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
+                  p_table: opts.table, p_id: id, p_original: mergeRes.current, p_new: payload
+                });
+                if (retryErr) { errEl.textContent = retryErr.message; return; }
+                if (retryRes.status === 'conflict') {
+                  errEl.textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
+                  return;
+                }
+              }
+            } else {
+              var res = id ? await sb.from(opts.table).update(payload).eq('id', id) : await sb.from(opts.table).insert(payload);
+              if (res.error) { errEl.textContent = res.error.message; return; }
+            }
             broadcastRefresh(opts.table);
             render();
           });
@@ -192,7 +218,7 @@
   }
 
   var companiesCrud = simpleCrud({
-    table: 'companies', title: 'Firms',
+    table: 'companies', title: 'Firms', useMerge: true,
     columns: [
       { key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'phone', label: 'Phone' },
       { key: 'ntn', label: 'NTN' }, { key: 'is_default', label: 'Default', type: 'bool' },
@@ -202,6 +228,14 @@
   var warehousesCrud = simpleCrud({
     table: 'warehouses', title: 'Warehouses',
     columns: [{ key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'is_default', label: 'Default', type: 'bool' }, { key: 'active', label: 'Active', type: 'bool' }]
+  });
+  var servicesCrud = simpleCrud({
+    table: 'services', title: 'Services', useMerge: true,
+    columns: [{ key: 'name', label: 'Name' }, { key: 'rate', label: 'Rate' }, { key: 'tax_pct', label: 'Tax %' }, { key: 'notes', label: 'Notes' }, { key: 'active', label: 'Active', type: 'bool' }]
+  });
+  var partyKindsCrud = simpleCrud({
+    table: 'party_kinds', title: 'Party Kinds',
+    columns: [{ key: 'name', label: 'Name' }]
   });
 
   // ===================================================================
@@ -227,6 +261,7 @@
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { kind: 'customer', opening_side: 'dr', credit_days: 0, active: true };
+        var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null; // captured once, at open time (§25/§27)
         var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Party</h2><div class="grid">' +
           '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
           '<div><label>Kind</label><select id="f_kind">' +
@@ -268,12 +303,25 @@
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
           if (id) {
-            var res = await sb.from('parties').update(payload).eq('id', id);
-            if (res.error) {
-              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(res.error)
+            var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
+              p_table: 'parties', p_id: id, p_original: originalSnapshot, p_new: payload
+            });
+            if (mergeErr) {
+              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(mergeErr)
                 ? 'No internet — edits to an existing party need a connection (creating a NEW party works offline).'
-                : res.error.message;
+                : mergeErr.message;
               return;
+            }
+            if (mergeRes.status === 'deleted') { document.getElementById('formErr').textContent = 'This party was deleted by someone else.'; return; }
+            if (mergeRes.status === 'conflict') {
+              var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
+                p_table: 'parties', p_id: id, p_original: mergeRes.current, p_new: payload
+              });
+              if (retryErr) { document.getElementById('formErr').textContent = retryErr.message; return; }
+              if (retryRes.status === 'conflict') {
+                document.getElementById('formErr').textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
+                return;
+              }
             }
           } else {
             var newId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -312,6 +360,36 @@
   // ===================================================================
   // Items
   // ===================================================================
+  async function loadItemUnits(itemId) {
+    var { data } = await sb.from('item_units').select('*').eq('item_id', itemId).is('deleted_at', null).order('unit');
+    var units = data || [];
+    var wrap = document.getElementById('unitsWrap');
+    if (!wrap) return;
+    var html = '<div class="card"><h2>Alternate Units</h2><table><thead><tr><th>Unit</th><th>1 unit = how many base units</th><th></th></tr></thead><tbody>';
+    units.forEach(function (u) {
+      html += '<tr><td>' + esc(u.unit) + '</td><td>' + u.factor + '</td><td><button type="button" class="rmUnitBtn" data-id="' + u.id + '" style="color:var(--danger)">✕</button></td></tr>';
+    });
+    html += '</tbody></table><div style="display:flex;gap:8px;margin-top:8px;align-items:flex-end">' +
+      '<div><label>Unit name</label><input id="newUnitName" style="width:120px"></div>' +
+      '<div><label>Factor</label><input type="number" step="0.0001" id="newUnitFactor" value="1" style="width:100px"></div>' +
+      '<button type="button" id="addUnitBtn">+ Add unit</button></div></div>';
+    wrap.innerHTML = html;
+    Array.prototype.forEach.call(wrap.querySelectorAll('.rmUnitBtn'), function (btn) {
+      btn.addEventListener('click', async function () {
+        await sb.from('item_units').update({ deleted_at: new Date().toISOString() }).eq('id', btn.dataset.id);
+        loadItemUnits(itemId);
+      });
+    });
+    document.getElementById('addUnitBtn').addEventListener('click', async function () {
+      var unitName = document.getElementById('newUnitName').value.trim();
+      var factor = Number(document.getElementById('newUnitFactor').value) || 1;
+      if (!unitName) return;
+      var res = await sb.from('item_units').insert({ item_id: itemId, unit: unitName, factor: factor });
+      if (res.error) { alert(res.error.message); return; }
+      loadItemUnits(itemId);
+    });
+  }
+
   var itemsView = {
     async render() {
       var term = (document.getElementById('search').value || '').toLowerCase();
@@ -333,6 +411,7 @@
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { unit: 'pcs', active: true };
+        var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null; // captured once, at open time (§25/§27)
         var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Item</h2><div class="grid">' +
           '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
           '<div><label>Unit</label><input id="f_unit" value="' + esc(rec.unit) + '"></div>' +
@@ -345,10 +424,12 @@
           '<div><label>HS code</label><input id="f_hs_code" value="' + esc(rec.hs_code) + '"></div>' +
           '</div>' +
           (id ? '<p class="balance">Live stock: ' + rec.stock_qty + ' @ avg cost ' + rec.avg_cost + ' (computed by the costing engine — not editable directly)</p>' : '') +
+          (id ? '<div id="unitsWrap"></div>' : '') +
           '<div class="err" id="formErr"></div><div class="actions">' +
           (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
           '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
         document.getElementById('content').innerHTML = html2;
+        if (id) loadItemUnits(id);
 
         document.getElementById('cancelBtn').addEventListener('click', render);
         document.getElementById('saveBtn').addEventListener('click', async function () {
@@ -365,12 +446,25 @@
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
           if (id) {
-            var res = await sb.from('items').update(payload).eq('id', id);
-            if (res.error) {
-              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(res.error)
+            var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
+              p_table: 'items', p_id: id, p_original: originalSnapshot, p_new: payload
+            });
+            if (mergeErr) {
+              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(mergeErr)
                 ? 'No internet — edits to an existing item need a connection (creating a NEW item works offline).'
-                : res.error.message;
+                : mergeErr.message;
               return;
+            }
+            if (mergeRes.status === 'deleted') { document.getElementById('formErr').textContent = 'This item was deleted by someone else.'; return; }
+            if (mergeRes.status === 'conflict') {
+              var { data: retryRes, error: retryErr } = await sb.rpc('smart_merge_update', {
+                p_table: 'items', p_id: id, p_original: mergeRes.current, p_new: payload
+              });
+              if (retryErr) { document.getElementById('formErr').textContent = retryErr.message; return; }
+              if (retryRes.status === 'conflict') {
+                document.getElementById('formErr').textContent = 'Someone else changed "' + retryRes.conflicts.join(', ') + '" at the same time — reopen and redo your change.';
+                return;
+              }
             }
           } else {
             var newItemId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
@@ -502,6 +596,8 @@
     { table: 'items', label: 'Items', field: 'name' },
     { table: 'companies', label: 'Firms', field: 'name' },
     { table: 'warehouses', label: 'Warehouses', field: 'name' },
+    { table: 'services', label: 'Services', field: 'name' },
+    { table: 'party_kinds', label: 'Party Kinds', field: 'name' },
     { table: 'vouchers', label: 'Sales/Purchase Invoices', field: 'vno' },
     { table: 'sales_returns', label: 'Sales Returns', field: 'rno' },
     { table: 'quotations', label: 'Quotations', field: 'qno' },
@@ -633,7 +729,7 @@
     }
   };
 
-  var VIEWS = { parties: partiesView, items: itemsView, companies: companiesCrud, warehouses: warehousesCrud, users: usersView, recyclebin: recycleBinView, backup: backupView };
+  var VIEWS = { parties: partiesView, items: itemsView, services: servicesCrud, companies: companiesCrud, warehouses: warehousesCrud, partykinds: partyKindsCrud, users: usersView, recyclebin: recycleBinView, backup: backupView };
 
   async function render() {
     var v = VIEWS[activeTab];
