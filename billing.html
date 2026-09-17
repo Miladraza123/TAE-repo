@@ -67,6 +67,9 @@
     <button id="tabReturns">Returns</button>
     <button id="tabQuotations">Quotations</button>
     <button id="tabPOs">Purchase Orders</button>
+    <button id="tabServiceInvoices">Service Invoices</button>
+    <button id="tabServiceQuotations">Service Quotations</button>
+    <button id="tabStockTransfers">Stock Transfers</button>
   </div>
   <input type="search" id="search" placeholder="Search by number, party...">
   <button class="primary" id="newBtn">+ New</button>
@@ -197,6 +200,8 @@
   document.getElementById('search').addEventListener('input', function () {
     if (state.mode === 'return') renderReturnsList();
     else if (state.mode === 'quotation' || state.mode === 'po') renderDocsList(state.mode);
+    else if (state.mode === 'sinvoice' || state.mode === 'squote') renderServiceDocsList(state.mode);
+    else if (state.mode === 'transfer') renderTransfersList();
     else renderList();
   });
   document.getElementById('tabSale').addEventListener('click', function () { switchTab('sale'); });
@@ -204,19 +209,25 @@
   document.getElementById('tabReturns').addEventListener('click', function () { switchTab('return'); });
   document.getElementById('tabQuotations').addEventListener('click', function () { switchTab('quotation'); });
   document.getElementById('tabPOs').addEventListener('click', function () { switchTab('po'); });
+  document.getElementById('tabServiceInvoices').addEventListener('click', function () { switchTab('sinvoice'); });
+  document.getElementById('tabServiceQuotations').addEventListener('click', function () { switchTab('squote'); });
+  document.getElementById('tabStockTransfers').addEventListener('click', function () { switchTab('transfer'); });
   state.mode = 'voucher';
+  var ALL_TABS = { sale: 'tabSale', purchase: 'tabPurchase', return: 'tabReturns', quotation: 'tabQuotations', po: 'tabPOs', sinvoice: 'tabServiceInvoices', squote: 'tabServiceQuotations', transfer: 'tabStockTransfers' };
   function switchTab(vt) {
-    document.getElementById('tabSale').classList.toggle('active', vt === 'sale');
-    document.getElementById('tabPurchase').classList.toggle('active', vt === 'purchase');
-    document.getElementById('tabReturns').classList.toggle('active', vt === 'return');
-    document.getElementById('tabQuotations').classList.toggle('active', vt === 'quotation');
-    document.getElementById('tabPOs').classList.toggle('active', vt === 'po');
+    Object.keys(ALL_TABS).forEach(function (k) { document.getElementById(ALL_TABS[k]).classList.toggle('active', k === vt); });
     if (vt === 'return') {
       state.mode = 'return';
       loadReturnsList();
     } else if (vt === 'quotation' || vt === 'po') {
       state.mode = vt;
       loadDocsList(vt);
+    } else if (vt === 'sinvoice' || vt === 'squote') {
+      state.mode = vt;
+      loadServiceDocsList(vt);
+    } else if (vt === 'transfer') {
+      state.mode = 'transfer';
+      loadTransfersList();
     } else {
       state.mode = 'voucher';
       state.vtype = vt;
@@ -226,6 +237,8 @@
   document.getElementById('newBtn').addEventListener('click', function () {
     if (state.mode === 'return') openReturnEditor(null);
     else if (state.mode === 'quotation' || state.mode === 'po') openDocEditor(state.mode, null);
+    else if (state.mode === 'sinvoice' || state.mode === 'squote') openServiceDocEditor(state.mode, null);
+    else if (state.mode === 'transfer') openTransferEditor(null);
     else openEditor(null);
   });
 
@@ -1048,6 +1061,340 @@
     state.vtype = cfg.convertVtype;
     state.editing = { isNew: true, id: null, header: newHeader, lines: newLines, originalHeader: null, originalLines: [], convertingFrom: { type: d.type, id: d.id } };
     renderEditor();
+  }
+
+  // ---------------------------------------------------------------
+  // Service Invoices + Service Quotations (§6) — totals are DB-
+  // authoritative here (recompute_service_invoice_totals trigger), so the
+  // client never sends sub_total/tax_total/grand_total: insert the header
+  // first (defaults to 0), then insert lines, and the AFTER trigger fills
+  // the real totals in automatically.
+  // ---------------------------------------------------------------
+  var SVC_CONFIG = {
+    sinvoice: { table: 'service_invoices', lineTable: 'service_invoice_lines', fk: 'invoice_id', numField: 'sino', dateField: 'sidate', title: 'Service Invoice' },
+    squote: { table: 'service_quotations', lineTable: 'service_quotation_lines', fk: 'quotation_id', numField: 'sqno', dateField: 'sqdate', title: 'Service Quotation' }
+  };
+  var SVC_IGNORE = ['id', 'created_at', 'created_by', 'updated_at', 'updated_by', 'version', 'deleted_at', 'sub_total', 'tax_total', 'grand_total'];
+  var svcState = { list: [], services: [] };
+  var svcEditing = null;
+
+  async function loadServices() {
+    var { data } = await sb.from('services').select('id,name,rate,tax_pct').is('deleted_at', null).order('name');
+    svcState.services = data || [];
+  }
+
+  async function loadServiceDocsList(type) {
+    var cfg = SVC_CONFIG[type];
+    var { data, error } = await sb.from(cfg.table).select('*').is('deleted_at', null).order(cfg.dateField, { ascending: false }).limit(500);
+    if (error) { document.getElementById('listArea').innerHTML = '<p class="err">' + error.message + '</p>'; return; }
+    svcState.list = data || [];
+    renderServiceDocsList(type);
+  }
+
+  function renderServiceDocsList(type) {
+    var cfg = SVC_CONFIG[type];
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = svcState.list.filter(function (d) { return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0; });
+    var html = rows.length ? '<table><tbody>' : '<p style="color:var(--muted)">No ' + cfg.title.toLowerCase() + 's yet.</p>';
+    rows.forEach(function (d) {
+      html += '<tr class="row" data-id="' + d.id + '"><td style="width:110px"><strong>' + d[cfg.numField] + '</strong></td><td>' + d[cfg.dateField] + '</td>' +
+        '<td>' + partyName(d.party_id) + '</td><td style="text-align:right">' + fmtMoney(d.grand_total) + '</td><td><span class="badge">' + d.status + '</span></td></tr>';
+    });
+    if (rows.length) html += '</tbody></table>';
+    document.getElementById('listArea').innerHTML = html;
+    Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) { tr.addEventListener('click', function () { openServiceDocEditor(type, tr.dataset.id); }); });
+  }
+
+  async function openServiceDocEditor(type, id) {
+    await loadMasters(); await loadServices();
+    var cfg = SVC_CONFIG[type];
+    if (!id) {
+      var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
+      var h = { party_id: null, company_id: defCompany ? defCompany.id : null, narration: '', notes: '', tax_on: false, discount: 0, status: 'open' };
+      h[cfg.dateField] = new Date().toISOString().slice(0, 10);
+      if (type === 'sinvoice') h.paid = 0;
+      svcEditing = { type: type, isNew: true, id: null, header: h, lines: [{ id: null, service_id: null, description: '', qty: 1, rate: 0, tax_pct: 0, amount: 0 }], originalHeader: null, originalLines: [] };
+    } else {
+      var [{ data: header }, { data: lines }] = await Promise.all([
+        sb.from(cfg.table).select('*').eq('id', id).single(),
+        sb.from(cfg.lineTable).select('*').eq(cfg.fk, id).order('line_no')
+      ]);
+      if (!header) { alert('This record was deleted by someone else.'); loadServiceDocsList(type); return; }
+      svcEditing = { type: type, isNew: false, id: id, header: JSON.parse(JSON.stringify(header)), lines: JSON.parse(JSON.stringify(lines || [])),
+        originalHeader: JSON.parse(JSON.stringify(header)), originalLines: JSON.parse(JSON.stringify(lines || [])) };
+    }
+    renderServiceDocEditor();
+    document.getElementById('editorOverlay').classList.add('open');
+  }
+
+  function svcDisplayTotals() {
+    var d = svcEditing;
+    var sub = 0, tax = 0;
+    d.lines.forEach(function (l) {
+      var amt = (Number(l.qty) || 0) * (Number(l.rate) || 0);
+      sub += amt;
+      if (d.header.tax_on) tax += amt * (Number(l.tax_pct) || 0) / 100;
+    });
+    return { sub: sub, tax: tax, grand: sub - (Number(d.header.discount) || 0) + tax };
+  }
+
+  function renderServiceDocEditor() {
+    var d = svcEditing, cfg = SVC_CONFIG[d.type], h = d.header;
+    var totals = svcDisplayTotals();
+    var html = '<h2>' + cfg.title + (d.isNew ? ' — New' : ' — ' + h[cfg.numField]) + '</h2><div class="grid">' +
+      '<div><label>Date</label><input type="date" id="s_date" value="' + h[cfg.dateField] + '"></div>' +
+      '<div><label>Party</label><select id="s_party"><option value="">Pick…</option>' +
+      state.parties.filter(function (p) { return p.kind !== 'expense'; }).map(function (p) { return '<option value="' + p.id + '"' + (p.id === h.party_id ? ' selected' : '') + '>' + p.name + '</option>'; }).join('') +
+      '</select></div>' +
+      '<div><label><input type="checkbox" id="s_taxon"' + (h.tax_on ? ' checked' : '') + '> Tax</label></div>' +
+      '<div><label>Discount</label><input type="number" step="0.01" id="s_discount" value="' + h.discount + '"></div>' +
+      (d.type === 'sinvoice' ? '<div><label>Paid now</label><input type="number" step="0.01" id="s_paid" value="' + h.paid + '"></div>' : '<div><label>Valid till</label><input type="date" id="s_validtill" value="' + (h.valid_till || '') + '"></div>') +
+      '<div><label>Billing period label</label><input id="s_billinglabel" value="' + esc(h.billing_label) + '"></div>' +
+      '</div>';
+    html += '<table class="lines-table"><thead><tr><th>Service</th><th>Description</th><th>Qty</th><th>Rate</th>' + (h.tax_on ? '<th>Tax%</th>' : '') + '<th>Amount</th><th></th></tr></thead><tbody id="svcLinesBody"></tbody></table>';
+    html += '<button type="button" id="svcAddLineBtn" style="margin-top:8px">+ Add line</button>';
+    html += '<div><label style="margin-top:12px">Notes</label><textarea id="s_notes">' + esc(h.notes) + '</textarea></div>';
+    html += '<div class="totals"><table>' +
+      '<tr><td>Sub total</td><td>' + fmtMoney(totals.sub) + '</td></tr>' +
+      '<tr><td>Discount</td><td>-' + fmtMoney(h.discount) + '</td></tr>' +
+      (h.tax_on ? '<tr><td>Tax</td><td>' + fmtMoney(totals.tax) + '</td></tr>' : '') +
+      '<tr><td><strong>Grand total</strong></td><td><strong>' + fmtMoney(totals.grand) + '</strong></td></tr>' +
+      '<tr><td colspan="2" style="color:var(--muted);font-size:11px">Totals shown are a live preview — the database recomputes the authoritative figures on save.</td></tr>' +
+      '</table></div>';
+    html += '<div class="err" id="editorErr"></div><div class="actions">' +
+      (!d.isNew ? '<button class="danger" id="svcDeleteBtn">Delete</button>' : '') +
+      (!d.isNew && d.type === 'squote' && h.status === 'open' ? '<button id="svcConvertBtn">Convert to Service Invoice</button>' : '') +
+      '<button id="cancelBtn">Cancel</button><button class="primary" id="svcSaveBtn">Save</button></div>';
+
+    document.getElementById('editorCard').innerHTML = html;
+    renderSvcLines();
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    document.getElementById('s_date').addEventListener('input', function () { h[cfg.dateField] = this.value; });
+    document.getElementById('s_party').addEventListener('change', function () { h.party_id = this.value || null; });
+    document.getElementById('s_taxon').addEventListener('change', function () { h.tax_on = this.checked; renderServiceDocEditor(); });
+    document.getElementById('s_discount').addEventListener('input', function () { h.discount = Number(this.value) || 0; renderServiceDocEditor(); });
+    document.getElementById('s_billinglabel').addEventListener('input', function () { h.billing_label = this.value; });
+    document.getElementById('s_notes').addEventListener('input', function () { h.notes = this.value; });
+    if (d.type === 'sinvoice') document.getElementById('s_paid').addEventListener('input', function () { h.paid = Number(this.value) || 0; renderServiceDocEditor(); });
+    else document.getElementById('s_validtill').addEventListener('input', function () { h.valid_till = this.value || null; });
+    document.getElementById('svcAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, service_id: null, description: '', qty: 1, rate: 0, tax_pct: 0 }); renderSvcLines(); });
+    document.getElementById('svcSaveBtn').addEventListener('click', saveServiceDoc);
+    var delBtn = document.getElementById('svcDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteServiceDoc);
+    var convBtn = document.getElementById('svcConvertBtn'); if (convBtn) convBtn.addEventListener('click', convertServiceDoc);
+  }
+
+  function renderSvcLines() {
+    var d = svcEditing, h = d.header;
+    var body = document.getElementById('svcLinesBody');
+    body.innerHTML = d.lines.map(function (l, idx) {
+      return '<tr>' +
+        '<td><select data-i="' + idx + '" data-f="service_id" class="slf"><option value="">—</option>' +
+        svcState.services.map(function (s) { return '<option value="' + s.id + '"' + (s.id === l.service_id ? ' selected' : '') + '>' + esc(s.name) + '</option>'; }).join('') + '</select></td>' +
+        '<td><input data-i="' + idx + '" data-f="description" class="slf" value="' + esc(l.description) + '"></td>' +
+        '<td><input type="number" step="0.001" data-i="' + idx + '" data-f="qty" class="slf" value="' + l.qty + '" style="width:70px"></td>' +
+        '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="rate" class="slf" value="' + l.rate + '" style="width:80px"></td>' +
+        (h.tax_on ? '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="tax_pct" class="slf" value="' + l.tax_pct + '" style="width:60px"></td>' : '') +
+        '<td style="text-align:right">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>' +
+        '<td><button type="button" data-i="' + idx + '" class="slRmLine" style="color:var(--danger)">✕</button></td></tr>';
+    }).join('');
+    Array.prototype.forEach.call(body.querySelectorAll('.slf'), function (el) {
+      el.addEventListener('change', function () {
+        var idx = Number(el.dataset.i), f = el.dataset.f;
+        var line = d.lines[idx];
+        line[f] = (f === 'qty' || f === 'rate' || f === 'tax_pct') ? Number(el.value) : el.value;
+        if (f === 'service_id') {
+          var svc = svcState.services.filter(function (s) { return s.id === el.value; })[0];
+          if (svc) { if (!line.rate) line.rate = svc.rate; if (!line.tax_pct) line.tax_pct = svc.tax_pct; if (!line.description) line.description = svc.name; }
+        }
+        renderServiceDocEditor();
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.slRmLine'), function (btn) {
+      btn.addEventListener('click', function () { d.lines.splice(Number(btn.dataset.i), 1); renderServiceDocEditor(); });
+    });
+  }
+
+  async function saveServiceDoc() {
+    var d = svcEditing, cfg = SVC_CONFIG[d.type];
+    var errEl = document.getElementById('editorErr');
+    errEl.textContent = '';
+    if (!d.header.party_id) { errEl.textContent = 'Pick a party first'; return; }
+    var validLines = d.lines.filter(function (l) { return (l.service_id || l.description) && Number(l.qty) > 0; });
+    if (!validLines.length) { errEl.textContent = 'Add at least one line with a quantity'; return; }
+
+    try {
+      if (d.isNew) {
+        var { data: inserted, error: insErr } = await sb.from(cfg.table).insert(d.header).select().single();
+        if (insErr) return handleSaveError(insErr, errEl);
+        var { error: lineErr } = await sb.from(cfg.lineTable).insert(
+          validLines.map(function (l) { var c = Object.assign({}, l); delete c.id; c[cfg.fk] = inserted.id; return c; })
+        );
+        if (lineErr) { errEl.textContent = lineErr.message; return; }
+        closeEditor(); loadServiceDocsList(d.type);
+        return;
+      }
+
+      var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: d.originalHeader, p_new: d.header, p_ignore: SVC_IGNORE });
+      if (mergeErr) return handleSaveError(mergeErr, errEl);
+      if (mergeRes.status === 'conflict') {
+        var { data: retryRes } = await sb.rpc('smart_merge_update', { p_table: cfg.table, p_id: d.id, p_original: mergeRes.current, p_new: d.header, p_ignore: SVC_IGNORE });
+        if (retryRes.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt "' + retryRes.conflicts.join(', ') + '" badal diya — taaza dekh kar dobara karein'; return; }
+      }
+
+      var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines });
+      if (lmErr) return handleSaveError(lmErr, errEl);
+      if (lineMerge.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt lines mein "' + lineMerge.conflicts.join(', ') + '" badal diya'; return; }
+      await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+
+      closeEditor(); loadServiceDocsList(d.type);
+    } catch (ex) {
+      errEl.textContent = ex.message || String(ex);
+    }
+  }
+
+  async function deleteServiceDoc() {
+    var d = svcEditing, cfg = SVC_CONFIG[d.type];
+    if (!confirm('Delete ' + d.header[cfg.numField] + '?')) return;
+    var { error } = await sb.from(cfg.table).update({ deleted_at: new Date().toISOString() }).eq('id', d.id);
+    if (error) { document.getElementById('editorErr').textContent = error.message; return; }
+    closeEditor(); loadServiceDocsList(d.type);
+  }
+
+  async function convertServiceDoc() {
+    var d = svcEditing;
+    var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
+    var { data: inserted, error: insErr } = await sb.from('service_invoices').insert({
+      party_id: d.header.party_id, company_id: d.header.company_id || (defCompany ? defCompany.id : null),
+      billing_from: d.header.billing_from, billing_to: d.header.billing_to, billing_label: d.header.billing_label,
+      narration: d.header.narration, notes: d.header.notes, tax_on: d.header.tax_on, discount: d.header.discount, paid: 0
+    }).select().single();
+    if (insErr) { document.getElementById('editorErr').textContent = insErr.message; return; }
+    var validLines = d.lines.filter(function (l) { return (l.service_id || l.description) && Number(l.qty) > 0; });
+    await sb.from('service_invoice_lines').insert(validLines.map(function (l) {
+      return { invoice_id: inserted.id, service_id: l.service_id, description: l.description, qty: l.qty, rate: l.rate, tax_pct: l.tax_pct };
+    }));
+    await sb.from('service_quotations').update({ status: 'converted', converted_invoice_id: inserted.id, converted_at: new Date().toISOString() }).eq('id', d.id);
+    closeEditor();
+    openServiceDocEditor('sinvoice', inserted.id);
+  }
+
+  // ---------------------------------------------------------------
+  // Stock Transfers (§17) — record-of-intent only, NO stock/cost effect
+  // ---------------------------------------------------------------
+  var transferEditing = null;
+  var transferState = { list: [] };
+
+  async function loadTransfersList() {
+    var { data, error } = await sb.from('stock_transfers').select('*').is('deleted_at', null).order('tdate', { ascending: false }).limit(500);
+    if (error) { document.getElementById('listArea').innerHTML = '<p class="err">' + error.message + '</p>'; return; }
+    transferState.list = data || [];
+    renderTransfersList();
+  }
+
+  function warehouseName(id) { var w = state.warehouses.filter(function (x) { return x.id === id; })[0]; return w ? w.name : '—'; }
+
+  function renderTransfersList() {
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = transferState.list.filter(function (t) { return !term || (t.tno || '').toLowerCase().indexOf(term) >= 0; });
+    var html = rows.length ? '<table><tbody>' : '<p style="color:var(--muted)">No stock transfers yet.</p>';
+    rows.forEach(function (t) {
+      html += '<tr class="row" data-id="' + t.id + '"><td style="width:110px"><strong>' + t.tno + '</strong></td><td>' + t.tdate + '</td>' +
+        '<td>' + warehouseName(t.from_warehouse) + ' → ' + warehouseName(t.to_warehouse) + '</td></tr>';
+    });
+    if (rows.length) html += '</tbody></table>';
+    document.getElementById('listArea').innerHTML = html;
+    Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) { tr.addEventListener('click', function () { openTransferEditor(tr.dataset.id); }); });
+  }
+
+  async function openTransferEditor(id) {
+    await loadMasters();
+    if (!id) {
+      transferEditing = { isNew: true, id: null, header: { tdate: new Date().toISOString().slice(0, 10), from_warehouse: null, to_warehouse: null, narration: '' }, lines: [{ id: null, item_id: null, qty: 0 }] };
+    } else {
+      var [{ data: header }, { data: lines }] = await Promise.all([
+        sb.from('stock_transfers').select('*').eq('id', id).single(),
+        sb.from('stock_transfer_lines').select('*').eq('transfer_id', id).order('line_no')
+      ]);
+      if (!header) { alert('This record was deleted by someone else.'); loadTransfersList(); return; }
+      transferEditing = { isNew: false, id: id, header: header, lines: lines || [] };
+    }
+    renderTransferEditor();
+    document.getElementById('editorOverlay').classList.add('open');
+  }
+
+  function renderTransferEditor() {
+    var t = transferEditing, h = t.header;
+    var html = '<h2>Stock Transfer' + (t.isNew ? ' — New' : ' — ' + h.tno) + '</h2><div class="grid">' +
+      '<div><label>Date</label><input type="date" id="t_date" value="' + h.tdate + '"></div>' +
+      '<div><label>From warehouse</label><select id="t_from">' + warehouseOptions(h.from_warehouse) + '</select></div>' +
+      '<div><label>To warehouse</label><select id="t_to">' + warehouseOptions(h.to_warehouse) + '</select></div>' +
+      '</div>';
+    html += '<table class="lines-table"><thead><tr><th>Item</th><th>Qty</th><th></th></tr></thead><tbody id="trLinesBody"></tbody></table>';
+    html += '<button type="button" id="trAddLineBtn" style="margin-top:8px">+ Add line</button>';
+    html += '<div><label style="margin-top:12px">Narration</label><textarea id="t_narration">' + esc(h.narration) + '</textarea></div>';
+    html += '<div class="err" id="editorErr"></div><div class="actions">' +
+      (!t.isNew ? '<button class="danger" id="trDeleteBtn">Delete</button>' : '') +
+      '<button id="cancelBtn">Cancel</button><button class="primary" id="trSaveBtn">Save</button></div>';
+    document.getElementById('editorCard').innerHTML = html;
+    renderTransferLines();
+
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    document.getElementById('t_date').addEventListener('input', function () { h.tdate = this.value; });
+    document.getElementById('t_from').addEventListener('change', function () { h.from_warehouse = this.value || null; });
+    document.getElementById('t_to').addEventListener('change', function () { h.to_warehouse = this.value || null; });
+    document.getElementById('t_narration').addEventListener('input', function () { h.narration = this.value; });
+    document.getElementById('trAddLineBtn').addEventListener('click', function () { t.lines.push({ id: null, item_id: null, qty: 0 }); renderTransferLines(); });
+    document.getElementById('trSaveBtn').addEventListener('click', saveTransfer);
+    var delBtn = document.getElementById('trDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteTransfer);
+  }
+
+  function renderTransferLines() {
+    var t = transferEditing;
+    var body = document.getElementById('trLinesBody');
+    body.innerHTML = t.lines.map(function (l, idx) {
+      return '<tr><td><select data-i="' + idx + '" data-f="item_id" class="trf">' + itemOptions(l.item_id) + '</select></td>' +
+        '<td><input type="number" step="0.001" data-i="' + idx + '" data-f="qty" class="trf" value="' + l.qty + '"></td>' +
+        '<td><button type="button" data-i="' + idx + '" class="trRmLine" style="color:var(--danger)">✕</button></td></tr>';
+    }).join('');
+    Array.prototype.forEach.call(body.querySelectorAll('.trf'), function (el) {
+      el.addEventListener('change', function () {
+        var idx = Number(el.dataset.i), f = el.dataset.f;
+        t.lines[idx][f] = f === 'qty' ? Number(el.value) : el.value;
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.trRmLine'), function (btn) {
+      btn.addEventListener('click', function () { t.lines.splice(Number(btn.dataset.i), 1); renderTransferLines(); });
+    });
+  }
+
+  async function saveTransfer() {
+    var t = transferEditing;
+    var errEl = document.getElementById('editorErr');
+    if (!t.header.from_warehouse || !t.header.to_warehouse) { errEl.textContent = 'Pick both warehouses'; return; }
+    if (t.header.from_warehouse === t.header.to_warehouse) { errEl.textContent = 'From and To warehouses must be different'; return; }
+    var validLines = t.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+    if (!validLines.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
+
+    if (t.isNew) {
+      var { data: inserted, error: insErr } = await sb.from('stock_transfers').insert(t.header).select().single();
+      if (insErr) { errEl.textContent = insErr.message; return; }
+      var { error: lineErr } = await sb.from('stock_transfer_lines').insert(validLines.map(function (l) { return { transfer_id: inserted.id, item_id: l.item_id, qty: l.qty }; }));
+      if (lineErr) { errEl.textContent = lineErr.message; return; }
+    } else {
+      var { error: updErr } = await sb.from('stock_transfers').update(t.header).eq('id', t.id);
+      if (updErr) { errEl.textContent = updErr.message; return; }
+      await sb.from('stock_transfer_lines').delete().eq('transfer_id', t.id);
+      await sb.from('stock_transfer_lines').insert(validLines.map(function (l) { return { transfer_id: t.id, item_id: l.item_id, qty: l.qty }; }));
+    }
+    closeEditor(); loadTransfersList();
+  }
+
+  async function deleteTransfer() {
+    var t = transferEditing;
+    if (!confirm('Delete transfer ' + t.header.tno + '?')) return;
+    var { error } = await sb.from('stock_transfers').update({ deleted_at: new Date().toISOString() }).eq('id', t.id);
+    if (error) { document.getElementById('editorErr').textContent = error.message; return; }
+    closeEditor(); loadTransfersList();
   }
 
   // ---------------------------------------------------------------
