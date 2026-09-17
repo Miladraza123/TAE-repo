@@ -86,6 +86,7 @@
 <div id="printArea"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="offline-queue.js"></script>
 <script>
 (function () {
   'use strict';
@@ -138,6 +139,16 @@
   function fmtMoney(n) {
     n = Number(n || 0);
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+
+  function newId_fallback() {
+    // RFC4122-ish v4 UUID for browsers/contexts without crypto.randomUUID
+    // (e.g. non-HTTPS). Only used as a client-generated id for offline
+    // queueing, never depended on for cryptographic uniqueness guarantees.
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0, v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
   }
 
   // ---------------------------------------------------------------
@@ -563,14 +574,45 @@
 
     try {
       if (e.isNew) {
-        var { data: inserted, error: insErr } = await sb.from('vouchers').insert(payload).select().single();
-        if (insErr) return handleSaveError(insErr, errEl);
+        // Generate the id client-side (§14: "the browser generates the
+        // row's real uuid before going online") so an offline insert can
+        // still be queued — the lines can reference this id immediately,
+        // and a retried insert with the same id is a safe no-op (23505).
+        // The trade-off: vno isn't known until the queued insert actually
+        // reaches the server and the numbering trigger fires.
+        var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
+        var headerPayload = Object.assign({ id: newId }, payload);
         var linesPayload = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; })
-          .map(function (l) { var c = Object.assign({}, l); delete c.id; return c; });
-        var { error: lineErr } = await sb.from('voucher_lines').insert(
-          linesPayload.map(function (l) { return Object.assign({}, l, { voucher_id: inserted.id }); })
-        );
-        if (lineErr) { errEl.textContent = lineErr.message; return; }
+          .map(function (l) { var c = Object.assign({}, l); delete c.id; c.voucher_id = newId; return c; });
+
+        if (!navigator.onLine) {
+          OfflineQueue.enqueue({ kind: 'insert', table: 'vouchers', payload: headerPayload });
+          OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
+          errEl.textContent = '';
+          alert('No internet — saved locally as pending. It will get its real invoice number once synced.');
+          closeEditor(); loadList();
+          return;
+        }
+
+        var { data: inserted, error: insErr } = await sb.from('vouchers').insert(headerPayload).select().single();
+        if (insErr) {
+          if (OfflineQueue.isNetworkError(insErr)) {
+            OfflineQueue.enqueue({ kind: 'insert', table: 'vouchers', payload: headerPayload });
+            OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
+            alert('No internet — saved locally as pending. It will get its real invoice number once synced.');
+            closeEditor(); loadList();
+            return;
+          }
+          return handleSaveError(insErr, errEl);
+        }
+        var { error: lineErr } = await sb.from('voucher_lines').insert(linesPayload);
+        if (lineErr) {
+          if (OfflineQueue.isNetworkError(lineErr)) {
+            OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
+          } else {
+            errEl.textContent = lineErr.message; return;
+          }
+        }
 
         // If this invoice was created via "Convert to Sale/Purchase" from a
         // quotation/PO, stamp the SOURCE doc as converted only now that the
@@ -1462,6 +1504,7 @@
     }
     await loadMasters();
     await loadList();
+    OfflineQueue.startAutoFlush(sb);
   })();
 })();
 </script>

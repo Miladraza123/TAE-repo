@@ -52,6 +52,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
+<script src="offline-queue.js"></script>
 <script>
 (function () {
   'use strict';
@@ -266,8 +267,33 @@
             notes: document.getElementById('f_notes').value || null
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
-          var res = id ? await sb.from('parties').update(payload).eq('id', id) : await sb.from('parties').insert(payload);
-          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          if (id) {
+            var res = await sb.from('parties').update(payload).eq('id', id);
+            if (res.error) {
+              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(res.error)
+                ? 'No internet — edits to an existing party need a connection (creating a NEW party works offline).'
+                : res.error.message;
+              return;
+            }
+          } else {
+            var newId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
+            var withId = Object.assign({ id: newId }, payload);
+            if (!navigator.onLine) {
+              OfflineQueue.enqueue({ kind: 'insert', table: 'parties', payload: withId });
+              alert('No internet — saved locally, will sync automatically.');
+            } else {
+              var insRes = await sb.from('parties').insert(withId);
+              if (insRes.error) {
+                if (OfflineQueue.isNetworkError(insRes.error)) {
+                  OfflineQueue.enqueue({ kind: 'insert', table: 'parties', payload: withId });
+                  alert('No internet — saved locally, will sync automatically.');
+                } else {
+                  document.getElementById('formErr').textContent = insRes.error.message;
+                  return;
+                }
+              }
+            }
+          }
           broadcastRefresh('parties');
           render();
         });
@@ -338,8 +364,33 @@
             hs_code: document.getElementById('f_hs_code').value || null
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
-          var res = id ? await sb.from('items').update(payload).eq('id', id) : await sb.from('items').insert(payload);
-          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          if (id) {
+            var res = await sb.from('items').update(payload).eq('id', id);
+            if (res.error) {
+              document.getElementById('formErr').textContent = OfflineQueue.isNetworkError(res.error)
+                ? 'No internet — edits to an existing item need a connection (creating a NEW item works offline).'
+                : res.error.message;
+              return;
+            }
+          } else {
+            var newItemId = crypto.randomUUID ? crypto.randomUUID() : (Date.now() + '-' + Math.random().toString(36).slice(2));
+            var withId = Object.assign({ id: newItemId }, payload);
+            if (!navigator.onLine) {
+              OfflineQueue.enqueue({ kind: 'insert', table: 'items', payload: withId });
+              alert('No internet — saved locally, will sync automatically.');
+            } else {
+              var insRes = await sb.from('items').insert(withId);
+              if (insRes.error) {
+                if (OfflineQueue.isNetworkError(insRes.error)) {
+                  OfflineQueue.enqueue({ kind: 'insert', table: 'items', payload: withId });
+                  alert('No internet — saved locally, will sync automatically.');
+                } else {
+                  document.getElementById('formErr').textContent = insRes.error.message;
+                  return;
+                }
+              }
+            }
+          }
           broadcastRefresh('items');
           render();
         });
@@ -599,6 +650,7 @@
     if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
     buildTabs();
     render();
+    OfflineQueue.startAutoFlush(sb);
   })();
 })();
 </script>
