@@ -19,8 +19,9 @@
 <style>
   :root{
     --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
-    --paper:#FFFFFF; --desk:#DDE1E6; --panel:#F5F7F8;
+    --paper:#FFFFFF; --desk:#DDE1E6; --warmbg:#FCFAF7; --panel:#F5F0E8;
     --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
+    --loginAccent:#A0522D; --loginAccentHover:#8B4226;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
@@ -55,37 +56,80 @@
   #topbar .spacer{flex:1;}
   #topbar .status{font-size:11.5px; color:#9AA5B1; margin-right:10px; white-space:nowrap;}
   #topbar .status.offline{color:#E8A5A5;}
-  #topbar button.signout{
+  #topbar button.signout, #topbar button.install{
     flex:none; background:#2C3742; border:1px solid var(--slate); color:var(--desk);
     padding:6px 12px; border-radius:7px; cursor:pointer; font-size:12.5px; font-weight:500;
   }
-  #topbar button.signout:hover{background:#374350;}
-  #frames{flex:1; position:relative; background:var(--desk);}
+  #topbar button.signout:hover, #topbar button.install:hover{background:#374350;}
+  #topbar button.install{margin-right:8px;}
+  .modalOverlay{
+    position:fixed; inset:0; z-index:50; background:rgba(31,41,51,.45); display:none;
+    align-items:center; justify-content:center; padding:22px;
+  }
+  .modalOverlay.open{display:flex;}
+  .modalOverlay .box{
+    background:var(--paper); border-radius:12px; padding:20px; width:100%; max-width:360px;
+    box-shadow:0 10px 34px rgba(0,0,0,.26);
+  }
+  .modalOverlay h4{margin:0 0 7px; font-size:15.5px; font-weight:600; color:var(--ink);}
+  .modalOverlay p{margin:0 0 17px; font-size:13.5px; color:var(--slate); line-height:1.55;}
+  .modalOverlay .acts{display:flex; gap:8px; justify-content:flex-end;}
+  .modalOverlay button.ok{
+    border:1px solid var(--line); background:var(--paper); border-radius:8px;
+    padding:9px 14px; font-size:13.5px; font-weight:600; cursor:pointer; color:var(--ink);
+  }
+  .modalOverlay button.ok:hover{background:var(--panel);}
+  #frames{flex:1; position:relative; background:var(--desk); display:none;}
   #frames iframe{
     position:absolute; inset:0; width:100%; height:100%; border:0; display:none; background:var(--desk);
   }
   #frames iframe.active{display:block;}
   #authScreen{
-    flex:1; display:flex; align-items:center; justify-content:center; padding:16px; background:var(--desk);
+    flex:1; display:flex; align-items:center; justify-content:center; padding:16px 16px 32px; background:var(--warmbg);
   }
+  #authScreen .authInner{ width:100%; max-width:360px; display:flex; flex-direction:column; align-items:center; }
+  #authScreen .logoWrap{ margin-bottom:28px; }
+  #authScreen .logoPlate{ display:block; }
+  #authScreen .logoPlate img{ width:190px; display:block; margin:0 auto; }
   #authScreen .card{
-    background:var(--paper); border-radius:12px; box-shadow:0 10px 34px rgba(31,41,51,.16);
-    padding:28px; width:100%; max-width:360px;
+    background:var(--paper); border-radius:16px; box-shadow:0 10px 34px rgba(31,41,51,.10);
+    padding:28px; width:100%;
   }
-  #authScreen h1{font-size:17px; margin:0 0 18px; font-weight:600; color:var(--ink);}
+  #authScreen label{ display:block; font-size:14px; font-weight:600; color:var(--ink); margin-bottom:6px; }
   #authScreen input{
-    width:100%; padding:10px 12px; margin-bottom:10px; border-radius:8px;
+    width:100%; padding:12px 14px; margin-bottom:18px; border-radius:10px;
     border:1px solid var(--line); background:var(--panel); color:var(--ink); font-size:14px;
     font-family:inherit;
   }
-  #authScreen input:focus{outline:none; border-color:var(--accent);}
+  #authScreen input:focus{outline:none; border-color:var(--loginAccent);}
   #authScreen button{
-    width:100%; padding:10px; border-radius:8px; border:0; background:var(--accent);
-    color:#fff; font-size:14px; cursor:pointer; font-weight:600; font-family:inherit;
+    width:100%; padding:13px; border-radius:10px; border:0; background:var(--loginAccent);
+    color:#fff; font-size:15px; cursor:pointer; font-weight:600; font-family:inherit;
   }
-  #authScreen button:hover{background:#8F6B27;}
+  #authScreen button:hover{background:var(--loginAccentHover);}
   #authScreen .err{color:var(--debit); font-size:13px; margin-top:10px; min-height:16px;}
-  #loading{flex:1; display:flex; align-items:center; justify-content:center; color:var(--slate); background:var(--desk);}
+  #authScreen .powered{ margin-top:20px; font-size:13px; color:var(--mute); text-align:center; }
+  #loading{flex:1; display:flex; align-items:center; justify-content:center; color:var(--slate); background:var(--warmbg);}
+
+  /* Dark mode (§ sign-in screen only — matches the two approved previews;
+     the rest of the app, inside #topbar/#frames, keeps its one light
+     "paper and ink" theme, which was never part of what was previewed). */
+  @media (prefers-color-scheme: dark){
+    #authScreen, #loading{ background:#14181F; }
+    #authScreen .logoPlate{
+      background:#fff; border-radius:14px; padding:20px 26px;
+      box-shadow:0 8px 24px rgba(0,0,0,.4);
+    }
+    #authScreen .card{
+      background:#1C222C; border:1px solid #2C3440; box-shadow:none;
+    }
+    #authScreen label{ color:#E4E7EB; }
+    #authScreen input{ background:#11151C; border-color:#2C3440; color:#E4E7EB; }
+    #authScreen button{ background:#D2823E; }
+    #authScreen button:hover{ background:#C06F2C; }
+    #authScreen .powered{ color:#8A93A0; }
+    #loading{ color:#8A93A0; }
+  }
 </style>
 </head>
 <body>
@@ -93,12 +137,19 @@
 <div id="loading">Loading…</div>
 
 <div id="authScreen" style="display:none">
-  <div class="card">
-    <h1>OHT Accounting System — Sign in</h1>
-    <input id="authEmail" type="email" placeholder="Email" autocomplete="username">
-    <input id="authPass" type="password" placeholder="Password" autocomplete="current-password">
-    <button id="authBtn">Sign in</button>
-    <div class="err" id="authErr"></div>
+  <div class="authInner">
+    <div class="logoWrap">
+      <div class="logoPlate"><img src="icons/oht-solutions-logo.png" alt="OHT Solutions"></div>
+    </div>
+    <div class="card">
+      <label for="authEmail">Email</label>
+      <input id="authEmail" type="email" placeholder="you@company.com" autocomplete="username">
+      <label for="authPass">Password</label>
+      <input id="authPass" type="password" placeholder="••••••••" autocomplete="current-password">
+      <button id="authBtn">Sign in</button>
+      <div class="err" id="authErr"></div>
+    </div>
+    <div class="powered">Powered by "OHT Solutions"</div>
   </div>
 </div>
 
@@ -109,9 +160,18 @@
   <div class="spacer"></div>
   <span class="status offline" id="failedStatus" style="display:none"></span>
   <span class="status" id="netStatus"></span>
+  <button class="install" id="installBtn" style="display:none">⭳ Install</button>
   <button class="signout" id="signOutBtn">Sign out</button>
 </div>
 <div id="frames"></div>
+
+<div class="modalOverlay" id="installStepsModal">
+  <div class="box">
+    <h4>Install the app</h4>
+    <p id="installStepsBody">…</p>
+    <div class="acts"><button class="ok" id="installStepsClose">OK</button></div>
+  </div>
+</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -244,6 +304,7 @@
     authEl.style.display = 'none';
     loadingEl.style.display = 'none';
     topbarEl.style.display = 'flex';
+    framesEl.style.display = 'block';
     buildTabs();
     var last = 'masters';
     try { last = localStorage.getItem('oht:lastTab') || 'masters'; } catch (e) {}
@@ -299,6 +360,57 @@
       navigator.serviceWorker.register('sw.js').catch(function () {});
     });
   }
+
+  // ---------------------------------------------------------------
+  // PWA install button — always visible until installed, whether or not
+  // the browser offers its own native prompt: Chrome/Edge get the native
+  // install popup via 'beforeinstallprompt'; Safari/Firefox/anything else
+  // gets manual steps instead, so the button works everywhere.
+  // ---------------------------------------------------------------
+  var deferredInstallPrompt = null;
+  var installBtn = document.getElementById('installBtn');
+  function alreadyInstalled() {
+    return window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
+  }
+  var ua = navigator.userAgent || '';
+  var isIOS = /iPhone|iPad|iPod/.test(ua);
+  var isSafari = /^((?!chrome|android|crios|fxios|edgios).)*safari/i.test(ua);
+  var isFirefox = /firefox|fxios/i.test(ua);
+
+  if (!alreadyInstalled()) {
+    installBtn.style.display = '';
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+    });
+  }
+  window.addEventListener('appinstalled', function () { installBtn.style.display = 'none'; });
+
+  installBtn.addEventListener('click', function () {
+    if (deferredInstallPrompt) {
+      deferredInstallPrompt.prompt();
+      deferredInstallPrompt.userChoice.then(function () {
+        deferredInstallPrompt = null;
+        installBtn.style.display = 'none';
+      });
+      return;
+    }
+    var steps;
+    if (isIOS && isSafari) {
+      steps = 'Tap the <b>Share</b> button (⬆️) below, then choose <b>"Add to Home Screen"</b>.';
+    } else if (isSafari) {
+      steps = 'From Safari’s <b>File</b> menu, choose <b>"Add to Dock"</b> (or "Add to Home Screen").';
+    } else if (isFirefox) {
+      steps = 'Firefox does not support the install button yet. Copy this page’s link and open it in Chrome/Edge to install.';
+    } else {
+      steps = 'Open the browser’s <b>3-dot menu</b> (⋮) and choose <b>"Install app"</b> or <b>"Add to Home screen"</b>.';
+    }
+    document.getElementById('installStepsBody').innerHTML = steps;
+    document.getElementById('installStepsModal').classList.add('open');
+  });
+  document.getElementById('installStepsClose').addEventListener('click', function () {
+    document.getElementById('installStepsModal').classList.remove('open');
+  });
 })();
 </script>
 </body>
