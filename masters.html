@@ -999,8 +999,16 @@
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { is_active: true, perms: {} };
         var perms = rec.perms || {};
         var body = '';
-        if (!id) body += '<div class="field"><label for="f_id">Supabase Auth user ID</label><input id="f_id" placeholder="paste the auth.users id created in Supabase Dashboard">' +
-          '<div class="hint">Create the sign-in account in the Supabase Dashboard first, then paste its user id here.</div></div>';
+        if (!id) {
+          body += '<div class="field"><label for="f_email">Email</label><input id="f_email" type="email" placeholder="name@example.com"></div>' +
+            '<div class="field"><label for="f_password">Password</label><input id="f_password" type="password" placeholder="at least 8 characters">' +
+            '<div class="hint">Give this password to the new user — they can change it themselves later from their own account.</div></div>';
+        } else {
+          body += '<div class="group-lbl">Reset password</div>' +
+            '<div class="field"><label for="f_newpw">New password</label><input id="f_newpw" type="password" placeholder="leave blank to keep the current password"></div>' +
+            '<button type="button" class="btn" id="setPwBtn">Set new password</button>' +
+            '<div class="warn-txt" id="pwErr"></div>';
+        }
         body += '<div class="field"><label for="f_username">Username</label><input id="f_username" value="' + esc(rec.username) + '"></div>' +
           '<div class="swrow"><label class="sw"><input type="checkbox" id="f_is_admin"' + (rec.is_admin ? ' checked' : '') + '><span class="trk"></span></label>' +
           '<span class="swlbl">Admin — bypasses all permission checks</span></div>' +
@@ -1025,6 +1033,24 @@
         });
 
         document.getElementById('cancelBtn').addEventListener('click', closeSheet);
+
+        if (id) {
+          document.getElementById('setPwBtn').addEventListener('click', async function () {
+            var pwErrEl = document.getElementById('pwErr');
+            pwErrEl.textContent = '';
+            var newPw = document.getElementById('f_newpw').value;
+            if (!newPw) { pwErrEl.textContent = 'Type the new password first'; return; }
+            if (newPw.length < 8) { pwErrEl.textContent = 'Password must be at least 8 characters'; return; }
+            var ok = await confirmDialog('Reset ' + rec.username + '’s password?',
+              'They will need this new password to sign in next time — make sure you can give it to them.', 'Set password', false);
+            if (!ok) return;
+            var { data, error } = await sb.functions.invoke('admin-user-ops', { body: { action: 'set_password', user_id: id, new_password: newPw } });
+            if (error || (data && data.error)) { pwErrEl.textContent = (data && data.error) || error.message; return; }
+            document.getElementById('f_newpw').value = '';
+            toast('Password updated.');
+          });
+        }
+
         document.getElementById('saveBtn').addEventListener('click', async function () {
           var newPerms = {};
           Array.prototype.forEach.call(document.querySelectorAll('.permChk'), function (c) { newPerms[c.dataset.key] = c.checked; });
@@ -1036,15 +1062,18 @@
           };
           var errEl = document.getElementById('formErr');
           if (!payload.username) { errEl.textContent = 'Username is required'; return; }
-          var res;
           if (id) {
-            res = await sb.from('app_users').update(payload).eq('id', id);
+            var res = await sb.from('app_users').update(payload).eq('id', id);
+            if (res.error) { errEl.textContent = res.error.message; return; }
           } else {
-            var authId = document.getElementById('f_id').value.trim();
-            if (!authId) { errEl.textContent = 'Paste the Supabase Auth user ID (create it in the Dashboard first)'; return; }
-            res = await sb.from('app_users').insert(Object.assign({ id: authId }, payload));
+            var email = document.getElementById('f_email').value.trim();
+            var password = document.getElementById('f_password').value;
+            if (!email) { errEl.textContent = 'Email is required'; return; }
+            if (!password || password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
+            var { data, error } = await sb.functions.invoke('admin-user-ops',
+              { body: Object.assign({ action: 'create_user', email: email, password: password }, payload) });
+            if (error || (data && data.error)) { errEl.textContent = (data && data.error) || error.message; return; }
           }
-          if (res.error) { errEl.textContent = res.error.message; return; }
           toast('User saved.');
           closeSheet();
           render();

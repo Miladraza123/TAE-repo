@@ -116,6 +116,7 @@
   <div class="spacer"></div>
   <span class="status offline" id="failedStatus" style="display:none"></span>
   <span class="status" id="netStatus"></span>
+  <button class="abtn" id="reloadBtn" title="Load the newest version of the app">⟳</button>
   <button class="abtn" id="installBtn" style="display:none">⭳ Install</button>
   <button class="abtn" id="signOutBtn">Sign out</button>
 </div>
@@ -234,7 +235,9 @@
   var wasOnline = navigator.onLine;
   function updateNetStatus() {
     var online = navigator.onLine;
-    netStatusEl.textContent = online ? 'Online' : 'Offline — changes will sync later';
+    // Idle/online state shows nothing here — only something actionable
+    // (offline, a failed sync, a save in progress) earns space in this bar.
+    netStatusEl.textContent = online ? '' : 'Offline — changes will sync later';
     netStatusEl.className = 'status' + (online ? '' : ' offline');
     if (online !== wasOnline) {
       wasOnline = online;
@@ -299,12 +302,28 @@
       // the document exists to hear it).
       f.contentWindow && f.contentWindow.postMessage({ oht: 'active', active: activeKey === key }, '*');
     });
-    f.src = m.src;
+    f.src = m.src + '?v=' + reloadStamp;
     f.dataset.key = key;
     framesEl.appendChild(f);
     frames[key] = f;
     return f;
   }
+
+  // Reload button (§ app-wide): re-fetches every currently open module with
+  // a fresh cache-busting query param, so a newly-deployed update takes
+  // effect immediately without the user clearing cache or reinstalling the
+  // PWA. Only re-loads frames that already exist — doesn't open new ones.
+  var reloadStamp = Date.now();
+  document.getElementById('reloadBtn').addEventListener('click', function () {
+    reloadStamp = Date.now();
+    Object.keys(frames).forEach(function (key) {
+      var m = MODULES.filter(function (x) { return x.key === key; })[0];
+      if (!m) return;
+      frameReady[key] = false;
+      frames[key].src = m.src + '?v=' + reloadStamp;
+    });
+    toast('Reloading the latest version…');
+  });
 
   function activate(key) {
     var f = ensureFrame(key);
