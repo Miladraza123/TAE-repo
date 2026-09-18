@@ -129,7 +129,7 @@
   async function loadMasters() {
     var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }] = await Promise.all([
       sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
-      sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty').is('deleted_at', null).order('name'),
+      sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty,item_type').is('deleted_at', null).order('name'),
       sb.from('companies').select('id,name,is_default').is('deleted_at', null).order('name'),
       sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
       sb.from('item_units').select('id,item_id,unit,factor').is('deleted_at', null)
@@ -148,6 +148,10 @@
     n = Number(n || 0);
     return n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
+
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  }); }
 
   function newId_fallback() {
     // RFC4122-ish v4 UUID for browsers/contexts without crypto.randomUUID
@@ -279,7 +283,12 @@
 
   function blankLine() {
     return { id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0,
-      pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1 };
+      pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1,
+      consumption_type: 'general_goods', materials: [] };
+  }
+
+  function blankMaterial() {
+    return { id: null, raw_item_id: null, warehouse_id: defaultWarehouseId(), qty: 0, notes: '' };
   }
 
   function defaultWarehouseId() {
@@ -297,6 +306,15 @@
         sb.from('voucher_lines').select('*').eq('voucher_id', id).order('line_no')
       ]);
       if (!header) { alert('This record was deleted by someone else.'); loadList(); return; }
+      var lineIds = (lines || []).map(function (l) { return l.id; });
+      var materialsByLine = {};
+      if (lineIds.length) {
+        var { data: mats } = await sb.from('voucher_line_material_consumption').select('*').in('voucher_line_id', lineIds).order('line_no');
+        (mats || []).forEach(function (m) {
+          (materialsByLine[m.voucher_line_id] = materialsByLine[m.voucher_line_id] || []).push(m);
+        });
+      }
+      (lines || []).forEach(function (l) { l.materials = materialsByLine[l.id] || []; });
       // Snapshot captured ONCE, at open time — never re-derived at save time (§14/§25's critical rule).
       state.editing = {
         isNew: false, id: id,
@@ -389,7 +407,9 @@
     });
     html += '</div>';
 
-    html += '<table class="lines-table"><thead><tr><th>Item</th><th style="width:90px">Qty</th>' +
+    html += '<table class="lines-table"><thead><tr><th>Item</th>' +
+      (isSale ? '<th style="width:130px">Type</th>' : '') +
+      '<th style="width:90px">Qty</th>' +
       (isSale ? '<th style="width:110px">Unit</th>' : '') +
       '<th style="width:90px">Rate</th>' + (h.tax_on ? '<th style="width:70px">Tax%</th>' : '') +
       (showWarehouseCol ? '<th style="width:120px">Warehouse</th>' : '') +
@@ -432,6 +452,17 @@
     el.textContent = 'Current balance: ' + fmtMoney(Math.abs(bal)) + ' ' + (bal >= 0 ? 'Dr' : 'Cr');
   }
 
+  function lineColspan() {
+    var e = state.editing;
+    var isSale = state.vtype === 'sale';
+    var showWarehouseCol = state.warehouses.length > 1;
+    var n = 3; // Item, Amount, delete-button
+    if (isSale) n += 2; // Type, Unit
+    if (e.header.tax_on) n += 1;
+    if (showWarehouseCol) n += 1;
+    return n;
+  }
+
   function renderLines() {
     var e = state.editing;
     var isSale = state.vtype === 'sale';
@@ -448,8 +479,13 @@
       } else if (isSale) {
         unitCell = '<td style="color:var(--muted);font-size:12px">' + (item ? item.unit : '') + '</td>';
       }
-      return '<tr>' +
+      var typeCell = isSale ? '<td><select data-i="' + idx + '" data-f="consumption_type" class="lf">' +
+        '<option value="general_goods"' + (l.consumption_type !== 'raw_material_consumption' ? ' selected' : '') + '>General Goods</option>' +
+        '<option value="raw_material_consumption"' + (l.consumption_type === 'raw_material_consumption' ? ' selected' : '') + '>Raw Material</option>' +
+        '</select></td>' : '';
+      var row = '<tr>' +
         '<td><select data-i="' + idx + '" data-f="item_id" class="lf">' + itemOptions(l.item_id) + '</select></td>' +
+        typeCell +
         '<td><input type="number" step="0.001" data-i="' + idx + '" data-f="qty" class="lf" value="' + (l.sale_unit ? (l.sale_qty != null ? l.sale_qty : '') : l.qty) + '"></td>' +
         unitCell +
         '<td><input type="number" step="0.01" data-i="' + idx + '" data-f="rate" class="lf" value="' + l.rate + '"></td>' +
@@ -458,6 +494,11 @@
         '<td style="text-align:right">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>' +
         '<td><button type="button" data-i="' + idx + '" class="rmLine" style="color:var(--danger)">✕</button></td>' +
         '</tr>';
+      if (isSale && l.consumption_type === 'raw_material_consumption') {
+        row += '<tr><td colspan="' + lineColspan() + '" style="background:var(--bg3);padding:10px">' +
+          '<div id="matPanel_' + idx + '"></div></td></tr>';
+      }
+      return row;
     }).join('');
 
     Array.prototype.forEach.call(body.querySelectorAll('.lf'), function (el) {
@@ -470,12 +511,36 @@
         refreshTotalsDisplay();
       });
     });
+
+    e.lines.forEach(function (l, idx) {
+      if (isSale && l.consumption_type === 'raw_material_consumption') renderMaterialPanel(idx);
+    });
   }
 
   function onLineFieldChange(el) {
     var idx = Number(el.dataset.i), field = el.dataset.f;
     var line = state.editing.lines[idx];
     var val = el.type === 'number' ? Number(el.value) : el.value;
+
+    if (field === 'consumption_type') {
+      // Accidental-switch protection (§ approved): the line always defaults
+      // to the item's own item_type; switching away from that default needs
+      // an explicit confirmation, since it changes which item's stock gets
+      // deducted by this line.
+      var pickedItem = state.items.filter(function (x) { return x.id === line.item_id; })[0];
+      var itemDefault = pickedItem ? pickedItem.item_type : 'general_goods';
+      if (val !== itemDefault) {
+        var msg = val === 'general_goods'
+          ? 'Is item ka apna stock minus hoga (raw material consumption use nahi hoga is baar). Sure?'
+          : "Is item ka apna stock minus NAHI hoga — sirf jo raw materials neeche enter karenge wo minus honge. Sure?";
+        if (!confirm(msg)) { el.value = line.consumption_type; return; }
+      }
+      line.consumption_type = val;
+      if (val !== 'raw_material_consumption') line.materials = [];
+      renderLines();
+      refreshTotalsDisplay();
+      return;
+    }
 
     if (field === 'qty') {
       // qty is ALWAYS the base-unit, stock/cost-affecting quantity. When an
@@ -499,6 +564,11 @@
         if (!line.tax_pct) line.tax_pct = item.tax_pct;
       }
       line.sale_unit = null; line.sale_qty = null; line.unit_factor = 1;
+      // The item changed, so any raw materials entered were against the OLD
+      // final product — they no longer make sense here (§ item master's own
+      // type is always the default for a newly-picked item).
+      line.consumption_type = item ? item.item_type : 'general_goods';
+      line.materials = [];
       renderLines();
     }
     if (field === 'sale_unit') {
@@ -512,6 +582,114 @@
   }
 
   function refreshTotalsDisplay() { renderEditor(); }
+
+  // ---------------------------------------------------------------
+  // Raw Material Consumption panel (per sale line, § approved design)
+  // ---------------------------------------------------------------
+  var lastUsedRecipeCache = {}; // final_item_id -> materials array | null, cached per editor session
+
+  async function getLastUsedRecipe(finalItemId) {
+    if (lastUsedRecipeCache.hasOwnProperty(finalItemId)) return lastUsedRecipeCache[finalItemId];
+    var { data: lastLine } = await sb.from('voucher_lines').select('id')
+      .eq('item_id', finalItemId).eq('consumption_type', 'raw_material_consumption')
+      .order('created_at', { ascending: false }).limit(1).maybeSingle();
+    var result = null;
+    if (lastLine) {
+      var { data: mats } = await sb.from('voucher_line_material_consumption')
+        .select('raw_item_id,warehouse_id,qty,unit,unit_factor,notes').eq('voucher_line_id', lastLine.id).order('line_no');
+      if (mats && mats.length) result = mats;
+    }
+    lastUsedRecipeCache[finalItemId] = result;
+    return result;
+  }
+
+  function rawMaterialOptions(finalItemId, selected) {
+    return '<option value="">Pick raw material…</option>' + state.items
+      .filter(function (it) { return it.id !== finalItemId; })
+      .map(function (it) { return '<option value="' + it.id + '"' + (it.id === selected ? ' selected' : '') + '>' + it.name + '</option>'; }).join('');
+  }
+
+  function renderMaterialPanel(idx) {
+    var el = document.getElementById('matPanel_' + idx);
+    if (!el) return;
+    var line = state.editing.lines[idx];
+    var mats = line.materials || [];
+    var showCost = canViewMaterialCost();
+    var totalCost = mats.reduce(function (s, m) { return s + (Number(m.cost_amount) || 0); }, 0);
+
+    var html = '<div style="font-weight:600;margin-bottom:6px">Raw Material Used</div>';
+    html += '<table style="width:100%;font-size:13px"><thead><tr>' +
+      '<th style="text-align:left">Raw Material</th><th style="text-align:left">Warehouse</th>' +
+      '<th style="text-align:right">Available</th><th style="text-align:right">Qty</th>' +
+      '<th style="text-align:left">Notes</th>' + (showCost ? '<th style="text-align:right">Cost</th>' : '') + '<th></th>' +
+      '</tr></thead><tbody>';
+    mats.forEach(function (m, mi) {
+      var raw = state.items.filter(function (x) { return x.id === m.raw_item_id; })[0];
+      html += '<tr>' +
+        '<td><select data-mi="' + mi + '" data-mf="raw_item_id" class="matf">' + rawMaterialOptions(line.item_id, m.raw_item_id) + '</select></td>' +
+        '<td><select data-mi="' + mi + '" data-mf="warehouse_id" class="matf">' + warehouseOptions(m.warehouse_id) + '</select></td>' +
+        '<td style="text-align:right;color:var(--muted)">' + (raw ? raw.stock_qty : '—') + (raw ? ' ' + raw.unit : '') + '</td>' +
+        '<td><input type="number" step="0.001" data-mi="' + mi + '" data-mf="qty" class="matf" style="width:90px;text-align:right" value="' + m.qty + '"></td>' +
+        '<td><input data-mi="' + mi + '" data-mf="notes" class="matf" style="width:100%" value="' + esc(m.notes || '') + '"></td>' +
+        (showCost ? '<td style="text-align:right">' + fmtMoney(m.cost_amount || 0) + '</td>' : '') +
+        '<td><button type="button" data-mi="' + mi + '" class="rmMat" style="color:var(--danger)">✕</button></td>' +
+        '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<button type="button" id="addMatBtn_' + idx + '" style="margin-top:6px">+ Add raw material</button> ';
+    html += '<span id="quickFillWrap_' + idx + '"></span>';
+    html += '<div style="margin-top:6px;font-size:12px;color:var(--muted)">' + mats.length + ' raw material(s)' +
+      (showCost ? ' · Material cost: ' + fmtMoney(totalCost) : '') + '</div>';
+    el.innerHTML = html;
+
+    Array.prototype.forEach.call(el.querySelectorAll('.matf'), function (fld) {
+      fld.addEventListener('change', function () { onMaterialFieldChange(idx, fld); });
+    });
+    Array.prototype.forEach.call(el.querySelectorAll('.rmMat'), function (btn) {
+      btn.addEventListener('click', function () {
+        line.materials.splice(Number(btn.dataset.mi), 1);
+        renderMaterialPanel(idx);
+        refreshTotalsSilent();
+      });
+    });
+    document.getElementById('addMatBtn_' + idx).addEventListener('click', function () {
+      line.materials.push(blankMaterial());
+      renderMaterialPanel(idx);
+    });
+
+    // Quick-fill offer (§ approved: never auto-filled, shown as an explicit
+    // action; only relevant when this line has no materials yet).
+    if (!mats.length && line.item_id) {
+      getLastUsedRecipe(line.item_id).then(function (recipe) {
+        var wrap = document.getElementById('quickFillWrap_' + idx);
+        if (!wrap || !recipe || (state.editing.lines[idx] || {}).materials.length) return;
+        var names = recipe.map(function (m) {
+          var it = state.items.filter(function (x) { return x.id === m.raw_item_id; })[0];
+          return it ? it.name : '?';
+        }).slice(0, 3).join(', ');
+        wrap.innerHTML = '<button type="button" id="quickFillBtn_' + idx + '">Last used: ' + names +
+          (recipe.length > 3 ? ' +' + (recipe.length - 3) + ' more' : '') + ' (' + recipe.length + ') — Use this?</button>';
+        document.getElementById('quickFillBtn_' + idx).addEventListener('click', function () {
+          state.editing.lines[idx].materials = recipe.map(function (m) {
+            return { id: null, raw_item_id: m.raw_item_id, warehouse_id: m.warehouse_id || defaultWarehouseId(), qty: m.qty, notes: m.notes || '' };
+          });
+          renderMaterialPanel(idx);
+        });
+      });
+    }
+  }
+
+  function onMaterialFieldChange(lineIdx, fld) {
+    var mi = Number(fld.dataset.mi), mf = fld.dataset.mf;
+    var mat = state.editing.lines[lineIdx].materials[mi];
+    mat[mf] = fld.type === 'number' ? Number(fld.value) : fld.value;
+    renderMaterialPanel(lineIdx);
+  }
+
+  // Re-render just the totals/summary line without rebuilding the whole
+  // editor (used after a materials-only change, which doesn't affect the
+  // invoice's own Qty/Rate/Amount totals).
+  function refreshTotalsSilent() { /* no-op: material cost doesn't affect invoice totals shown to the customer */ }
 
   function wireEditorEvents() {
     var e = state.editing;
@@ -560,8 +738,73 @@
         var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
         return "'" + (item ? item.name : 'Item') + "' par " + l.sale_unit + " chuna hai — conversion likhna zaroori hai (1 " + l.sale_unit + " = kitne " + (item ? item.unit : 'base') + ").";
       }
+      if (state.vtype === 'sale' && l.consumption_type === 'raw_material_consumption' && l.item_id && Number(l.qty) > 0) {
+        var finalItem = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+        var mats = l.materials || [];
+        if (!mats.length) return "'" + (finalItem ? finalItem.name : 'Item') + "' Raw Material hai — kam az kam ek raw material line enter karein.";
+        for (var j = 0; j < mats.length; j++) {
+          var m = mats[j];
+          if (!m.raw_item_id) return "'" + (finalItem ? finalItem.name : 'Item') + "' ki raw material list mein item chunna zaroori hai.";
+          if (m.raw_item_id === l.item_id) return "'" + (finalItem ? finalItem.name : 'Item') + "' apni khud ki raw material nahi ho sakta.";
+          if (!m.warehouse_id) return "'" + (finalItem ? finalItem.name : 'Item') + "' ki raw material list mein warehouse chunna zaroori hai.";
+          if (!(Number(m.qty) > 0)) return "'" + (finalItem ? finalItem.name : 'Item') + "' ki raw material quantity 0 se zyada honi chahiye.";
+        }
+      }
     }
     return null;
+  }
+
+  // Merge duplicate raw-material lines (same raw item + same warehouse) into
+  // one summed line before saving, rather than rejecting the invoice.
+  function mergeMaterialDuplicates(mats) {
+    var byKey = {};
+    var order = [];
+    mats.forEach(function (m) {
+      var key = m.raw_item_id + '|' + (m.warehouse_id || '');
+      if (!byKey[key]) { byKey[key] = Object.assign({}, m); order.push(key); }
+      else { byKey[key].qty = (Number(byKey[key].qty) || 0) + (Number(m.qty) || 0); if (m.notes) byKey[key].notes = (byKey[key].notes ? byKey[key].notes + '; ' : '') + m.notes; }
+    });
+    return order.map(function (k) { return byKey[k]; });
+  }
+
+  // Replaces a voucher_line's raw-material consumption rows entirely (a
+  // safe full reversal + repost, explicitly allowed by the approved spec
+  // for editing consumption) — duplicate raw-item+warehouse lines are
+  // summed first rather than rejected (§ approved).
+  async function syncMaterialsForLine(voucherLineId, materials) {
+    var merged = mergeMaterialDuplicates(
+      (materials || []).filter(function (m) { return m.raw_item_id && m.warehouse_id && Number(m.qty) > 0; })
+    );
+    await sb.from('voucher_line_material_consumption').delete().eq('voucher_line_id', voucherLineId);
+    if (merged.length) {
+      var rows = merged.map(function (m, i) {
+        return { voucher_line_id: voucherLineId, raw_item_id: m.raw_item_id, warehouse_id: m.warehouse_id, qty: m.qty, notes: m.notes || null, line_no: i + 1 };
+      });
+      var { error } = await sb.from('voucher_line_material_consumption').insert(rows);
+      if (error) throw error;
+    }
+  }
+
+  // Pairs each in-memory line (which carries .materials) with its REAL,
+  // persisted voucher_line id, then syncs materials for every raw-material
+  // line. `finalLines` is the authoritative final row set (existing lines
+  // keep their original id; genuinely new lines are matched by item/qty/
+  // rate, since that's all a freshly-inserted line can be identified by).
+  async function syncAllLineMaterials(memoryLines, finalLines) {
+    var usedIds = {};
+    (finalLines || []).forEach(function (fl) { if (memoryLines.some(function (ml) { return ml.id === fl.id; })) usedIds[fl.id] = true; });
+    for (var i = 0; i < memoryLines.length; i++) {
+      var ml = memoryLines[i];
+      if (ml.consumption_type !== 'raw_material_consumption') continue;
+      var realId = ml.id;
+      if (!realId) {
+        var candidate = (finalLines || []).filter(function (fl) {
+          return !usedIds[fl.id] && fl.item_id === ml.item_id && Number(fl.qty) === Number(ml.qty) && Number(fl.rate) === Number(ml.rate);
+        })[0];
+        if (candidate) { usedIds[candidate.id] = true; realId = candidate.id; }
+      }
+      if (realId) await syncMaterialsForLine(realId, ml.materials);
+    }
   }
 
   // ---------------------------------------------------------------
@@ -613,13 +856,18 @@
           }
           return handleSaveError(insErr, errEl);
         }
-        var { error: lineErr } = await sb.from('voucher_lines').insert(linesPayload);
+        var { data: insertedLines, error: lineErr } = await sb.from('voucher_lines').insert(linesPayload).select();
         if (lineErr) {
           if (OfflineQueue.isNetworkError(lineErr)) {
             OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
           } else {
             errEl.textContent = lineErr.message; return;
           }
+        } else if (state.vtype === 'sale') {
+          // Raw-material sync needs real line ids — not queued offline (§
+          // known limitation: dynamic consumption requires a live connection
+          // to save, even though the rest of the invoice can go offline).
+          await syncAllLineMaterials(e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; }), insertedLines);
         }
 
         // If this invoice was created via "Convert to Sale/Purchase" from a
@@ -680,7 +928,13 @@
         errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
       }
-      await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+      var { data: finalLines } = await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+      if (state.vtype === 'sale') {
+        // Raw-material sync needs real line ids — not queued offline (§
+        // known limitation: dynamic consumption requires a live connection
+        // to save, even though the rest of the invoice can go offline).
+        await syncAllLineMaterials(newLines, finalLines);
+      }
 
       closeEditor();
       loadList();
@@ -777,10 +1031,20 @@
         var { data: saleHeader } = await sb.from('vouchers').select('*').eq('id', saleId).single();
         var { data: saleLines } = await sb.from('voucher_lines').select('*').eq('voucher_id', saleId);
         var { data: existingReturns } = await sb.from('sales_return_lines').select('sale_line_id,qty').in('sale_line_id', (saleLines || []).map(function (l) { return l.id; }));
+        var matLineIds = (saleLines || []).filter(function (l) { return l.consumption_type === 'raw_material_consumption'; }).map(function (l) { return l.id; });
+        var materialsByLine = {};
+        if (matLineIds.length) {
+          var { data: mats } = await sb.from('voucher_line_material_consumption').select('*').in('voucher_line_id', matLineIds);
+          var { data: restored } = await sb.from('sales_return_material_restoration').select('consumption_id,qty').in('consumption_id', (mats || []).map(function (m) { return m.id; }));
+          (mats || []).forEach(function (m) {
+            var alreadyRestored = (restored || []).filter(function (rr) { return rr.consumption_id === m.id; }).reduce(function (s, rr) { return s + Number(rr.qty); }, 0);
+            (materialsByLine[m.voucher_line_id] = materialsByLine[m.voucher_line_id] || []).push(Object.assign({}, m, { restorable: m.qty - alreadyRestored, restoreQty: 0 }));
+          });
+        }
         r.sale = saleHeader;
         r.saleLines = (saleLines || []).map(function (l) {
           var already = (existingReturns || []).filter(function (er) { return er.sale_line_id === l.id; }).reduce(function (s, er) { return s + Number(er.qty); }, 0);
-          return Object.assign({}, l, { returnable: l.qty - already, returnQty: 0 });
+          return Object.assign({}, l, { returnable: l.qty - already, returnQty: 0, restoreMaterial: false, materials: materialsByLine[l.id] || [] });
         });
         renderReturnEditorLines();
       });
@@ -809,15 +1073,44 @@
       html += '<tr><td>' + (item ? item.name : '') + '</td><td>' + l.qty + '</td><td>' + l.returnable + '</td>' +
         '<td><input type="number" step="0.001" min="0" max="' + l.returnable + '" data-idx="' + idx + '" class="rtQty" value="' + l.returnQty + '" style="width:90px"></td>' +
         '<td>' + l.rate + '</td></tr>';
+      if (l.consumption_type === 'raw_material_consumption' && l.materials.length && l.returnQty > 0) {
+        html += '<tr><td colspan="5" style="background:var(--bg3);padding:10px">' +
+          '<label><input type="checkbox" data-idx="' + idx + '" class="rtRestoreToggle"' + (l.restoreMaterial ? ' checked' : '') + '> Restore Raw Material Stock?</label>' +
+          '<div id="rtMatWrap_' + idx + '" style="margin-top:8px;' + (l.restoreMaterial ? '' : 'display:none') + '">' + renderReturnMaterialRows(idx, l) + '</div>' +
+          '</td></tr>';
+      }
     });
     html += '</tbody></table>';
     html += '<div class="err" id="editorErr"></div><div class="actions"><button id="cancelBtn">Cancel</button><button class="primary" id="rt_saveBtn">Save Return</button></div>';
     document.getElementById('editorCard').innerHTML = '<h2>Sales Return — New</h2>' + html;
     document.getElementById('cancelBtn').addEventListener('click', closeEditor);
     Array.prototype.forEach.call(document.querySelectorAll('.rtQty'), function (el) {
-      el.addEventListener('input', function () { r.saleLines[Number(el.dataset.idx)].returnQty = Number(el.value) || 0; });
+      el.addEventListener('input', function () { r.saleLines[Number(el.dataset.idx)].returnQty = Number(el.value) || 0; renderReturnEditorLines(); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.rtRestoreToggle'), function (el) {
+      el.addEventListener('change', function () {
+        r.saleLines[Number(el.dataset.idx)].restoreMaterial = el.checked;
+        renderReturnEditorLines();
+      });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.rtMatQty'), function (el) {
+      el.addEventListener('input', function () {
+        var li = Number(el.dataset.idx), mi = Number(el.dataset.mi);
+        r.saleLines[li].materials[mi].restoreQty = Number(el.value) || 0;
+      });
     });
     document.getElementById('rt_saveBtn').addEventListener('click', saveReturn);
+  }
+
+  function renderReturnMaterialRows(idx, l) {
+    var html = '<table style="width:100%;font-size:12px"><thead><tr><th style="text-align:left">Raw Material</th><th style="text-align:right">Consumed</th><th style="text-align:right">Still restorable</th><th style="text-align:right">Restore Qty</th></tr></thead><tbody>';
+    l.materials.forEach(function (m, mi) {
+      var raw = state.items.filter(function (x) { return x.id === m.raw_item_id; })[0];
+      html += '<tr><td>' + (raw ? raw.name : '') + '</td><td style="text-align:right">' + m.qty + '</td><td style="text-align:right">' + m.restorable + '</td>' +
+        '<td><input type="number" step="0.001" min="0" max="' + m.restorable + '" data-idx="' + idx + '" data-mi="' + mi + '" class="rtMatQty" style="width:90px;text-align:right" value="' + m.restoreQty + '"></td></tr>';
+    });
+    html += '</tbody></table>';
+    return html;
   }
 
   async function saveReturn() {
@@ -862,12 +1155,30 @@
       errEl.textContent = insErr.message; return;
     }
 
-    var { error: lineErr } = await sb.from('sales_return_lines').insert(linesPayload);
+    var { data: insertedReturnLines, error: lineErr } = await sb.from('sales_return_lines').insert(linesPayload).select();
     if (lineErr) {
       if (OfflineQueue.isNetworkError(lineErr)) {
         OfflineQueue.enqueue({ kind: 'insert', table: 'sales_return_lines', payload: linesPayload });
       } else {
         errEl.textContent = lineErr.message; return; // e.g. the DB's own returnable-qty cap trigger firing on a race
+      }
+    } else {
+      // Raw material restoration (§ approved: always explicit, never assumed;
+      // not queued offline — needs the real return-line ids just inserted).
+      var restorationRows = [];
+      toReturn.forEach(function (l) {
+        if (!l.restoreMaterial) return;
+        var matchedLine = (insertedReturnLines || []).filter(function (rl) { return rl.sale_line_id === l.id; })[0];
+        if (!matchedLine) return;
+        (l.materials || []).forEach(function (m) {
+          if (Number(m.restoreQty) > 0) {
+            restorationRows.push({ return_line_id: matchedLine.id, consumption_id: m.id, warehouse_id: m.warehouse_id, qty: m.restoreQty });
+          }
+        });
+      });
+      if (restorationRows.length) {
+        var { error: restErr } = await sb.from('sales_return_material_restoration').insert(restorationRows);
+        if (restErr) { errEl.textContent = restErr.message; return; }
       }
     }
 
@@ -1674,12 +1985,17 @@
   // ---------------------------------------------------------------
   // Boot
   // ---------------------------------------------------------------
+  var me = { isAdmin: false, perms: {} };
+  function canViewMaterialCost() { return me.isAdmin || !!me.perms.material_cost_view; }
+
   (async function init() {
     var { data: userData } = await sb.auth.getUser();
     if (!userData || !userData.user) {
       document.getElementById('listArea').innerHTML = '<p>Please sign in from the main app.</p>';
       return;
     }
+    var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
+    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
     await loadMasters();
     await loadList();
     OfflineQueue.startAutoFlush(sb);

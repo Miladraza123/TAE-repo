@@ -436,10 +436,11 @@
       var { data } = await sb.from('items').select('*').is('deleted_at', null).order('name');
       var rows = (data || []).filter(function (i) { return !term || i.name.toLowerCase().indexOf(term) >= 0; });
       var html = '<div class="card"><h2>Items</h2><button class="primary" id="addBtn">+ Add Item</button></div>';
-      html += '<table><thead><tr><th>Name</th><th>Unit</th><th>Sale rate</th><th>Buy rate</th><th>Stock</th><th>Avg cost</th></tr></thead><tbody>';
+      html += '<table><thead><tr><th>Name</th><th>Type</th><th>Unit</th><th>Sale rate</th><th>Buy rate</th><th>Stock</th><th>Avg cost</th></tr></thead><tbody>';
       rows.forEach(function (i) {
         var low = i.reorder_level && i.stock_qty <= i.reorder_level;
-        html += '<tr class="row" data-id="' + i.id + '"><td>' + esc(i.name) + (low ? ' <span style="color:#f59e0b">● low</span>' : '') + '</td><td>' + esc(i.unit) + '</td>' +
+        html += '<tr class="row" data-id="' + i.id + '"><td>' + esc(i.name) + (low ? ' <span style="color:#f59e0b">● low</span>' : '') + '</td>' +
+          '<td>' + (i.item_type === 'raw_material_consumption' ? 'Raw Material' : 'General Goods') + '</td><td>' + esc(i.unit) + '</td>' +
           '<td>' + i.sale_rate + '</td><td>' + i.buy_rate + '</td><td>' + i.stock_qty + '</td><td>' + i.avg_cost + '</td></tr>';
       });
       html += '</tbody></table>';
@@ -450,10 +451,14 @@
       });
 
       function openForm(id, rows) {
-        var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { unit: 'pcs', active: true };
+        var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { unit: 'pcs', active: true, item_type: 'general_goods' };
         var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null; // captured once, at open time (§25/§27)
         var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Item</h2><div class="grid">' +
           '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
+          '<div><label>Item Type</label><select id="f_item_type">' +
+            '<option value="general_goods"' + (rec.item_type !== 'raw_material_consumption' ? ' selected' : '') + '>General Goods</option>' +
+            '<option value="raw_material_consumption"' + (rec.item_type === 'raw_material_consumption' ? ' selected' : '') + '>Raw Material</option>' +
+          '</select></div>' +
           '<div><label>Unit</label><input id="f_unit" value="' + esc(rec.unit) + '"></div>' +
           '<div><label>Sale rate</label><input type="number" step="0.01" id="f_sale_rate" value="' + (rec.sale_rate || 0) + '"></div>' +
           '<div><label>Buy rate</label><input type="number" step="0.01" id="f_buy_rate" value="' + (rec.buy_rate || 0) + '"></div>' +
@@ -475,6 +480,7 @@
         document.getElementById('saveBtn').addEventListener('click', async function () {
           var payload = {
             name: document.getElementById('f_name').value,
+            item_type: document.getElementById('f_item_type').value,
             unit: document.getElementById('f_unit').value || 'pcs',
             sale_rate: Number(document.getElementById('f_sale_rate').value) || 0,
             buy_rate: Number(document.getElementById('f_buy_rate').value) || 0,
@@ -544,7 +550,7 @@
   // Manage Users (§7/§22) — admin-provisions-users model
   // ===================================================================
   var PERM_GROUPS = {
-    'Bills & Entries': ['bill_create', 'bill_edit', 'bill_delete', 'ledger_create', 'ledger_delete'],
+    'Bills & Entries': ['bill_create', 'bill_edit', 'bill_delete', 'ledger_create', 'ledger_delete', 'material_cost_view'],
     'Masters': ['masters_edit', 'masters_categories', 'masters_import', 'masters_delete'],
     'Reports & Tools': ['reports_view', 'period_lock', 'backup_restore', 'recycle_bin'],
     'Quotations & Purchase Orders': ['quotation_create', 'quotation_edit', 'quotation_delete', 'po_create', 'po_edit', 'po_delete']
