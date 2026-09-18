@@ -111,7 +111,7 @@
 
 <div class="topbar" id="topbar" style="display:none">
   <span class="mark">OHT</span>
-  <span class="brand">OHT Accounting</span>
+  <span class="brand">OHT Accounting System</span>
   <div class="tabstrip" id="tabs"></div>
   <div class="spacer"></div>
   <span class="status offline" id="failedStatus" style="display:none"></span>
@@ -417,7 +417,7 @@
 
   document.getElementById('signOutBtn').addEventListener('click', async function () {
     var ok = await confirmDialog(
-      'Sign out of OHT Accounting?',
+      'Sign out of OHT Accounting System?',
       'Every open module closes and you are returned to the sign-in screen. Anything still waiting to sync stays queued in this browser and syncs the next time you sign in on this device.',
       'Sign out', true
     );

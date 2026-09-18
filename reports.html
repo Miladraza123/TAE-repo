@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Reports — OHT Accounting</title>
+<title>Reports — OHT Accounting System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
@@ -164,7 +164,7 @@
     if (firm) return firm;
     var res = await sb.from('companies').select('name,city,phone,ntn,is_default').is('deleted_at', null).order('is_default', { ascending: false });
     var rows = (res && res.data) || [];
-    firm = rows[0] || { name: 'OHT Accounting', city: '', phone: '', ntn: '' };
+    firm = rows[0] || { name: 'OHT Accounting System', city: '', phone: '', ntn: '' };
     return firm;
   }
   function firmMark() {
@@ -183,7 +183,7 @@
   function docHead(title, sub) {
     return '<div class="letterhead">' +
         '<div class="mark2">' + firmMark() + '</div>' +
-        '<div><div class="firm-name">' + esc(firm ? firm.name : 'OHT Accounting') + '</div>' +
+        '<div><div class="firm-name">' + esc(firm ? firm.name : 'OHT Accounting System') + '</div>' +
         '<div class="firm-addr">' + esc(firmAddr()) + '</div></div>' +
       '</div>' +
       '<h2 class="stmt-title">' + esc(title) + '</h2>' +

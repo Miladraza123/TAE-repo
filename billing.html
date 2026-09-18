@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Billing — OHT Accounting</title>
+<title>Billing — OHT Accounting System</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
@@ -2510,7 +2510,7 @@
     }).join('');
 
     var html = '<div style="font-family:Arial,sans-serif">' +
-      '<h2>' + (company ? company.name : 'OHT Accounting') + '</h2>' +
+      '<h2>' + (company ? company.name : 'OHT Accounting System') + '</h2>' +
       '<div>' + (company ? (company.address || '') + ' ' + (company.phone || '') : '') + '</div>' +
       '<h3>' + (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' · Sales Tax' : '') + '</h3>' +
       '<div>No: ' + (h.vno || 'PREVIEW') + ' | Date: ' + h.vdate + '</div>' +
