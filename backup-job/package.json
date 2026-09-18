@@ -1,8 +1,8 @@
 {
-  "name": "tae-backup-job",
+  "name": "oht-backup-job",
   "version": "1.0.0",
   "private": true,
-  "description": "Nightly export of the TAE Accounting System database to Excel + JSON, emailed via Gmail SMTP (§23).",
+  "description": "Nightly export of the OHT Accounting System database to Excel + JSON, emailed via Gmail SMTP (§23).",
   "type": "commonjs",
   "scripts": {
     "backup": "node backup.js"

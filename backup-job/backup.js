@@ -139,18 +139,18 @@ async function main() {
   const attachments = [];
 
   if (BACKUP_PASSPHRASE) {
-    const encPath = path.join(outDir, `TAE-Restore-${stamp}.json.enc`);
+    const encPath = path.join(outDir, `OHT-Restore-${stamp}.json.enc`);
     fs.writeFileSync(encPath, encryptJson(jsonBuffer, BACKUP_PASSPHRASE));
     attachments.push({ filename: path.basename(encPath), path: encPath });
   } else {
-    const gzPath = path.join(outDir, `TAE-Restore-${stamp}.json.gz`);
+    const gzPath = path.join(outDir, `OHT-Restore-${stamp}.json.gz`);
     fs.writeFileSync(gzPath, zlib.gzipSync(jsonBuffer));
     attachments.push({ filename: path.basename(gzPath), path: gzPath });
   }
 
   // Excel (human-browsable) — built from the SAME exported data, one code path.
   const wb = await buildWorkbook(exported);
-  const xlsxPath = path.join(outDir, `TAE-Backup-${stamp}.xlsx`);
+  const xlsxPath = path.join(outDir, `OHT-Backup-${stamp}.xlsx`);
   await wb.xlsx.writeFile(xlsxPath);
   attachments.push({ filename: path.basename(xlsxPath), path: xlsxPath });
 
@@ -158,7 +158,7 @@ async function main() {
   // continue-on-error — attach it if present, but never fail the backup
   // over it being missing (§23).
   if (BACKUP_SCHEMA_FILE && fs.existsSync(BACKUP_SCHEMA_FILE)) {
-    attachments.push({ filename: `TAE-Schema-${stamp}.sql`, path: BACKUP_SCHEMA_FILE });
+    attachments.push({ filename: `OHT-Schema-${stamp}.sql`, path: BACKUP_SCHEMA_FILE });
   }
 
   const transporter = nodemailer.createTransport({
@@ -168,8 +168,8 @@ async function main() {
 
   const toList = BACKUP_TO_EMAIL.split(',').map((s) => s.trim()).filter(Boolean);
   const subject = isPartial
-    ? `TAE Accounting backup — PARTIAL (${stamp})`
-    : `TAE Accounting backup — ${stamp}`;
+    ? `OHT Accounting backup — PARTIAL (${stamp})`
+    : `OHT Accounting backup — ${stamp}`;
   const bodyLines = [
     `Backup run: ${new Date().toISOString()}`,
     `Tables exported: ${Object.keys(exported).length}`,

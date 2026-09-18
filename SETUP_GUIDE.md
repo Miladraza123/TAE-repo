@@ -1,4 +1,4 @@
-# TAE Accounting System — Setup Guide
+# OHT Accounting System — Setup Guide
 
 This is a static, framework-free web app (no build step) backed by
 Supabase. It hosts four modules — `masters.html`, `billing.html`,
@@ -68,12 +68,12 @@ time, or run manually via the Actions tab → "Daily Backup" →
 
 ### What each backup file is
 
-- `TAE-Backup-<date>.xlsx` — every table as a browsable spreadsheet, one
+- `OHT-Backup-<date>.xlsx` — every table as a browsable spreadsheet, one
   sheet per table.
-- `TAE-Restore-<date>.json.gz` — the same data as gzipped JSON, restorable
-  via `masters.html` → Backup/Restore. (Or `TAE-Restore-<date>.json.enc`
+- `OHT-Restore-<date>.json.gz` — the same data as gzipped JSON, restorable
+  via `masters.html` → Backup/Restore. (Or `OHT-Restore-<date>.json.enc`
   instead, AES-256-GCM encrypted, if `BACKUP_PASSPHRASE` is set.)
-- `TAE-Schema-<date>.sql` — schema-only SQL dump (table/trigger/function
+- `OHT-Schema-<date>.sql` — schema-only SQL dump (table/trigger/function
   definitions, no data), only attached if `SUPABASE_DB_URL` is set.
 
 The in-app **Backup now** button (Masters → Backup/Restore) produces a
@@ -92,7 +92,7 @@ need to restore from an encrypted nightly backup).
 4. Re-create your admin user (step 2 above) — a fresh project has no
    `app_users` rows at all.
 5. Sign in, go to Masters → Backup/Restore → **Restore**, pick your most
-   recent `TAE-Restore-*.json`/`.json.gz` file.
+   recent `OHT-Restore-*.json`/`.json.gz` file.
 6. Verify: spot-check a few parties/items/vouchers, then go to Reports →
    Trial Balance and run the reconciliation check — it should report no
    discrepancies.

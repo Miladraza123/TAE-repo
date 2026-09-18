@@ -3,19 +3,22 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>Reports — TAE Accounting</title>
+<title>Reports — OHT Accounting</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0f172a; --bg2:#1e293b; --bg3:#141d2e; --fg:#e2e8f0; --muted:#94a3b8;
-    --accent:#3b82f6; --accent2:#2563eb; --danger:#ef4444; --ok:#22c55e; --border:#334155;
+    --bg:#DDE1E6; --bg2:#FFFFFF; --bg3:#F5F7F8; --fg:#1F2933; --muted:#7B8794;
+    --accent:#A67C2E; --accent2:#8F6B27; --danger:#9B2C2C; --ok:#14614A; --border:#CBD2D9;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
-  body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
+  body{font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
   .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
   .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
   .tabs{display:flex;gap:4px;flex-wrap:wrap;}
-  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:#1c2942;color:var(--fg);padding:8px 12px;font-size:13px;}
+  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--fg);padding:8px 12px;font-size:13px;}
   .tabs button{background:transparent;}
   .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
   main{padding:14px;max-width:1100px;margin:0 auto;}
@@ -24,14 +27,20 @@
   th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
   .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;}
   label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;}
-  input,select{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:#0b1220;color:var(--fg);font-size:13px;}
+  input,select{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--fg);font-size:13px;}
   .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;}
   .stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;min-width:150px;}
   .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;}
   .stat .val{font-size:20px;font-weight:700;margin-top:4px;}
   .statrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
-  .bucket-b0{color:#f59e0b;} .bucket-b30{color:#f97316;} .bucket-b60{color:#ef4444;} .bucket-b90{color:#b91c1c;}
+  .bucket-b0{color:#B7791F;} .bucket-b30{color:#C05621;} .bucket-b60{color:#9B2C2C;} .bucket-b90{color:#7B241C;}
   .warn{color:var(--danger);}
+  @media print{
+    body{background:#fff;color:#000;}
+    .toolbar,.tabs,button,input,select{display:none !important;}
+    .card,.stat{border:1px solid #999;background:#fff;}
+    th,td{border-bottom:1px solid #999;}
+  }
 </style>
 </head>
 <body>

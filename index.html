@@ -3,66 +3,89 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
-<title>TAE Accounting System</title>
+<title>OHT Accounting System</title>
 <link rel="manifest" href="manifest.json">
+<link rel="icon" href="icons/favicon.ico" sizes="any">
 <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="icons/favicon-16.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
-<meta name="theme-color" content="#0f172a">
+<meta name="theme-color" content="#2A2620">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="OHT">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root{
-    --bg:#0f172a; --bg2:#1e293b; --fg:#e2e8f0; --muted:#94a3b8;
-    --accent:#3b82f6; --accent2:#2563eb; --danger:#ef4444; --ok:#22c55e;
-    --border:#334155;
+    --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
+    --paper:#FFFFFF; --desk:#DDE1E6; --panel:#F5F7F8;
+    --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
   }
   *{box-sizing:border-box;}
   html,body{height:100%;margin:0;}
   body{
-    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-    background:var(--bg); color:var(--fg); display:flex; flex-direction:column;
+    font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+    background:var(--desk); color:var(--ink); display:flex; flex-direction:column;
   }
   #topbar{
-    display:flex; align-items:center; gap:4px; padding:8px 12px;
-    background:var(--bg2); border-bottom:1px solid var(--border);
-    flex-wrap:wrap;
+    display:flex; align-items:center; gap:2px; padding:0 8px;
+    height:46px; background:var(--ink); border-bottom:1px solid #111820;
+    flex-wrap:nowrap;
   }
-  #topbar .brand{font-weight:700; margin-right:16px; color:var(--fg); white-space:nowrap;}
+  #topbar .mark{
+    flex:none; width:26px; height:26px; border:1.5px solid var(--accent); border-radius:5px;
+    display:grid; place-items:center; font-size:9.5px; color:var(--accent);
+    font-weight:700; letter-spacing:.3px; margin-right:8px;
+  }
+  #topbar .brand{font-weight:600; margin-right:16px; color:var(--desk); white-space:nowrap; font-size:14px;}
+  #tabs{display:flex; gap:2px; min-width:0; overflow-x:auto; scrollbar-width:none;}
+  #tabs::-webkit-scrollbar{display:none;}
   #topbar .tab{
-    padding:8px 14px; border-radius:8px; cursor:pointer; color:var(--muted);
-    border:1px solid transparent; user-select:none; font-size:14px;
+    flex:none; padding:8px 13px; border-radius:7px; cursor:pointer; color:#9AA5B1;
+    border:none; user-select:none; font-size:13.5px; font-weight:600; position:relative;
+    white-space:nowrap;
   }
-  #topbar .tab:hover{background:#27354b;}
-  #topbar .tab.active{background:var(--accent); color:#fff;}
+  #topbar .tab:hover{background:#2C3742; color:var(--desk);}
+  #topbar .tab.active{background:#2C3742; color:#fff;}
+  #topbar .tab.active::after{
+    content:''; position:absolute; left:13px; right:13px; bottom:3px;
+    height:2px; border-radius:2px; background:var(--accent);
+  }
   #topbar .spacer{flex:1;}
-  #topbar .status{font-size:12px; color:var(--muted); margin-right:12px; white-space:nowrap;}
-  #topbar .status.offline{color:var(--danger);}
+  #topbar .status{font-size:11.5px; color:#9AA5B1; margin-right:10px; white-space:nowrap;}
+  #topbar .status.offline{color:#E8A5A5;}
   #topbar button.signout{
-    background:transparent; border:1px solid var(--border); color:var(--muted);
-    padding:6px 12px; border-radius:8px; cursor:pointer; font-size:13px;
+    flex:none; background:#2C3742; border:1px solid var(--slate); color:var(--desk);
+    padding:6px 12px; border-radius:7px; cursor:pointer; font-size:12.5px; font-weight:500;
   }
-  #frames{flex:1; position:relative;}
+  #topbar button.signout:hover{background:#374350;}
+  #frames{flex:1; position:relative; background:var(--desk);}
   #frames iframe{
-    position:absolute; inset:0; width:100%; height:100%; border:0; display:none;
+    position:absolute; inset:0; width:100%; height:100%; border:0; display:none; background:var(--desk);
   }
   #frames iframe.active{display:block;}
   #authScreen{
-    flex:1; display:flex; align-items:center; justify-content:center; padding:16px;
+    flex:1; display:flex; align-items:center; justify-content:center; padding:16px; background:var(--desk);
   }
   #authScreen .card{
-    background:var(--bg2); border:1px solid var(--border); border-radius:12px;
+    background:var(--paper); border-radius:12px; box-shadow:0 10px 34px rgba(31,41,51,.16);
     padding:28px; width:100%; max-width:360px;
   }
-  #authScreen h1{font-size:18px; margin:0 0 18px;}
+  #authScreen h1{font-size:17px; margin:0 0 18px; font-weight:600; color:var(--ink);}
   #authScreen input{
     width:100%; padding:10px 12px; margin-bottom:10px; border-radius:8px;
-    border:1px solid var(--border); background:#0b1220; color:var(--fg); font-size:14px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink); font-size:14px;
+    font-family:inherit;
   }
+  #authScreen input:focus{outline:none; border-color:var(--accent);}
   #authScreen button{
     width:100%; padding:10px; border-radius:8px; border:0; background:var(--accent);
-    color:#fff; font-size:14px; cursor:pointer; font-weight:600;
+    color:#fff; font-size:14px; cursor:pointer; font-weight:600; font-family:inherit;
   }
-  #authScreen button:hover{background:var(--accent2);}
-  #authScreen .err{color:var(--danger); font-size:13px; margin-top:10px; min-height:16px;}
-  #loading{flex:1; display:flex; align-items:center; justify-content:center; color:var(--muted);}
+  #authScreen button:hover{background:#8F6B27;}
+  #authScreen .err{color:var(--debit); font-size:13px; margin-top:10px; min-height:16px;}
+  #loading{flex:1; display:flex; align-items:center; justify-content:center; color:var(--slate); background:var(--desk);}
 </style>
 </head>
 <body>
@@ -71,7 +94,7 @@
 
 <div id="authScreen" style="display:none">
   <div class="card">
-    <h1>TAE Accounting System — Sign in</h1>
+    <h1>OHT Accounting System — Sign in</h1>
     <input id="authEmail" type="email" placeholder="Email" autocomplete="username">
     <input id="authPass" type="password" placeholder="Password" autocomplete="current-password">
     <button id="authBtn">Sign in</button>
@@ -80,7 +103,8 @@
 </div>
 
 <div id="topbar" style="display:none">
-  <span class="brand">TAE Accounting</span>
+  <span class="mark">OHT</span>
+  <span class="brand">OHT Accounting</span>
   <div id="tabs"></div>
   <div class="spacer"></div>
   <span class="status offline" id="failedStatus" style="display:none"></span>
