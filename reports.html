@@ -36,11 +36,17 @@
   .bucket-b0{color:#B7791F;} .bucket-b30{color:#C05621;} .bucket-b60{color:#9B2C2C;} .bucket-b90{color:#7B241C;}
   .warn{color:var(--danger);}
   @media print{
+    @page{size:A4;}
     body{background:#fff;color:#000;}
     .toolbar,.tabs,button,input,select{display:none !important;}
     .card,.stat{border:1px solid #999;background:#fff;}
     th,td{border-bottom:1px solid #999;}
+    .poweredBy{
+      display:block; position:fixed; left:0; right:0; bottom:8mm; font-size:10px; color:#666;
+      border-top:1.5px solid #A67C2E; padding-top:5px; padding-left:15mm; padding-right:15mm;
+    }
   }
+  .poweredBy{display:none;}
 </style>
 </head>
 <body>
@@ -51,6 +57,7 @@
 </div>
 
 <main id="content"></main>
+<div class="poweredBy">Powered by "OHT Solutions"</div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
