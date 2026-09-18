@@ -1,0 +1,622 @@
+/* ==========================================================================
+   OHT Accounting System — shared design system
+   Warm "paper ledger" business-document theme. One stylesheet, every
+   authenticated screen (login/sign-in screen is explicitly excluded —
+   it keeps its own design). Add to every page's <head>:
+     <link rel="preconnect" href="https://fonts.googleapis.com">
+     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+     <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+     <link rel="stylesheet" href="theme.css">
+   ========================================================================== */
+
+:root {
+  --ink:#2A2620; --slate:#5A5346; --mute:#9C9384; --line:#D8D0BF; --hair:#E7E1D3;
+  --paper:#FCFAF7; --desk:#EDE7D9; --panel:#F5F1E6;
+  --debit:#A0532E; --credit:#5F7A4E; --accent:#B0824A; --cash:#4A6D93;
+  --debit-wash:#F7EEE7; --debit-wash2:#FDF6F6; --credit-wash:#EAF3EC;
+  --ink-hover:#3A342A;
+  --abtn-bg:#3A342A; --abtn-border:#4A4436; --abtn-text:#E8E2D5;
+  --focus-ring: 0 0 0 3px rgba(74,109,147,.12);
+  --radius-sm:7px; --radius-md:8px; --radius-lg:9px; --radius-xl:12px;
+}
+
+* { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html, body { margin:0; }
+body {
+  font-family:'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  font-size:14px; color:var(--ink); background:var(--desk);
+}
+button { font:inherit; cursor:pointer; }
+input, select, textarea { font-family:inherit; }
+
+/* ---------- monospace numerics ---------- */
+.mono, .amt, .num, td.num, .money, time, .date {
+  font-family:'IBM Plex Mono', monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- serif "document" headings — sparing use only ---------- */
+.doc-h, .serif, h3.sheet-title, .empty-big, .letterhead .firm-name, .stmt-title {
+  font-family:'IBM Plex Serif', Georgia, serif;
+  font-weight:600;
+}
+
+/* ---------- micro labels (field labels / group labels) ---------- */
+.lbl, label.micro, .field > label {
+  display:block; font-size:10.5px; font-weight:700; letter-spacing:.9px;
+  text-transform:uppercase; color:var(--mute); margin-bottom:4px;
+}
+.group-lbl {
+  font-size:10.5px; font-weight:700; letter-spacing:.9px; text-transform:uppercase;
+  color:var(--mute); border-top:1px solid var(--hair); padding-top:10px; margin-top:14px;
+}
+
+/* ==========================================================================
+   5. LAYOUT & NAVIGATION — sidebar (desktop) / drawer (mobile)
+   ========================================================================== */
+.app-shell { display:flex; height:100%; min-height:100vh; background:var(--desk); }
+
+.sidebar {
+  flex:none; width:216px; background:var(--ink); color:#fff;
+  display:flex; flex-direction:column; overflow-y:auto;
+}
+.sidebar .mark {
+  width:26px; height:26px; border:1.5px solid var(--accent); border-radius:6px;
+  display:grid; place-items:center; font-size:9.5px; color:var(--accent);
+  font-weight:700; letter-spacing:.3px; flex:none;
+}
+.sidebar .head {
+  display:flex; align-items:center; gap:8px; padding:14px 12px;
+  border-bottom:1px solid var(--abtn-border);
+}
+.sidebar .head .title { font-weight:600; font-size:14px; color:#fff; }
+.sidebar .head .close { display:none; margin-left:auto; }
+.sidebar .grp { padding:10px 8px 6px; }
+.sidebar .grp-lbl {
+  font-size:9.5px; letter-spacing:.6px; text-transform:uppercase; color:#9C9384;
+  padding:6px 8px 4px; font-weight:700;
+}
+.sidebar .navitem {
+  display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+  padding:9px 10px; border-radius:7px; border:none; background:none;
+  color:#B8AF9E; font-size:13.5px; font-weight:500; margin-bottom:1px;
+}
+.sidebar .navitem svg { width:18px; height:18px; flex:none; }
+.sidebar .navitem .count {
+  margin-left:auto; font-size:11px; color:#8C8577; font-family:'IBM Plex Mono',monospace;
+}
+.sidebar .navitem:hover { background:var(--abtn-bg); color:#E8E2D5; }
+.sidebar .navitem.on { background:var(--abtn-bg); color:#fff; font-weight:600; }
+.sidebar .navitem.dgr { color:#D19A80; }
+.sidebar .navitem.dgr:hover { background:#4A342E; color:#E8B9A4; }
+.sidebar hr.sep { border:none; border-top:1px solid var(--abtn-border); margin:8px 12px; }
+
+/* ---------- light sidebar variant ----------
+   The base .sidebar above is dark-on-ink. Modules that keep the warm
+   "paper" look end to end (Daily Ledger) use .sidebar.light instead: same
+   markup, same drawer/persistent mechanics, light surfaces. Its nav items
+   may additionally carry .card to render as the cream button-cards of the
+   approved reference screenshot. */
+.sidebar.light { background:var(--desk); color:var(--ink); }
+.sidebar.light .head { border-bottom:1px solid var(--line); }
+.sidebar.light .head .title { color:var(--ink); }
+.sidebar.light .head .close { color:var(--slate); }
+.sidebar.light .head .close:hover { background:var(--panel); }
+.sidebar.light .grp-lbl { color:var(--mute); }
+.sidebar.light .navitem { color:var(--ink); }
+.sidebar.light .navitem svg { color:var(--slate); }
+.sidebar.light .navitem .count { color:var(--mute); }
+.sidebar.light .navitem:hover { background:var(--panel); color:var(--ink); }
+.sidebar.light .navitem.on { background:var(--ink); color:#fff; font-weight:600; }
+.sidebar.light .navitem.on svg { color:#C9C1B2; }
+.sidebar.light .navitem.on .count { color:#C9C1B2; }
+.sidebar.light .navitem.dgr { color:var(--debit); }
+.sidebar.light .navitem.dgr svg { color:var(--debit); }
+.sidebar.light .navitem.dgr:hover { background:var(--debit-wash); color:var(--debit); }
+.sidebar.light hr.sep { border-top:1px solid var(--line); margin:10px 12px; }
+
+.sidebar.light .navitem.card {
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-md);
+  padding:11px 12px; margin-bottom:6px; box-shadow:0 1px 1px rgba(31,25,20,.04);
+}
+.sidebar.light .navitem.card:hover { background:var(--panel); }
+.sidebar.light .navitem.card.dgr { background:var(--debit-wash2); border-color:#E5D0C4; }
+.sidebar.light .navitem.card.dgr:hover { background:var(--debit-wash); }
+.sidebar.light .navitem .caret { margin-left:auto; color:var(--mute); font-size:11px; transition:transform .16s; }
+.sidebar.light .navitem[aria-expanded="true"] .caret { transform:rotate(90deg); }
+.sidebar .subgrp { display:none; padding-left:10px; }
+.sidebar .subgrp.on { display:block; }
+
+.appbar {
+  display:none; flex:none; align-items:center; gap:10px;
+  height:calc(48px + env(safe-area-inset-top));
+  padding:env(safe-area-inset-top) 12px 0;
+  background:var(--ink); color:#fff;
+}
+.appbar .hamburger {
+  background:none; border:none; color:#E8E2D5; padding:8px; border-radius:7px;
+  display:flex; align-items:center;
+}
+.appbar .hamburger:hover { background:var(--abtn-bg); }
+.appbar .title { font-weight:600; font-size:14.5px; }
+
+.scrim {
+  display:none; position:fixed; inset:0; z-index:60; background:rgba(31,25,20,.42);
+}
+.scrim.on { display:block; }
+
+/* ---------- outer app-shell top bar (index.html) ----------
+   The 216px .sidebar above is each MODULE's own internal navigation. The
+   outer shell that hosts the module iframes keeps a thin dark bar instead —
+   same ink/accent palette, same tab affordance, just horizontal. */
+.topbar {
+  display:flex; align-items:center; gap:2px; flex:none; flex-wrap:nowrap;
+  padding:env(safe-area-inset-top) 8px 0 10px;
+  height:calc(46px + env(safe-area-inset-top));
+  background:var(--ink); border-bottom:1px solid #1B1712;
+}
+.topbar .mark {
+  flex:none; width:26px; height:26px; border:1.5px solid var(--accent); border-radius:6px;
+  display:grid; place-items:center; font-size:9.5px; color:var(--accent);
+  font-weight:700; letter-spacing:.3px; margin-right:8px;
+}
+.topbar .brand {
+  font-weight:600; font-size:14px; color:var(--abtn-text); white-space:nowrap; margin-right:16px;
+}
+.topbar .tabstrip { display:flex; gap:2px; min-width:0; overflow-x:auto; scrollbar-width:none; }
+.topbar .tabstrip::-webkit-scrollbar { display:none; }
+.topbar .tab {
+  flex:none; position:relative; white-space:nowrap; border:none; background:none;
+  padding:8px 13px; border-radius:7px; font-size:13.5px; font-weight:600; color:#B8AF9E;
+}
+.topbar .tab:hover { background:var(--abtn-bg); color:var(--abtn-text); }
+.topbar .tab.on { background:var(--abtn-bg); color:#fff; }
+.topbar .tab.on::after {
+  content:''; position:absolute; left:13px; right:13px; bottom:3px;
+  height:2px; border-radius:2px; background:var(--accent);
+}
+.topbar .spacer { flex:1; }
+.topbar .status { font-size:11.5px; color:#9C9384; margin-right:10px; white-space:nowrap; }
+.topbar .status.offline { color:#D19A80; }
+.topbar .abtn { flex:none; margin-left:6px; }
+
+.main { flex:1; min-width:0; display:flex; flex-direction:column; background:var(--desk); }
+
+@media (max-width:860px) {
+  .appbar { display:flex; }
+  .sidebar {
+    position:fixed; inset:0 auto 0 0; width:78%; max-width:280px; z-index:61;
+    transform:translateX(-100%); transition:transform .22s ease;
+  }
+  .sidebar.open { transform:translateX(0); }
+  .sidebar .head .close {
+    display:flex; align-items:center; justify-content:center;
+    background:none; border:none; color:#E8E2D5; width:28px; height:28px; border-radius:6px;
+  }
+  .sidebar .head .close:hover { background:var(--abtn-bg); }
+}
+
+/* ==========================================================================
+   TAB STRIPS
+   ========================================================================== */
+.tabs { display:flex; gap:0; }
+.tabs button {
+  flex:1; padding:12px 14px 10px; font-size:13px; font-weight:700; color:var(--mute);
+  background:none; border:none; border-bottom:3px solid transparent;
+}
+.tabs button.on { color:var(--ink); border-bottom-color:var(--accent); }
+.tabs.sub button { padding:8px 10px 7px; font-size:12.5px; border-bottom-width:2.5px; }
+
+/* ==========================================================================
+   TOOLBAR (search + primary action)
+   ========================================================================== */
+.toolbar { display:flex; align-items:center; gap:10px; padding:10px 14px; }
+.search-wrap { position:relative; flex:1; min-width:0; }
+.search-wrap svg.icn {
+  position:absolute; left:10px; top:50%; transform:translateY(-50%);
+  width:16px; height:16px; color:var(--mute); pointer-events:none;
+}
+.search-wrap input {
+  width:100%; padding:9px 32px; border-radius:8px; border:1px solid var(--line);
+  background:var(--panel); font-size:13.5px; color:var(--ink);
+}
+.search-wrap input:focus { outline:none; border-color:var(--cash); box-shadow:var(--focus-ring); background:var(--paper); }
+.search-wrap .clear {
+  position:absolute; right:8px; top:50%; transform:translateY(-50%);
+  background:none; border:none; color:var(--mute); width:20px; height:20px; display:none;
+}
+.search-wrap.has-val .clear { display:block; }
+
+/* ==========================================================================
+   6. BUTTONS
+   ========================================================================== */
+.btn {
+  border:1px solid var(--line); background:var(--paper); color:var(--ink);
+  border-radius:var(--radius-sm); padding:9px 14px; font-size:13px; font-weight:600;
+}
+.btn:hover { background:var(--panel); }
+.btn.pri { background:var(--ink); color:#fff; border-color:var(--ink); }
+.btn.pri:hover { background:var(--ink-hover); }
+.btn.pri:disabled { background:var(--line); border-color:var(--line); color:var(--mute); cursor:not-allowed; }
+.btn.dgr { color:var(--debit); border-color:#E5D0C4; background:var(--paper); }
+.btn.dgr:hover { background:var(--debit-wash); }
+.icb {
+  background:none; border:none; color:var(--mute); padding:8px; border-radius:7px; font-size:16px;
+  display:inline-flex; align-items:center; justify-content:center;
+}
+.icb:hover { background:var(--panel); }
+.abtn {
+  background:var(--abtn-bg); border:1px solid var(--abtn-border); color:var(--abtn-text);
+  border-radius:7px; padding:7px 11px; font-size:12.5px; font-weight:500;
+}
+.abtn:hover { background:#443D32; }
+
+/* ==========================================================================
+   7. FORM FIELDS
+   ========================================================================== */
+.field { margin-bottom:12px; }
+.field input, .field select, .field textarea {
+  width:100%; padding:9.5px 10px; border:1px solid var(--line); border-radius:7px;
+  background:var(--paper); font-size:14px; color:var(--ink);
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  outline:none; border-color:var(--cash); box-shadow:var(--focus-ring);
+}
+.field .hint { font-size:11.5px; color:var(--mute); line-height:1.45; margin-top:4px; }
+.field.bad input, .field.bad select, .field.bad textarea {
+  border-color:var(--debit); background:var(--debit-wash2);
+}
+.field.bad .hint { color:var(--debit); font-weight:600; }
+.field.warn input, .field.warn select, .field.warn textarea {
+  border-color:var(--accent); background:#FBF4E7;
+}
+.field.warn .hint { color:#8A6425; font-weight:600; }
+.f2 { display:flex; gap:10px; }
+.f2 > * { flex:1; min-width:0; }
+.field input.num, input.num {
+  font-family:'IBM Plex Mono', monospace; text-align:right; font-weight:600;
+  font-variant-numeric: tabular-nums;
+}
+
+/* toggle switch */
+.sw { position:relative; display:inline-block; width:44px; height:25px; flex:none; }
+.sw input { opacity:0; width:0; height:0; position:absolute; }
+.sw .trk {
+  position:absolute; inset:0; background:var(--line); border-radius:13px; transition:background .16s;
+}
+.sw .trk::before {
+  content:''; position:absolute; width:19px; height:19px; left:3px; top:3px;
+  background:#fff; border-radius:50%; transition:left .16s; box-shadow:0 1px 2px rgba(0,0,0,.2);
+}
+.sw input:checked + .trk { background:var(--credit); }
+.sw input:checked + .trk::before { left:22px; }
+
+/* ==========================================================================
+   8. LIST / ROW PATTERN
+   ========================================================================== */
+.list-row {
+  display:flex; align-items:center; gap:10px; padding:11px 12px;
+  border-bottom:1px solid var(--hair); background:var(--paper);
+}
+.list-row:hover { background:#F3EDE0; }
+.list-row:active { background:#ECE4D2; }
+.list-row:focus-visible {
+  outline:none; background:#F3EDE0; border-left:3px solid var(--cash); padding-left:9px;
+}
+.list-row .avatar {
+  flex:none; width:32px; height:32px; border-radius:8px; display:grid; place-items:center;
+  font-size:12px; font-weight:700; border:1px solid var(--line); background:var(--panel); color:var(--slate);
+}
+.list-row .body { flex:1; min-width:0; }
+.list-row .name {
+  font-weight:700; font-size:14px; color:var(--ink); white-space:nowrap;
+  overflow:hidden; text-overflow:ellipsis;
+}
+.list-row.inactive .name::after { content:' — off'; color:var(--mute); font-weight:400; }
+.list-row.inactive { opacity:.5; }
+.list-row .sub { font-size:11.5px; color:var(--mute); margin-top:1px; }
+.list-row .trail { text-align:right; flex:none; }
+.list-row .trail .amt { font-size:13.5px; font-weight:600; }
+.list-row .trail .tag { display:block; font-size:9.5px; text-transform:uppercase; color:var(--mute); margin-top:1px; }
+.list-row .chev { color:var(--mute); margin-left:4px; }
+.list-row:hover .chev::after { content:' \203A'; }
+
+.list-group-hdr {
+  position:sticky; top:0; background:var(--panel); font-size:11px; font-weight:700;
+  text-transform:uppercase; color:var(--slate); padding:5px 12px;
+  border-top:1px solid var(--hair); border-bottom:1px solid var(--hair);
+}
+
+.badge {
+  display:inline-block; font-size:9.5px; font-weight:700; text-transform:uppercase;
+  padding:2.5px 7px; border-radius:20px; border:1px solid; line-height:1.4;
+}
+.badge.b-customer { background:#E4EBF2; color:#4A6D93; border-color:#D2DEE9; }
+.badge.b-supplier { background:#F2E9D6; color:#96702E; border-color:#E5D6B4; }
+.badge.b-both     { background:#F0E6D2; color:#96702E; border-color:#E2D2AC; }
+.badge.b-expense  { background:#EFE9E1; color:#8C8577; border-color:#E0D7C8; }
+.badge.b-finance  { background:#E9E1F0; color:#6E4A96; border-color:#D9CBE7; }
+
+.empty-state { text-align:center; padding:56px 20px; }
+.empty-state .empty-big { font-size:17px; color:var(--ink); margin-bottom:6px; }
+.empty-state .empty-sub { font-size:13px; color:var(--mute); }
+
+.load-more {
+  display:flex; align-items:center; justify-content:center; gap:6px; width:100%;
+  padding:11px 12px; border:none; background:var(--paper); border-bottom:1px solid var(--hair);
+  color:var(--cash); font-weight:700; font-size:13.5px;
+}
+.load-more .rem { color:var(--mute); font-weight:400; }
+.load-more:hover { background:#F3EDE0; }
+
+/* ==========================================================================
+   9. EDITOR PATTERN — right side-sheet (bottom-sheet on narrow screens)
+   ========================================================================== */
+.sheet-scrim { display:none; position:fixed; inset:0; z-index:70; background:rgba(0,0,0,.42); }
+.sheet-scrim.on { display:block; }
+.sheet {
+  display:none; position:fixed; right:0; top:0; bottom:0; width:400px; max-width:100vw;
+  background:var(--paper); z-index:71; flex-direction:column;
+  box-shadow:-8px 0 28px rgba(31,25,20,.22);
+}
+.sheet.on { display:flex; }
+.sheet .hdr {
+  display:flex; align-items:center; gap:10px; padding:14px; border-bottom:1px solid var(--hair);
+}
+.sheet .hdr h3 { margin:0; font-size:17px; flex:1; }
+.sheet .body { flex:1; overflow-y:auto; padding:14px; }
+.sheet .ftr {
+  display:flex; gap:8px; justify-content:flex-end; padding:12px 14px;
+  padding-bottom:calc(12px + env(safe-area-inset-bottom));
+  background:var(--panel); border-top:1px solid var(--hair);
+}
+@media (max-width:640px) {
+  .sheet {
+    left:0; right:0; bottom:0; top:auto; width:auto; max-height:92vh;
+    border-radius:14px 14px 0 0; box-shadow:0 -8px 28px rgba(31,25,20,.22);
+  }
+}
+
+/* ==========================================================================
+   10. SEARCHABLE COMBOBOX
+   ========================================================================== */
+.combo { position:relative; }
+.combo input { width:100%; }
+.combo-menu {
+  display:none; position:absolute; top:calc(100% + 3px); left:0; right:0; z-index:40;
+  background:var(--paper); border:1px solid var(--line); border-radius:8px;
+  box-shadow:0 8px 24px rgba(31,25,20,.16); max-height:210px; overflow-y:auto;
+}
+.combo-menu.on { display:block; }
+.combo-opt { padding:9px 11px; border-bottom:1px solid var(--hair); cursor:pointer; }
+.combo-opt:last-child { border-bottom:none; }
+.combo-opt:hover, .combo-opt.hi { background:#EFE7D8; }
+.combo-opt .main { font-size:13.5px; color:var(--ink); }
+.combo-opt .sub { font-size:11px; color:var(--mute); margin-top:1px; }
+.combo-empty { padding:16px; text-align:center; color:var(--mute); font-size:12.5px; line-height:1.5; }
+
+/* ==========================================================================
+   11. LINE-ITEM EDITOR — card stack, not a table
+   ========================================================================== */
+.lines { border:1px solid var(--line); border-radius:var(--radius-lg); overflow:hidden; }
+.ln { padding:10px 11px; border-bottom:1px solid var(--hair); background:var(--paper); }
+.ln:last-child { border-bottom:none; }
+.ln .ln-top { display:flex; align-items:center; gap:8px; }
+.ln .ln-top .combo { flex:1; min-width:0; }
+.ln .ln-rows { margin-top:8px; display:flex; flex-direction:column; gap:8px; }
+
+/* ==========================================================================
+   12. DOCUMENT / STATEMENT / PRINT-STYLE VIEW
+   ========================================================================== */
+.letterhead { display:flex; align-items:center; gap:12px; padding-bottom:10px; border-bottom:2px solid var(--ink); }
+.letterhead .mark2 {
+  width:44px; height:44px; border:1.5px solid var(--accent); border-radius:8px;
+  display:grid; place-items:center; font-family:'IBM Plex Serif',serif; font-weight:600;
+  font-size:20px; color:var(--accent); flex:none;
+}
+.letterhead .firm-name { font-size:19px; }
+.letterhead .firm-addr { font-size:11.5px; color:var(--mute); }
+.stmt-title { font-size:22px; margin:14px 0 4px; }
+.stmt-balance { font-family:'IBM Plex Mono',monospace; font-size:20px; font-weight:700; }
+.stmt-balance.dr { color:var(--debit); }
+.stmt-balance.cr { color:var(--credit); }
+table.doc-table { width:100%; border-collapse:collapse; border:1px solid var(--line); }
+table.doc-table th {
+  background:var(--panel); text-align:left; font-size:11px; text-transform:uppercase;
+  letter-spacing:.4px; color:var(--slate); padding:8px 10px; border-bottom:1px solid var(--line);
+}
+table.doc-table td { padding:8px 10px; border-bottom:1px solid var(--hair); font-size:13.5px; }
+table.doc-table td.num { text-align:right; }
+table.doc-table tr.drill:hover { background:#F3EDE0; cursor:pointer; }
+table.doc-table tr.drill td:last-child::after { content:' \203A'; color:var(--mute); }
+table.doc-table tfoot td {
+  background:var(--panel); font-weight:700; border-top:2px solid var(--line); border-bottom:none;
+}
+
+/* ==========================================================================
+   13. FULL-PAGE "PAPER REPLICA" VIEW — a literal ledger/register screen
+   ========================================================================== */
+.paper-desk { flex:1; overflow:auto; background:var(--desk); display:flex; justify-content:center; padding:24px 0; }
+.paper-page {
+  width:210mm; min-height:297mm; background:#fff; padding:11mm 9mm;
+  box-shadow:0 4px 18px rgba(31,25,20,.18); flex:none;
+  transform-origin:top center;
+}
+.paper-zoom { display:flex; align-items:center; gap:6px; }
+.paper-zoom .pct { font-family:'IBM Plex Mono',monospace; font-size:12px; min-width:38px; text-align:center; }
+
+/* ---------- zoomable variant ----------
+   A CSS transform alone does not change layout size, so a scaled page
+   leaves the scroll container's scrollbars sized for the UNSCALED page.
+   The fix is two-part: .scaler carries transform:scale(var(--z)) AND gets
+   explicit pixel width/height (page size x zoom) set from JS after every
+   zoom change, so the container scrolls around the real painted footprint.
+   justify-content:center inside .scaler keeps the page's centre aligned
+   with transform-origin:top center, which is what makes the scaled box
+   land exactly on the wrapper's box at any zoom level.
+   The desk becomes display:block here so an over-wide scaled page scrolls
+   instead of being clipped by flex centring. */
+.paper-desk.zoomable { display:block; padding:24px 12px; }
+.paper-desk .scaler {
+  flex:none; margin:0 auto; display:flex; justify-content:center;
+  transform:scale(var(--z, 1)); transform-origin:top center;
+}
+
+/* ==========================================================================
+   14. TOASTS & CONFIRM DIALOG
+   ========================================================================== */
+#toastStack, .toast-stack {
+  position:fixed; left:50%; bottom:20px; transform:translateX(-50%); z-index:90;
+  display:flex; flex-direction:column-reverse; gap:8px; align-items:center;
+  padding-bottom:env(safe-area-inset-bottom);
+}
+.toast {
+  background:var(--ink); color:#fff; padding:11px 18px; border-radius:9px; font-size:13.5px;
+  box-shadow:0 6px 20px rgba(31,25,20,.28); opacity:0; transform:translateY(8px);
+  transition:opacity .2s, transform .2s; max-width:88vw;
+}
+.toast.on { opacity:1; transform:translateY(0); }
+.toast.err { background:var(--debit); }
+
+.confirm-scrim { display:none; position:fixed; inset:0; z-index:80; background:rgba(31,25,20,.45); align-items:center; justify-content:center; padding:20px; }
+.confirm-scrim.on { display:flex; }
+.confirm-card {
+  background:var(--paper); border-radius:var(--radius-xl); padding:20px; width:100%; max-width:380px;
+  box-shadow:0 12px 36px rgba(31,25,20,.28);
+}
+.confirm-card h4 { margin:0 0 8px; font-size:15.5px; font-weight:700; }
+.confirm-card p { margin:0 0 18px; font-size:13.5px; color:var(--slate); line-height:1.55; }
+.confirm-card .acts { display:flex; gap:8px; justify-content:flex-end; }
+
+/* ==========================================================================
+   17. SHARED GAP-FILLERS
+   Small primitives every screen needs that §§5–14 don't cover. Kept here
+   (not duplicated per page) so billing/masters/reports stay in step.
+   ========================================================================== */
+
+/* the scrolling list body inside .main */
+.list-area { flex:1; min-height:0; overflow-y:auto; }
+
+/* status badges beyond the party-kind set */
+.badge.b-ok      { background:var(--credit-wash); color:var(--credit); border-color:#CFE0D2; }
+.badge.b-warn    { background:#F7EFE0; color:#8A6425; border-color:#E8D9B8; }
+.badge.b-neutral { background:#EFE9E1; color:#8C8577; border-color:#E0D7C8; }
+
+/* Dr/Cr colouring on a list row's trailing tag */
+.list-row .trail .tag.dr { color:var(--debit); }
+.list-row .trail .tag.cr { color:var(--credit); }
+
+/* toggle row: a label (with optional sub-line) + a .sw switch, and an
+   optional trailing amount input */
+.sw-row { display:flex; align-items:center; gap:10px; padding:7px 0; }
+.sw-row + .sw-row { border-top:1px solid var(--hair); }
+.sw-row .sw-lbl { flex:1; min-width:0; font-size:13.5px; font-weight:600; color:var(--ink); }
+.sw-row .sw-lbl .sw-sub { display:block; font-size:11.5px; font-weight:400; color:var(--mute); margin-top:1px; }
+.sw-row input.amt-in {
+  width:104px; flex:none; padding:7px 9px; border:1px solid var(--line); border-radius:7px;
+  background:var(--paper); color:var(--ink); font-family:'IBM Plex Mono', monospace;
+  text-align:right; font-weight:600; font-variant-numeric:tabular-nums; font-size:13px;
+}
+.sw-row input.amt-in:focus { outline:none; border-color:var(--cash); box-shadow:var(--focus-ring); }
+.sw-row input.amt-in:disabled { background:var(--panel); color:var(--mute); }
+
+/* totals / summary block (invoice footer, statement footer) */
+.doc-sum { border-top:1px solid var(--hair); margin-top:14px; padding-top:10px; }
+.doc-sum-row { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:3px 0; font-size:13px; color:var(--slate); }
+.doc-sum-row .v { font-family:'IBM Plex Mono', monospace; font-variant-numeric:tabular-nums; color:var(--ink); }
+.doc-sum-row.grand { margin-top:6px; padding-top:8px; border-top:1px solid var(--line); font-size:15px; font-weight:700; color:var(--ink); }
+.doc-sum-row.grand .v { font-weight:700; }
+.doc-sum-note { font-size:11.5px; color:var(--mute); line-height:1.45; margin-top:8px; }
+
+/* an "+ add another" button that follows a .lines card stack */
+.add-more { margin-top:10px; }
+
+/* a read-only line card's title (where an editable card has its combobox) */
+.ln .ln-name { flex:1; min-width:0; font-size:14px; font-weight:700; color:var(--ink); }
+
+/* a combobox used outside a .field (e.g. as a .ln card's header control)
+   still needs the field-input look — same values as `.field input` */
+.combo > input {
+  width:100%; padding:9.5px 10px; border:1px solid var(--line); border-radius:7px;
+  background:var(--paper); font-size:14px; color:var(--ink);
+}
+.combo > input:focus { outline:none; border-color:var(--cash); box-shadow:var(--focus-ring); }
+
+/* .ln-rows already spaces its children, so fields inside it don't add more */
+.ln .ln-rows .field { margin-bottom:0; }
+.ln .ln-rows .doc-sum-row { padding:0; }
+
+/* form-level (not field-level) error bar — sits just above a sheet's .ftr */
+.form-err {
+  flex:none; padding:10px 14px; background:var(--debit-wash2); border-top:1px solid #E5D0C4;
+  color:var(--debit); font-size:12.5px; font-weight:600; line-height:1.45;
+}
+.form-err:empty { display:none; }
+
+/* a sheet footer with 4+ actions must be allowed to wrap on a phone */
+.sheet .ftr { flex-wrap:wrap; }
+
+/* ==========================================================================
+   15. MOTION & ACCESSIBILITY
+   ========================================================================== */
+:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.list-row:focus-visible { outline:none; } /* uses its own richer treatment above */
+@media (prefers-reduced-motion: reduce) {
+  * { transition:none !important; animation:none !important; }
+}
+
+/* ==========================================================================
+   16. DOCUMENT-VIEW EXTRAS (added while restyling reports.html — these fill
+   gaps §12 leaves: the sheet a statement sits on, its sub-title line, a
+   filter bar, a tab-strip container, mid-table subtotal rows and the
+   status colours the aging / consumption reports need.)
+   ========================================================================== */
+.doc-sheet {
+  background:var(--paper); border:1px solid var(--line); border-radius:var(--radius-xl);
+  padding:18px 20px; margin:0 auto 14px; max-width:980px;
+}
+.stmt-sub { font-size:12px; color:var(--mute); margin:0 0 14px; }
+.stmt-balance .side { font-size:13px; font-weight:600; margin-left:4px; }
+
+/* filter bar above a report/list (pair with .toolbar so it is hidden in print) */
+.filters { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+.filters .field { margin-bottom:0; }
+.filters .field input, .filters .field select { min-width:150px; }
+
+/* container for a horizontally scrolling .tabs strip */
+.tabs-wrap { background:var(--paper); border-bottom:1px solid var(--line); }
+.tabs-wrap .tabs { overflow-x:auto; scrollbar-width:none; min-width:0; }
+.tabs-wrap .tabs::-webkit-scrollbar { display:none; }
+.tabs-wrap .tabs button { flex:none; white-space:nowrap; }
+
+/* mid-table subtotal row (tfoot covers the final total) */
+table.doc-table tr.sum td { background:var(--panel); font-weight:700; }
+table.doc-table tr.note td { color:var(--mute); font-size:12px; font-weight:400; }
+
+.warn { color:var(--debit); }
+.bucket-notdue { color:var(--slate); }
+.bucket-b0     { color:var(--accent); }
+.bucket-b30    { color:#B06A2E; }
+.bucket-b60    { color:var(--debit); }
+.bucket-b90    { color:#7E3A1C; font-weight:700; }
+.bucket-payable, .bucket-advance { color:var(--credit); }
+.badge.b-void { background:var(--debit-wash); color:var(--debit); border-color:#E5D0C4; }
+
+/* ---- small shared bits used by the Masters editor sheets ---- */
+.ok-txt { color:var(--credit); font-size:12.5px; min-height:16px; }
+.warn-txt { color:var(--debit); font-size:12.5px; min-height:16px; }
+img.thumb {
+  max-height:40px; max-width:80px; border-radius:6px; background:#fff;
+  padding:2px; border:1px solid var(--line);
+}
+/* a labelled toggle row (the .sw switch plus its text label) */
+.swrow { display:flex; align-items:center; gap:10px; margin-bottom:12px; }
+.swrow .swlbl { font-size:13.5px; font-weight:600; color:var(--ink); }
+
+/* a whole list row that is itself the button (keyboard-focusable rows) */
+button.list-row {
+  width:100%; text-align:left; font:inherit; color:inherit;
+  border:none; border-bottom:1px solid var(--hair);
+}
+.list-row .body, .list-row .name, .list-row .sub, .list-row .trail { display:block; }
+.list-row .sub { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }

@@ -6,48 +6,286 @@
 <title>Daily Ledger — OHT Accounting</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root{
-    --bg:#DDE1E6; --bg2:#FFFFFF; --bg3:#F5F7F8; --fg:#1F2933; --muted:#7B8794;
-    --accent:#A67C2E; --accent2:#8F6B27; --danger:#9B2C2C; --ok:#14614A; --border:#CBD2D9;
+  /* ------------------------------------------------------------------
+     Daily Cash Book — page-specific styles only. Everything shared
+     (sidebar/appbar/scrim, buttons, toasts, confirm dialog, .paper-desk /
+     .paper-page / .scaler zoom shell) comes from theme.css.
+     ------------------------------------------------------------------ */
+  html, body { height:100%; }
+  body { overflow:hidden; }
+
+  /* ---------- toolbar ---------- */
+  .ledger-bar {
+    flex:none; background:var(--paper); border-bottom:1px solid var(--line);
+    flex-wrap:wrap; row-gap:8px;
   }
-  *{box-sizing:border-box;}
-  html,body{height:100%;margin:0;}
-  body{font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
-  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
-  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
-  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--fg);padding:8px 12px;font-size:13px;}
-  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
-  input,select{padding:7px 8px;border-radius:6px;border:1px solid var(--border);background:var(--bg2);color:var(--fg);font-size:12px;}
-  main{padding:14px;max-width:1200px;margin:0 auto;}
-  table{width:100%;border-collapse:collapse;font-size:12px;}
-  th,td{padding:5px 6px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top;}
-  th{color:var(--muted);font-weight:600;font-size:11px;text-transform:uppercase;}
-  .side-label{text-align:center;font-weight:700;color:var(--muted);font-size:11px;text-transform:uppercase;padding:8px 0;}
-  .amt{width:90px;} .rem{min-width:220px;} .chk{width:30px;text-align:center;}
-  .totals-row td{font-weight:700;background:var(--bg3);}
-  .err{color:var(--danger);font-size:13px;margin:8px 0;}
-  .party-chip{font-size:10px;color:var(--accent);display:block;margin-bottom:2px;}
-  .partylist{position:absolute;background:var(--bg2);border:1px solid var(--border);border-radius:6px;max-height:160px;overflow:auto;z-index:20;min-width:200px;}
-  .partylist div{padding:6px 10px;cursor:pointer;font-size:12px;}
-  .partylist div:hover{background:var(--accent);}
+  .ledger-bar .grow { flex:1; min-width:0; }
+  .ledger-bar input[type="date"] {
+    padding:7px 9px; border:1px solid var(--line); border-radius:var(--radius-sm);
+    background:var(--paper); color:var(--ink); font-family:'IBM Plex Mono',monospace;
+    font-size:13px;
+  }
+  .ledger-bar input[type="date"]:focus { outline:none; border-color:var(--cash); box-shadow:var(--focus-ring); }
+  .ledger-bar .icb.nav { font-size:19px; line-height:1; width:32px; height:32px; }
+  .ledger-bar .sepv { width:1px; height:22px; background:var(--hair); flex:none; }
+  .paper-zoom .btn { padding:6px 10px; font-size:12.5px; }
+  .paper-zoom .btn.on { background:var(--ink); color:#fff; border-color:var(--ink); }
+  .net { font-size:11.5px; color:var(--mute); white-space:nowrap; }
+  .net.off { color:var(--debit); font-weight:600; }
+
+  /* Collapses to zero height while there is no message, so it never shows
+     as an empty strip under the toolbar. #ledgerErr keeps its id: saveSheet()
+     writes every save/merge/offline message straight into it, unchanged. */
+  .statusbar { flex:none; background:var(--paper); padding:0 14px; }
+  .statusbar .err:not(:empty) {
+    display:block; padding:8px 0 9px; color:var(--debit); font-size:12.5px;
+    font-weight:600; line-height:1.5; border-bottom:1px solid var(--line);
+  }
+
+  /* ---------- sidebar extras ---------- */
+  .sidebar .grp-lbl.sheets-lbl { padding-top:2px; }
+  .sheetrow .d { font-family:'IBM Plex Mono',monospace; font-size:12.5px; }
+  .sheetrow .count { font-size:11px; }
+  .sheets-empty { padding:8px 10px; font-size:12px; color:var(--mute); line-height:1.5; }
+
+  /* ---------- the paper register ---------- */
+  .paper-page { color:#1F1B15; }
+  .letterhead .lh-meta { text-align:right; flex:none; }
+  .letterhead .lh-date { font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; }
+  .letterhead .lh-page { font-size:11px; color:var(--mute); margin-top:2px; }
+
+  table.reg { width:100%; border-collapse:collapse; margin-top:7mm; table-layout:fixed; }
+  table.reg th, table.reg td { border:1px solid #6B6355; padding:0; }
+  table.reg thead th {
+    background:#F1ECE0; font-size:9.5px; letter-spacing:.7px; text-transform:uppercase;
+    color:#4A4336; font-weight:700; padding:5px 6px; text-align:center;
+  }
+  table.reg thead tr.grp th { font-size:11px; letter-spacing:1.2px; padding:6px; }
+  table.reg col.c-amt { width:15%; }
+  table.reg col.c-rem { width:25%; }
+  table.reg col.c-chk { width:4%; }
+  table.reg col.c-bal { width:12%; }
+
+  table.reg td.cell-in { padding:0; vertical-align:middle; }
+  table.reg input.cell {
+    width:100%; border:none; background:transparent; padding:6px 7px;
+    font-size:12.5px; color:#1F1B15; font-family:inherit;
+  }
+  table.reg input.cell:focus { outline:none; background:#FBF6E8; box-shadow:inset 0 0 0 2px rgba(74,109,147,.25); }
+  table.reg input.cell[type="number"] {
+    text-align:right; font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
+    font-weight:600; -moz-appearance:textfield;
+  }
+  table.reg input.cell[type="number"]::-webkit-outer-spin-button,
+  table.reg input.cell[type="number"]::-webkit-inner-spin-button { -webkit-appearance:none; margin:0; }
+  table.reg td.chk { text-align:center; }
+  table.reg td.chk input { margin:0; }
+  table.reg td.bal {
+    text-align:right; padding:6px 7px; font-family:'IBM Plex Mono',monospace;
+    font-variant-numeric:tabular-nums; font-size:12px; background:#FAF7F0;
+  }
+  table.reg td.act { border:none; text-align:center; }
+  table.reg td.act .rmRow {
+    background:none; border:none; color:var(--mute); font-size:13px; padding:4px 6px;
+    border-radius:5px; line-height:1;
+  }
+  table.reg td.act .rmRow:hover { background:var(--debit-wash); color:var(--debit); }
+  table.reg tr.open-row td { background:#F5F1E6; }
+  table.reg td.open-lbl {
+    text-align:right; padding:7px 9px; font-size:11.5px; font-weight:700;
+    text-transform:uppercase; letter-spacing:.6px; color:#4A4336;
+  }
+  table.reg td.open-in { padding:5px 7px; }
+  table.reg td.open-in input {
+    width:104px; padding:5px 7px; border:1px solid var(--line); border-radius:5px;
+    background:#fff; text-align:right; font-family:'IBM Plex Mono',monospace; font-weight:600;
+    font-size:12.5px;
+  }
+  table.reg td.open-in select {
+    padding:5px 6px; border:1px solid var(--line); border-radius:5px; background:#fff;
+    font-size:12.5px; margin-left:5px;
+  }
+  table.reg tfoot td {
+    background:#F1ECE0; font-weight:700; font-size:12px; padding:7px;
+    border-top:2px solid #6B6355;
+  }
+  table.reg tfoot td.m {
+    text-align:right; font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
+  }
+  table.reg tfoot td.lbl-cell {
+    text-align:right; font-size:10.5px; text-transform:uppercase; letter-spacing:.7px; color:#4A4336;
+  }
+  table.reg tfoot tr.closing td { background:#E9E2D2; font-size:13px; }
+
+  .party-chip {
+    display:block; font-size:9px; color:var(--accent); font-weight:600;
+    padding:2px 7px 0; letter-spacing:.2px;
+  }
+  .prev-note {
+    margin-top:5mm; font-size:11px; color:var(--mute); display:flex;
+    justify-content:space-between; gap:12px;
+  }
+  .sign-row {
+    margin-top:14mm; display:flex; justify-content:space-between; gap:20mm;
+    font-size:10.5px; color:var(--mute);
+  }
+  .sign-row div { flex:1; border-top:1px solid #6B6355; padding-top:4px; text-align:center; }
+  .loading { color:var(--mute); font-size:13px; }
+
+  /* ---------- party picker (kept: same class the picker JS creates) ---------- */
+  .partylist {
+    position:fixed; background:var(--paper); border:1px solid var(--line);
+    border-radius:var(--radius-md); max-height:190px; overflow:auto; z-index:75;
+    min-width:210px; box-shadow:0 8px 24px rgba(31,25,20,.18);
+  }
+  .partylist div { padding:8px 11px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--hair); }
+  .partylist div:last-child { border-bottom:none; }
+  .partylist div:hover { background:#EFE7D8; }
+
+  /* ---------- print (§9/§25 — same A4 + "Powered by" pattern as billing/reports) ---------- */
+  #printArea { display:none; }
+  @media print {
+    @page { size:A4; }
+    /* This page's on-screen body is a fixed-height, non-scrolling app shell
+       wrapped around a 210x297mm paper replica. Left merely invisible it
+       would still occupy layout and throw blank sheets at the printer, so
+       the shell is taken out of flow entirely; the visibility rules below
+       are kept identical to billing.html's for anything else on the page. */
+    html, body { height:auto !important; overflow:visible !important; }
+    .app-shell, .scrim, #toastStack, .confirm-scrim { display:none !important; }
+    body * { visibility:hidden; }
+    #printArea, #printArea * { visibility:visible; }
+    #printArea { display:block; position:absolute; left:0; top:0; width:100%; padding:20px; color:#000; background:#fff; }
+    #printArea .poweredBy {
+      position:fixed; left:20px; right:20px; bottom:8mm; font-size:10px; color:#666;
+      border-top:1.5px solid #A67C2E; padding-top:5px; visibility:visible;
+    }
+  }
 </style>
 </head>
 <body>
 
-<div class="toolbar">
-  <h1>Daily Cash Book</h1>
-  <button id="prevBtn">‹ Prev day</button>
-  <input type="date" id="dateInput">
-  <button id="nextBtn">Next day ›</button>
-  <button id="todayBtn">Today</button>
-  <span id="netStatus" style="margin-left:auto;font-size:12px;color:var(--muted)"></span>
+<div class="app-shell">
+
+  <aside class="sidebar light" id="sidebar">
+    <div class="head">
+      <span class="mark">OHT</span>
+      <span class="title">Cash Book</span>
+      <button class="close" id="drawerClose" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="grp">
+      <button class="navitem card" id="printBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6"/><rect x="3" y="9" width="18" height="8" rx="2"/><path d="M6 14h12v7H6z"/></svg>
+        Print this sheet
+      </button>
+      <button class="navitem card" id="addRowBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h11"/><path d="M18 15v6M15 18h6"/></svg>
+        Add rows
+      </button>
+      <button class="navitem card dgr" id="deleteSheetBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M6 6l1 14h10l1-14"/><path d="M10 11v5M14 11v5"/></svg>
+        Delete this sheet
+      </button>
+      <button class="navitem card" id="newSheetBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M12 11v6M9 14h6"/></svg>
+        New sheet
+      </button>
+
+      <button class="navitem" id="moreToggle" aria-expanded="false" aria-controls="moreGrp">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"><circle cx="5" cy="12" r="1.3"/><circle cx="12" cy="12" r="1.3"/><circle cx="19" cy="12" r="1.3"/></svg>
+        More…
+        <span class="caret">&#8250;</span>
+      </button>
+      <div class="subgrp" id="moreGrp">
+        <button class="navitem" id="backupBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="m7 10 5 5 5-5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          Save backup file
+        </button>
+        <button class="navitem" id="restoreBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21V9"/><path d="m7 14 5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+          Restore from file
+        </button>
+        <button class="navitem" id="installBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="2" width="12" height="20" rx="2.5"/><path d="M11 18h2"/></svg>
+          Install on this device
+        </button>
+        <button class="navitem" id="signOutBtn">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+          Sign out
+        </button>
+      </div>
+    </div>
+
+    <hr class="sep">
+
+    <div class="grp">
+      <div class="grp-lbl sheets-lbl">Sheets</div>
+      <div id="sheetsList"><div class="sheets-empty">Loading…</div></div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <div class="appbar">
+      <button class="hamburger" id="hamburger" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <span class="title">Daily Cash Book</span>
+    </div>
+
+    <div class="toolbar ledger-bar">
+      <button class="icb nav" id="prevBtn" title="Previous day" aria-label="Previous day">&#8249;</button>
+      <input type="date" id="dateInput" aria-label="Sheet date">
+      <button class="icb nav" id="nextBtn" title="Next day" aria-label="Next day">&#8250;</button>
+      <button class="btn" id="todayBtn">Today</button>
+
+      <span class="sepv"></span>
+
+      <div class="paper-zoom">
+        <button class="icb" id="zoomOut" title="Zoom out" aria-label="Zoom out">&minus;</button>
+        <span class="pct" id="zoomPct">100%</span>
+        <button class="icb" id="zoomIn" title="Zoom in" aria-label="Zoom in">+</button>
+        <button class="btn on" id="fitBtn">Fit</button>
+      </div>
+
+      <span class="grow"></span>
+      <span class="net" id="netStatus"></span>
+      <button class="btn pri" id="saveBtn">Save day</button>
+    </div>
+
+    <div class="statusbar"><span class="err" id="ledgerErr"></span></div>
+
+    <div class="paper-desk zoomable" id="paperDesk">
+      <div class="scaler" id="scaler">
+        <div class="paper-page" id="sheetEl">
+          <div id="ledgerArea"><p class="loading">Loading…</p></div>
+        </div>
+      </div>
+    </div>
+  </div>
 </div>
 
-<main>
-  <div id="ledgerArea"></div>
-</main>
+<div class="scrim" id="scrim"></div>
+
+<div id="toastStack"></div>
+
+<div class="confirm-scrim" id="confirmScrim" role="dialog" aria-modal="true" aria-labelledby="cfTitle">
+  <div class="confirm-card">
+    <h4 id="cfTitle"></h4>
+    <p id="cfBody"></p>
+    <div class="acts">
+      <button class="btn" id="cfCancel">Cancel</button>
+      <button class="btn pri" id="cfOk">Confirm</button>
+    </div>
+  </div>
+</div>
+
+<div id="printArea"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="offline-queue.js"></script>
@@ -74,7 +312,9 @@
   function todayStr() { return new Date().toISOString().slice(0, 10); }
 
   function updateNetStatus() {
-    document.getElementById('netStatus').textContent = navigator.onLine ? 'Online' : 'Offline — will sync when back online';
+    var el = document.getElementById('netStatus');
+    el.textContent = navigator.onLine ? 'Online' : 'Offline — will sync when back online';
+    el.className = 'net' + (navigator.onLine ? '' : ' off');
   }
   window.addEventListener('online', function () { updateNetStatus(); syncNow(); });
   window.addEventListener('offline', updateNetStatus);
@@ -102,6 +342,96 @@
   }
   function syncNow() { OfflineQueue.flush(sb, onQueueDrained); }
   setInterval(syncNow, 15000); // backstop poll, §14
+
+  // ---------------------------------------------------------------
+  // Toast + confirm dialog (§14) — per-document copies of the shared
+  // pattern: these separate HTML documents have no common JS runtime, so
+  // the markup/classes are shared via theme.css and the few lines of
+  // behaviour are repeated in each module.
+  // ---------------------------------------------------------------
+  function toast(msg, isErr) {
+    var t = document.createElement('div');
+    t.className = 'toast' + (isErr ? ' err' : '');
+    t.textContent = msg;
+    document.getElementById('toastStack').appendChild(t);
+    requestAnimationFrame(function () { t.classList.add('on'); });
+    setTimeout(function () {
+      t.classList.remove('on');
+      setTimeout(function () { t.remove(); }, 250);
+    }, isErr ? 6000 : 3200);
+  }
+
+  function confirmDialog(title, body, confirmLabel, isDangerous) {
+    return new Promise(function (resolve) {
+      var scrim = document.getElementById('confirmScrim');
+      var ok = document.getElementById('cfOk');
+      var cancel = document.getElementById('cfCancel');
+      document.getElementById('cfTitle').textContent = title;
+      document.getElementById('cfBody').textContent = body;
+      ok.textContent = confirmLabel || 'Confirm';
+      ok.className = 'btn ' + (isDangerous ? 'dgr' : 'pri');
+
+      function done(v) {
+        scrim.classList.remove('on');
+        ok.removeEventListener('click', onOk);
+        cancel.removeEventListener('click', onCancel);
+        scrim.removeEventListener('mousedown', onScrim);
+        document.removeEventListener('keydown', onKey);
+        resolve(v);
+      }
+      function onOk() { done(true); }
+      function onCancel() { done(false); }
+      function onScrim(e) { if (e.target === scrim) done(false); }
+      function onKey(e) { if (e.key === 'Escape') done(false); }
+
+      ok.addEventListener('click', onOk);
+      cancel.addEventListener('click', onCancel);
+      scrim.addEventListener('mousedown', onScrim);
+      document.addEventListener('keydown', onKey);
+      scrim.classList.add('on');
+      ok.focus();
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Drawer (mobile) / persistent sidebar (desktop) — same mechanics and
+  // breakpoint as the other modules, only the palette differs.
+  // ---------------------------------------------------------------
+  function openDrawer() {
+    document.getElementById('sidebar').classList.add('open');
+    document.getElementById('scrim').classList.add('on');
+  }
+  function closeDrawer() {
+    document.getElementById('sidebar').classList.remove('open');
+    document.getElementById('scrim').classList.remove('on');
+  }
+  document.getElementById('hamburger').addEventListener('click', openDrawer);
+  document.getElementById('drawerClose').addEventListener('click', closeDrawer);
+  document.getElementById('scrim').addEventListener('click', closeDrawer);
+
+  document.getElementById('moreToggle').addEventListener('click', function () {
+    var open = document.getElementById('moreGrp').classList.toggle('on');
+    this.setAttribute('aria-expanded', open ? 'true' : 'false');
+  });
+
+  // ---------------------------------------------------------------
+  // Formatting helpers
+  // ---------------------------------------------------------------
+  function fmtNum(n) {
+    return (Number(n) || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  }
+  function fmtBal(n) { return fmtNum(Math.abs(n)) + ' ' + (n >= 0 ? 'Dr' : 'Cr'); }
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  function longDate(d) {
+    var p = String(d).split('-');
+    if (p.length !== 3) return String(d);
+    return Number(p[2]) + ' ' + MONTHS[Number(p[1]) - 1] + ' ' + p[0];
+  }
+  function shortDate(d) {
+    var p = String(d).split('-');
+    if (p.length !== 3) return String(d);
+    return p[2] + ' ' + MONTHS[Number(p[1]) - 1];
+  }
 
   async function loadParties() {
     var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name');
@@ -153,44 +483,107 @@
     return p ? p.name : '';
   }
 
+  // ---------------------------------------------------------------
+  // Full-page paper replica (§13): a 210x297mm register page, drawn with
+  // real rules, edited in place.
+  // ---------------------------------------------------------------
   function render() {
     var s = state.sheet;
-    if (!s) { document.getElementById('ledgerArea').innerHTML = '<p>Loading…</p>'; return; }
+    var area = document.getElementById('ledgerArea');
+    if (!s) { area.innerHTML = '<p class="loading">Loading…</p>'; return; }
     document.getElementById('dateInput').value = state.date;
 
     var running = s.side === 'dr' ? s.opening : -s.opening;
-    var html = '<table><thead><tr>' +
-      '<th class="amt">Debit</th><th class="rem">Remarks</th>' +
-      '<th class="amt">Credit</th><th class="rem">Remarks</th>' +
-      '<th class="chk">✓D</th><th class="chk">✓C</th><th class="amt">Balance</th><th></th>' +
-      '</tr></thead><tbody>';
+    var totD = 0, totC = 0;
 
-    html += '<tr><td colspan="6" style="text-align:right"><strong>Opening (' + s.side.toUpperCase() + ')</strong></td>' +
-      '<td colspan="2"><input type="number" step="0.01" id="f_opening" value="' + s.opening + '" style="width:100px"> ' +
-      '<select id="f_side"><option value="dr"' + (s.side === 'dr' ? ' selected' : '') + '>Dr</option><option value="cr"' + (s.side === 'cr' ? ' selected' : '') + '>Cr</option></select></td></tr>';
+    var html = '' +
+      '<div class="letterhead">' +
+        '<div class="mark2">O</div>' +
+        '<div style="flex:1;min-width:0">' +
+          '<div class="firm-name">' + esc(s.firm || 'OHT Accounting') + '</div>' +
+          '<div class="firm-addr">Daily Cash Book — receipts and payments of the day</div>' +
+        '</div>' +
+        '<div class="lh-meta">' +
+          '<div class="lh-date">' + esc(longDate(state.date)) + '</div>' +
+          '<div class="lh-page">Page ' + esc(s.page || '—') + '</div>' +
+        '</div>' +
+      '</div>';
+
+    html += '<table class="reg">' +
+      '<colgroup>' +
+        '<col class="c-amt"><col class="c-rem"><col class="c-chk">' +
+        '<col class="c-amt"><col class="c-rem"><col class="c-chk">' +
+        '<col class="c-bal"><col style="width:26px">' +
+      '</colgroup>' +
+      '<thead>' +
+        '<tr class="grp">' +
+          '<th colspan="3">Debit &mdash; Received</th>' +
+          '<th colspan="3">Credit &mdash; Paid</th>' +
+          '<th rowspan="2">Balance</th>' +
+          '<th rowspan="2" style="border:none;background:none"></th>' +
+        '</tr>' +
+        '<tr>' +
+          '<th>Amount</th><th>Particulars</th><th>&#10003;</th>' +
+          '<th>Amount</th><th>Particulars</th><th>&#10003;</th>' +
+        '</tr>' +
+      '</thead><tbody>';
+
+    html += '<tr class="open-row">' +
+      '<td class="open-lbl" colspan="4">Opening balance</td>' +
+      '<td class="open-in" colspan="3">' +
+        '<input type="number" step="0.01" id="f_opening" value="' + s.opening + '">' +
+        '<select id="f_side">' +
+          '<option value="dr"' + (s.side === 'dr' ? ' selected' : '') + '>Dr</option>' +
+          '<option value="cr"' + (s.side === 'cr' ? ' selected' : '') + '>Cr</option>' +
+        '</select>' +
+      '</td>' +
+      '<td class="act"></td></tr>';
 
     (s.rows || []).forEach(function (r, idx) {
-      running += (Number(r[0]) || 0) - (Number(r[2]) || 0);
-      var dLinked = r[7] ? '<span class="party-chip">🔗 ' + partyName(r[7]) + '</span>' : '';
-      var cLinked = r[6] ? '<span class="party-chip">🔗 ' + partyName(r[6]) + '</span>' : '';
+      var d = Number(r[0]) || 0, c = Number(r[2]) || 0;
+      totD += d; totC += c;
+      running += d - c;
+      var dLinked = r[7] ? '<span class="party-chip">&#128279; ' + esc(partyName(r[7])) + '</span>' : '';
+      var cLinked = r[6] ? '<span class="party-chip">&#128279; ' + esc(partyName(r[6])) + '</span>' : '';
       html += '<tr data-idx="' + idx + '">' +
-        '<td><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="0" value="' + (r[0] || 0) + '"></td>' +
-        '<td>' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="1" data-partyslot="7" value="' + esc(r[1]) + '"></td>' +
-        '<td><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="2" value="' + (r[2] || 0) + '"></td>' +
-        '<td>' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="3" data-partyslot="6" value="' + esc(r[3]) + '"></td>' +
+        '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="0" value="' + (d ? r[0] : '') + '"></td>' +
+        '<td class="cell-in">' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="1" data-partyslot="7" value="' + esc(r[1]) + '"></td>' +
         '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="4"' + (r[4] ? ' checked' : '') + '></td>' +
+        '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="2" value="' + (c ? r[2] : '') + '"></td>' +
+        '<td class="cell-in">' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="3" data-partyslot="6" value="' + esc(r[3]) + '"></td>' +
         '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="5"' + (r[5] ? ' checked' : '') + '></td>' +
-        '<td style="text-align:right">' + running.toFixed(2) + '</td>' +
-        '<td><button type="button" class="rmRow" data-idx="' + idx + '" style="color:var(--danger)">✕</button></td>' +
+        '<td class="bal">' + fmtBal(running) + '</td>' +
+        '<td class="act"><button type="button" class="rmRow" data-idx="' + idx + '" title="Remove row" aria-label="Remove row">&#10005;</button></td>' +
         '</tr>';
     });
-    html += '</tbody></table>';
-    html += '<div style="margin-top:8px"><button id="addRowBtn">+ Add row</button> <button class="primary" id="saveBtn" style="margin-left:8px">Save day</button></div>';
-    html += '<div class="err" id="ledgerErr"></div>';
-    html += '<p style="color:var(--muted);font-size:12px">Closing balance: ' + running.toFixed(2) + ' ' + (running >= 0 ? 'Dr' : 'Cr') + '</p>';
 
-    document.getElementById('ledgerArea').innerHTML = html;
+    html += '</tbody><tfoot>' +
+      '<tr>' +
+        '<td class="m">' + fmtNum(totD) + '</td><td class="lbl-cell" colspan="2">Total received</td>' +
+        '<td class="m">' + fmtNum(totC) + '</td><td class="lbl-cell" colspan="2">Total paid</td>' +
+        '<td class="m">' + fmtNum(totD - totC) + '</td><td style="border:none;background:none"></td>' +
+      '</tr>' +
+      '<tr class="closing">' +
+        '<td class="lbl-cell" colspan="6">Closing balance carried forward</td>' +
+        '<td class="m">' + fmtBal(running) + '</td><td style="border:none;background:none"></td>' +
+      '</tr>' +
+      '</tfoot></table>';
+
+    html += '<div class="prev-note">' +
+      '<span>Brought forward from ' + esc(longDate(prevDateStr(state.date))) + ': ' + fmtBal(state.prevClosing) + '</span>' +
+      '<span>' + ((s.rows || []).length) + ' line(s)</span>' +
+      '</div>';
+
+    html += '<div class="sign-row"><div>Prepared by</div><div>Checked by</div><div>Approved by</div></div>';
+
+    area.innerHTML = html;
     wireEvents();
+    sizeScaler();
+  }
+
+  function prevDateStr(date) {
+    var p = new Date(date); p.setDate(p.getDate() - 1);
+    return p.toISOString().slice(0, 10);
   }
 
   function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
@@ -201,9 +594,6 @@
     });
     document.getElementById('f_side').addEventListener('change', function () {
       state.sheet.side = this.value; state.dirty = true; render();
-    });
-    document.getElementById('addRowBtn').addEventListener('click', function () {
-      state.sheet.rows.push(emptyRow()); state.dirty = true; render();
     });
     Array.prototype.forEach.call(document.querySelectorAll('.rmRow'), function (btn) {
       btn.addEventListener('click', function () {
@@ -224,7 +614,7 @@
           }
         }
         state.dirty = true;
-        if (f === 0 || f === 2) render(); // running balance changed
+        if (f === 0 || f === 2) renderKeepingFocus(el); // running balance changed
       });
       if (el.dataset.partyslot) {
         el.addEventListener('focus', function () { showPartyPicker(el); });
@@ -237,7 +627,22 @@
         state.sheet.rows[idx][f] = el.checked; state.dirty = true;
       });
     });
-    document.getElementById('saveBtn').addEventListener('click', saveSheet);
+  }
+
+  // An amount edit re-renders the whole register (the running balance
+  // column changes from that row down). The original code called render()
+  // directly, which dropped the caret out of the cell being typed into —
+  // harmless in the old plain table, very noticeable on the paper replica.
+  // Same render, focus and caret simply put back afterwards.
+  function renderKeepingFocus(el) {
+    var idx = el.dataset.idx, f = el.dataset.f;
+    var selStart = null, selEnd = null;
+    try { selStart = el.selectionStart; selEnd = el.selectionEnd; } catch (e) {}
+    render();
+    var again = document.querySelector('.cell[data-idx="' + idx + '"][data-f="' + f + '"]');
+    if (!again) return;
+    again.focus();
+    if (selStart != null) { try { again.setSelectionRange(selStart, selEnd); } catch (e) {} }
   }
 
   var pickerEl = null;
@@ -363,14 +768,267 @@
     state.dirty = false;
   }
 
-  function gotoDate(d) {
-    if (state.dirty && !confirm('Unsaved changes — discard and switch day?')) return;
+  async function gotoDate(d) {
+    if (state.dirty) {
+      var ok = await confirmDialog(
+        'Unsaved changes',
+        'This day\'s sheet has changes that have not been saved yet. Switching to another day will discard them.',
+        'Discard and switch', true
+      );
+      if (!ok) return;
+    }
     state.date = d;
     state.dirty = false;
-    loadSheet(d);
+    await loadSheet(d);
+    renderSheetsList();
   }
 
-  document.getElementById('dateInput').addEventListener('change', function () { gotoDate(this.value); });
+  // ---------------------------------------------------------------
+  // Recent sheets list (drawer) — last 20 saved days with their closing
+  // balance, computed with the same computeClosing() the page itself uses.
+  // ---------------------------------------------------------------
+  var recentSheets = [];
+
+  async function loadRecentSheets() {
+    if (!navigator.onLine) { renderSheetsList(); return; }
+    var { data, error } = await sb.from('sheets')
+      .select('id,sheet_date,opening,side,rows')
+      .is('deleted_at', null)
+      .order('sheet_date', { ascending: false })
+      .limit(20);
+    if (error) { renderSheetsList(); return; }
+    recentSheets = data || [];
+    renderSheetsList();
+  }
+
+  function renderSheetsList() {
+    var el = document.getElementById('sheetsList');
+    if (!recentSheets.length) {
+      el.innerHTML = '<div class="sheets-empty">' +
+        (navigator.onLine ? 'No saved sheets yet.' : 'Offline — recent sheets will appear once you are back online.') +
+        '</div>';
+      return;
+    }
+    var seenCurrent = false;
+    var html = recentSheets.map(function (s) {
+      var on = s.sheet_date === state.date;
+      if (on) seenCurrent = true;
+      return '<button class="navitem sheetrow' + (on ? ' on' : '') + '" data-date="' + esc(s.sheet_date) + '">' +
+        '<span class="d">' + esc(shortDate(s.sheet_date)) + '</span>' +
+        '<span class="count">' + fmtBal(computeClosing(s)) + '</span>' +
+        '</button>';
+    }).join('');
+    if (!seenCurrent) {
+      html = '<button class="navitem sheetrow on" data-date="' + esc(state.date) + '">' +
+        '<span class="d">' + esc(shortDate(state.date)) + '</span>' +
+        '<span class="count">unsaved</span></button>' + html;
+    }
+    el.innerHTML = html;
+    Array.prototype.forEach.call(el.querySelectorAll('.sheetrow'), function (b) {
+      b.addEventListener('click', function () {
+        closeDrawer();
+        if (b.dataset.date === state.date) return;
+        gotoDate(b.dataset.date);
+      });
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Soft-delete this day's sheet (§13/§22). Permission (ledger_delete) and
+  // period-lock rules live in the database triggers — exactly as in
+  // saveSheet(), whatever the server refuses is surfaced verbatim rather
+  // than guessed at in the client.
+  // ---------------------------------------------------------------
+  async function deleteSheet() {
+    closeDrawer();
+    var errEl = document.getElementById('ledgerErr');
+    errEl.textContent = '';
+    if (!state.sheet || !state.sheet.id) {
+      toast('This day has never been saved, so there is no sheet to delete.', true);
+      return;
+    }
+    if (!navigator.onLine) {
+      toast('You are offline. Deleting a sheet needs an internet connection — try again once you are back online.', true);
+      return;
+    }
+    var lines = (state.sheet.rows || []).filter(function (r) {
+      return (Number(r[0]) || 0) || (Number(r[2]) || 0) || r[1] || r[3];
+    }).length;
+    var ok = await confirmDialog(
+      'Delete this sheet?',
+      'The cash book for ' + longDate(state.date) + ' (' + lines + ' entr' + (lines === 1 ? 'y' : 'ies') +
+      ', closing ' + fmtBal(computeClosing(state.sheet)) + ') will be moved to the Recycle Bin. It stops showing in the ledger and in reports straight away. Nothing is erased permanently — an admin can restore it from Masters → Recycle Bin.',
+      'Delete sheet', true
+    );
+    if (!ok) return;
+
+    var { error } = await sb.from('sheets')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', state.sheet.id);
+    if (error) {
+      errEl.textContent = error.message;
+      toast(error.message, true);
+      return;
+    }
+    try { localStorage.removeItem(LOCAL_KEY_PREFIX + state.date); } catch (e) {}
+    state.dirty = false;
+    state.sheet = null;
+    state.originalSheet = null;
+    toast('Sheet for ' + longDate(state.date) + ' moved to the Recycle Bin.');
+    window.parent.postMessage({ oht: 'refresh', kind: 'sheets' }, '*');
+    await loadSheet(state.date);
+    loadRecentSheets();
+  }
+
+  // New sheet: go to today if we are looking at another day, otherwise
+  // clear today's lines back to a blank register.
+  async function newSheet() {
+    closeDrawer();
+    if (state.date !== todayStr()) { gotoDate(todayStr()); return; }
+    var ok = await confirmDialog(
+      'Clear today\'s sheet?',
+      'Every line on today\'s page is cleared back to one blank row. The opening balance stays as it is. Anything already saved on the server stays there until you press "Save day" again.',
+      'Clear sheet', true
+    );
+    if (!ok) return;
+    state.sheet.rows = [emptyRow()];
+    state.dirty = true;
+    render();
+    toast('Sheet cleared — press "Save day" to keep it.');
+  }
+
+  // ---------------------------------------------------------------
+  // Print (§9/§25) — A4 letterhead + register + footer totals, same
+  // "Powered by" footer convention as billing.html / reports.html.
+  // ---------------------------------------------------------------
+  function poweredByFooterHtml() {
+    return '<div class="poweredBy">Powered by "OHT Solutions"</div>';
+  }
+
+  function printSheet() {
+    closeDrawer();
+    var s = state.sheet;
+    if (!s) return;
+    var running = s.side === 'dr' ? s.opening : -s.opening;
+    var totD = 0, totC = 0, body = '';
+    (s.rows || []).forEach(function (r) {
+      var d = Number(r[0]) || 0, c = Number(r[2]) || 0;
+      if (!d && !c && !r[1] && !r[3]) return; // blank filler rows don't belong on paper
+      totD += d; totC += c; running += d - c;
+      body += '<tr>' +
+        '<td class="m">' + (d ? fmtNum(d) : '') + '</td>' +
+        '<td>' + esc(r[1]) + (r[4] ? ' &#10003;' : '') + '</td>' +
+        '<td class="m">' + (c ? fmtNum(c) : '') + '</td>' +
+        '<td>' + esc(r[3]) + (r[5] ? ' &#10003;' : '') + '</td>' +
+        '<td class="m">' + fmtBal(running) + '</td></tr>';
+    });
+
+    var css = 'font-family:Arial,Helvetica,sans-serif;color:#000;';
+    var html = '<div style="' + css + '">' +
+      '<div style="display:flex;align-items:flex-end;border-bottom:2px solid #000;padding-bottom:6px">' +
+        '<div style="flex:1">' +
+          '<div style="font-size:19px;font-weight:700">' + esc(s.firm || 'OHT Accounting') + '</div>' +
+          '<div style="font-size:11px;color:#555">Daily Cash Book — receipts and payments of the day</div>' +
+        '</div>' +
+        '<div style="text-align:right;font-size:12px">' +
+          '<div><strong>' + esc(longDate(state.date)) + '</strong></div>' +
+          '<div style="color:#555">Page ' + esc(s.page || '—') + '</div>' +
+        '</div>' +
+      '</div>' +
+      '<table border="1" cellspacing="0" cellpadding="4" style="width:100%;margin-top:12px;border-collapse:collapse;font-size:11px">' +
+        '<thead><tr style="background:#EEE">' +
+          '<th style="width:16%">Debit</th><th style="width:29%">Particulars</th>' +
+          '<th style="width:16%">Credit</th><th style="width:29%">Particulars</th>' +
+          '<th style="width:16%">Balance</th>' +
+        '</tr></thead>' +
+        '<tbody>' +
+          '<tr><td colspan="4" style="text-align:right"><strong>Opening balance (' + esc(String(s.side).toUpperCase()) + ')</strong></td>' +
+          '<td class="m" style="text-align:right">' + fmtNum(s.opening) + '</td></tr>' +
+          body +
+        '</tbody>' +
+        '<tfoot>' +
+          '<tr style="background:#EEE;font-weight:700">' +
+            '<td style="text-align:right">' + fmtNum(totD) + '</td><td>Total received</td>' +
+            '<td style="text-align:right">' + fmtNum(totC) + '</td><td>Total paid</td>' +
+            '<td style="text-align:right">' + fmtNum(totD - totC) + '</td></tr>' +
+          '<tr style="background:#E4E4E4;font-weight:700">' +
+            '<td colspan="4" style="text-align:right">Closing balance carried forward</td>' +
+            '<td style="text-align:right">' + fmtBal(running) + '</td></tr>' +
+        '</tfoot>' +
+      '</table>' +
+      '<div style="font-size:10px;color:#555;margin-top:8px">Brought forward from ' +
+        esc(longDate(prevDateStr(state.date))) + ': ' + fmtBal(state.prevClosing) + '</div>' +
+      '<div style="display:flex;gap:30px;margin-top:40px;font-size:10px;color:#555">' +
+        '<div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center">Prepared by</div>' +
+        '<div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center">Checked by</div>' +
+        '<div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center">Approved by</div>' +
+      '</div>' +
+      '</div>' + poweredByFooterHtml();
+
+    document.getElementById('printArea').innerHTML = html;
+    var oldTitle = document.title;
+    document.title = 'Cash Book ' + state.date + '.pdf';
+    try { window.top.document.title = document.title; } catch (e) {}
+    window.addEventListener('afterprint', function restore() {
+      document.title = oldTitle;
+      try { window.top.document.title = oldTitle; } catch (e) {}
+      window.removeEventListener('afterprint', restore);
+    });
+    window.print();
+  }
+
+  // ---------------------------------------------------------------
+  // Zoom / fit (§13). A CSS transform does not change layout size, so the
+  // .scaler wrapper ALSO gets explicit pixel dimensions (page size x zoom)
+  // after every change — that pair is what keeps the desk's scrollbars
+  // sized to what is actually painted.
+  // ---------------------------------------------------------------
+  var zoom = 1, fitMode = true;
+
+  function sizeScaler() {
+    var sheetEl = document.getElementById('sheetEl');
+    var sc = document.getElementById('scaler');
+    if (!sheetEl || !sc || !sheetEl.offsetWidth) return;
+    sc.style.width = (sheetEl.offsetWidth * zoom) + 'px';
+    sc.style.height = (sheetEl.offsetHeight * zoom) + 'px';
+  }
+
+  function applyZoom() {
+    document.documentElement.style.setProperty('--z', zoom);
+    document.getElementById('zoomPct').textContent = Math.round(zoom * 100) + '%';
+    document.getElementById('fitBtn').classList.toggle('on', fitMode);
+    sizeScaler();
+  }
+
+  function setZoom(z) {
+    zoom = Math.min(2, Math.max(0.3, Math.round(z * 100) / 100));
+    fitMode = false; // manual zoom wins until "Fit" is pressed again
+    applyZoom();
+  }
+
+  function fitZoom() {
+    var desk = document.getElementById('paperDesk');
+    var sheetEl = document.getElementById('sheetEl');
+    var natural = sheetEl.offsetWidth;
+    if (!natural) return;
+    var available = desk.clientWidth - 24;
+    fitMode = true;
+    zoom = Math.min(1, Math.max(0.3, available / natural));
+    applyZoom();
+  }
+
+  document.getElementById('zoomIn').addEventListener('click', function () { setZoom(zoom + 0.1); });
+  document.getElementById('zoomOut').addEventListener('click', function () { setZoom(zoom - 0.1); });
+  document.getElementById('fitBtn').addEventListener('click', fitZoom);
+  window.addEventListener('resize', function () { if (fitMode) fitZoom(); else sizeScaler(); });
+
+  // ---------------------------------------------------------------
+  // Toolbar + drawer wiring
+  // ---------------------------------------------------------------
+  document.getElementById('dateInput').addEventListener('change', function () {
+    var el = this;
+    gotoDate(el.value).then(function () { el.value = state.date; });
+  });
   document.getElementById('prevBtn').addEventListener('click', function () {
     var d = new Date(state.date); d.setDate(d.getDate() - 1); gotoDate(d.toISOString().slice(0, 10));
   });
@@ -379,15 +1037,74 @@
   });
   document.getElementById('todayBtn').addEventListener('click', function () { gotoDate(todayStr()); });
 
+  // Same handler the in-table "+ Add row" button used to carry, just
+  // triggered from the drawer now.
+  document.getElementById('addRowBtn').addEventListener('click', function () {
+    if (!state.sheet) return;
+    state.sheet.rows.push(emptyRow());
+    state.dirty = true;
+    render();
+    closeDrawer();
+  });
+
+  document.getElementById('saveBtn').addEventListener('click', function () {
+    var btn = this;
+    btn.disabled = true;
+    saveSheet().then(function () {
+      btn.disabled = false;
+      if (!document.getElementById('ledgerErr').textContent) toast('Saved.');
+      loadRecentSheets();
+    }, function (e) {
+      btn.disabled = false;
+      document.getElementById('ledgerErr').textContent = (e && e.message) || String(e);
+    });
+  });
+
+  document.getElementById('printBtn').addEventListener('click', printSheet);
+  document.getElementById('deleteSheetBtn').addEventListener('click', deleteSheet);
+  document.getElementById('newSheetBtn').addEventListener('click', newSheet);
+
+  // ---------------------------------------------------------------
+  // Cross-frame actions. Backup/Restore is Masters' feature and is NOT
+  // reimplemented here — the shell is asked to switch to Masters already
+  // showing its Backup / Restore view. Install and Sign out belong to the
+  // TOP window (the install prompt is a browser API tied to it, and the
+  // session is the shell's). See the handover note: index.html must
+  // listen for these.
+  // ---------------------------------------------------------------
+  function openMastersBackup() {
+    closeDrawer();
+    window.parent.postMessage({ oht: 'open', app: 'masters', arg: 'backup' }, '*');
+  }
+  document.getElementById('backupBtn').addEventListener('click', openMastersBackup);
+  document.getElementById('restoreBtn').addEventListener('click', openMastersBackup);
+
+  document.getElementById('installBtn').addEventListener('click', function () {
+    closeDrawer();
+    try { window.top.postMessage({ oht: 'installPrompt' }, '*'); } catch (e) {}
+  });
+  document.getElementById('signOutBtn').addEventListener('click', async function () {
+    var ok = await confirmDialog(
+      'Sign out?',
+      'You will be returned to the sign-in screen. Anything saved is safe; anything typed but not yet saved on this page is lost.',
+      'Sign out', false
+    );
+    if (!ok) return;
+    closeDrawer();
+    try { window.top.postMessage({ oht: 'signOut' }, '*'); } catch (e) {}
+  });
+
   (async function init() {
     updateNetStatus();
     var { data: userData } = await sb.auth.getUser();
     if (!userData || !userData.user) {
-      document.getElementById('ledgerArea').innerHTML = '<p>Please sign in from the main app.</p>';
+      document.getElementById('ledgerArea').innerHTML = '<p class="loading">Please sign in from the main app.</p>';
       return;
     }
     await loadParties();
     await loadSheet(state.date);
+    fitZoom();
+    loadRecentSheets();
     syncNow();
   })();
 })();

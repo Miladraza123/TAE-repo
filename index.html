@@ -15,75 +15,31 @@
 <meta name="apple-mobile-web-app-title" content="OHT">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root{
-    --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
-    --paper:#FFFFFF; --desk:#DDE1E6; --warmbg:#FCFAF7; --panel:#F5F0E8;
-    --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
-    --loginAccent:#A0522D; --loginAccentHover:#8B4226;
-  }
-  *{box-sizing:border-box;}
-  html,body{height:100%;margin:0;}
-  body{
-    font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
-    background:var(--desk); color:var(--ink); display:flex; flex-direction:column;
-  }
-  #topbar{
-    display:flex; align-items:center; gap:2px; padding:0 8px;
-    height:46px; background:var(--ink); border-bottom:1px solid #111820;
-    flex-wrap:nowrap;
-  }
-  #topbar .mark{
-    flex:none; width:26px; height:26px; border:1.5px solid var(--accent); border-radius:5px;
-    display:grid; place-items:center; font-size:9.5px; color:var(--accent);
-    font-weight:700; letter-spacing:.3px; margin-right:8px;
-  }
-  #topbar .brand{font-weight:600; margin-right:16px; color:var(--desk); white-space:nowrap; font-size:14px;}
-  #tabs{display:flex; gap:2px; min-width:0; overflow-x:auto; scrollbar-width:none;}
-  #tabs::-webkit-scrollbar{display:none;}
-  #topbar .tab{
-    flex:none; padding:8px 13px; border-radius:7px; cursor:pointer; color:#9AA5B1;
-    border:none; user-select:none; font-size:13.5px; font-weight:600; position:relative;
-    white-space:nowrap;
-  }
-  #topbar .tab:hover{background:#2C3742; color:var(--desk);}
-  #topbar .tab.active{background:#2C3742; color:#fff;}
-  #topbar .tab.active::after{
-    content:''; position:absolute; left:13px; right:13px; bottom:3px;
-    height:2px; border-radius:2px; background:var(--accent);
-  }
-  #topbar .spacer{flex:1;}
-  #topbar .status{font-size:11.5px; color:#9AA5B1; margin-right:10px; white-space:nowrap;}
-  #topbar .status.offline{color:#E8A5A5;}
-  #topbar button.signout, #topbar button.install{
-    flex:none; background:#2C3742; border:1px solid var(--slate); color:var(--desk);
-    padding:6px 12px; border-radius:7px; cursor:pointer; font-size:12.5px; font-weight:500;
-  }
-  #topbar button.signout:hover, #topbar button.install:hover{background:#374350;}
-  #topbar button.install{margin-right:8px;}
-  .modalOverlay{
-    position:fixed; inset:0; z-index:50; background:rgba(31,41,51,.45); display:none;
-    align-items:center; justify-content:center; padding:22px;
-  }
-  .modalOverlay.open{display:flex;}
-  .modalOverlay .box{
-    background:var(--paper); border-radius:12px; padding:20px; width:100%; max-width:360px;
-    box-shadow:0 10px 34px rgba(0,0,0,.26);
-  }
-  .modalOverlay h4{margin:0 0 7px; font-size:15.5px; font-weight:600; color:var(--ink);}
-  .modalOverlay p{margin:0 0 17px; font-size:13.5px; color:var(--slate); line-height:1.55;}
-  .modalOverlay .acts{display:flex; gap:8px; justify-content:flex-end;}
-  .modalOverlay button.ok{
-    border:1px solid var(--line); background:var(--paper); border-radius:8px;
-    padding:9px 14px; font-size:13.5px; font-weight:600; cursor:pointer; color:var(--ink);
-  }
-  .modalOverlay button.ok:hover{background:var(--panel);}
+  /* Shell layout only — every visual token/component comes from theme.css.
+     The sign-in screen below is deliberately EXCLUDED from the redesign and
+     keeps its own original palette, scoped to #authScreen/#loading so the
+     rest of the shell can use theme.css's tokens. */
+  html,body{height:100%;}
+  body{display:flex; flex-direction:column;}
+
   #frames{flex:1; position:relative; background:var(--desk); display:none;}
   #frames iframe{
     position:absolute; inset:0; width:100%; height:100%; border:0; display:none; background:var(--desk);
   }
   #frames iframe.active{display:block;}
+
+  /* ---- sign-in screen: untouched original design (scoped palette) ---- */
+  #authScreen, #loading{
+    --ink:#1F2933; --slate:#3E4C59; --mute:#7B8794; --line:#CBD2D9; --hair:#E4E7EB;
+    --paper:#FFFFFF; --desk:#DDE1E6; --warmbg:#FCFAF7; --panel:#F5F0E8;
+    --debit:#9B2C2C; --credit:#14614A; --accent:#A67C2E; --cash:#0B6E99;
+    --loginAccent:#A0522D; --loginAccentHover:#8B4226;
+    color:var(--ink);
+    font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+  }
   #authScreen{
     flex:1; display:flex; align-items:center; justify-content:center; padding:16px 16px 32px; background:var(--warmbg);
   }
@@ -153,25 +109,27 @@
   </div>
 </div>
 
-<div id="topbar" style="display:none">
+<div class="topbar" id="topbar" style="display:none">
   <span class="mark">OHT</span>
   <span class="brand">OHT Accounting</span>
-  <div id="tabs"></div>
+  <div class="tabstrip" id="tabs"></div>
   <div class="spacer"></div>
   <span class="status offline" id="failedStatus" style="display:none"></span>
   <span class="status" id="netStatus"></span>
-  <button class="install" id="installBtn" style="display:none">⭳ Install</button>
-  <button class="signout" id="signOutBtn">Sign out</button>
+  <button class="abtn" id="installBtn" style="display:none">⭳ Install</button>
+  <button class="abtn" id="signOutBtn">Sign out</button>
 </div>
 <div id="frames"></div>
 
-<div class="modalOverlay" id="installStepsModal">
-  <div class="box">
+<div class="confirm-scrim" id="installStepsModal">
+  <div class="confirm-card">
     <h4>Install the app</h4>
     <p id="installStepsBody">…</p>
-    <div class="acts"><button class="ok" id="installStepsClose">OK</button></div>
+    <div class="acts"><button class="btn pri" id="installStepsClose">OK</button></div>
   </div>
 </div>
+
+<div id="toastStack" class="toast-stack"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -190,12 +148,75 @@
   window.__sb = sb; // modules loaded in child iframes don't share this window,
                      // each module creates its own client with the same constants.
 
+  // -----------------------------------------------------------------
+  // Shared UI helpers (§14) — toast + confirm dialog. Each module is a
+  // separate document with no shared JS runtime, so every module carries
+  // its own copy of these same two helpers.
+  // -----------------------------------------------------------------
+  var MAX_TOASTS = 3;
+  function toast(message, isError) {
+    var stack = document.getElementById('toastStack');
+    if (!stack) return;
+    // Queue/history discipline: a new toast never replaces an unread one —
+    // they stack (column-reverse), and only the oldest is evicted once more
+    // than MAX_TOASTS are on screen at the same time.
+    while (stack.children.length >= MAX_TOASTS) stack.removeChild(stack.firstChild);
+    var el = document.createElement('div');
+    el.className = 'toast' + (isError ? ' err' : '');
+    el.textContent = message;
+    stack.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('on'); });
+    setTimeout(function () {
+      el.classList.remove('on');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 240);
+    }, isError ? 5200 : 3200);
+  }
+
+  function confirmDialog(title, body, confirmLabel, isDangerous) {
+    return new Promise(function (resolve) {
+      var scrim = document.createElement('div');
+      scrim.className = 'confirm-scrim on';
+      var card = document.createElement('div');
+      card.className = 'confirm-card';
+      var h = document.createElement('h4'); h.textContent = title;
+      var p = document.createElement('p'); p.textContent = body;
+      var acts = document.createElement('div'); acts.className = 'acts';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn'; cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel';
+      var okBtn = document.createElement('button');
+      okBtn.className = 'btn ' + (isDangerous ? 'dgr' : 'pri'); okBtn.type = 'button';
+      okBtn.textContent = confirmLabel || 'OK';
+      acts.appendChild(cancelBtn); acts.appendChild(okBtn);
+      card.appendChild(h); card.appendChild(p); card.appendChild(acts);
+      scrim.appendChild(card);
+
+      function close(val) {
+        document.removeEventListener('keydown', onKey, true);
+        if (scrim.parentNode) scrim.parentNode.removeChild(scrim);
+        resolve(val);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); close(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); close(true); }
+      }
+      cancelBtn.addEventListener('click', function () { close(false); });
+      okBtn.addEventListener('click', function () { close(true); });
+      scrim.addEventListener('click', function (e) { if (e.target === scrim) close(false); });
+      document.addEventListener('keydown', onKey, true);
+      document.body.appendChild(scrim);
+      okBtn.focus();
+    });
+  }
+
   // Modules hosted in persistent iframes. Add an entry here once its .html file exists.
+  // `hidden: true` keeps a module loadable/addressable (via the oht:'open'
+  // cross-frame message) without giving it a top-level tab of its own —
+  // Reports is reached from Masters' sidebar report links instead.
   var MODULES = [
     { key: 'masters', label: 'Masters', src: 'masters.html' },
     { key: 'billing', label: 'Billing', src: 'billing.html' },
     { key: 'ledger', label: 'Daily Ledger', src: 'daily-ledger.html' },
-    { key: 'reports', label: 'Reports', src: 'reports.html' }
+    { key: 'reports', label: 'Reports', src: 'reports.html', hidden: true }
   ];
 
   var loadingEl = document.getElementById('loading');
@@ -207,11 +228,19 @@
 
   var activeKey = null;
   var frames = {};
+  var frameReady = {};   // key -> true once the iframe document has loaded
+  var pendingGoto = {};  // key -> message to deliver as soon as it is ready
 
+  var wasOnline = navigator.onLine;
   function updateNetStatus() {
     var online = navigator.onLine;
     netStatusEl.textContent = online ? 'Online' : 'Offline — changes will sync later';
     netStatusEl.className = 'status' + (online ? '' : ' offline');
+    if (online !== wasOnline) {
+      wasOnline = online;
+      toast(online ? 'Back online — queued changes will sync.'
+                   : 'You are offline. Changes are saved in this browser and will sync later.', !online);
+    }
   }
   window.addEventListener('online', updateNetStatus);
   window.addEventListener('offline', updateNetStatus);
@@ -221,6 +250,7 @@
   // permanently failed to sync (§14) without the module that queued it
   // needing to still be open.
   var failedStatusEl = document.getElementById('failedStatus');
+  var lastFailedCount = 0;
   function checkFailedQueue() {
     var failed;
     try { failed = JSON.parse(localStorage.getItem('oht:offlineQueueFailed') || '[]'); } catch (e) { failed = []; }
@@ -228,9 +258,13 @@
       failedStatusEl.style.display = '';
       failedStatusEl.textContent = failed.length + ' change(s) could not sync — contact admin';
       failedStatusEl.title = 'These edits could not be saved even after coming back online. They are kept in this browser only — do not clear site data before resolving.';
+      if (failed.length > lastFailedCount) {
+        toast(failed.length + ' change(s) could not sync — contact your admin before clearing site data.', true);
+      }
     } else {
       failedStatusEl.style.display = 'none';
     }
+    lastFailedCount = failed.length;
   }
   checkFailedQueue();
   setInterval(checkFailedQueue, 15000);
@@ -238,7 +272,9 @@
   function buildTabs() {
     tabsEl.innerHTML = '';
     MODULES.forEach(function (m) {
-      var t = document.createElement('div');
+      if (m.hidden) return;
+      var t = document.createElement('button');
+      t.type = 'button';
       t.className = 'tab';
       t.textContent = m.label;
       t.dataset.key = m.key;
@@ -252,6 +288,17 @@
     var m = MODULES.filter(function (x) { return x.key === key; })[0];
     if (!m) return null;
     var f = document.createElement('iframe');
+    f.addEventListener('load', function () {
+      frameReady[key] = true;
+      if (pendingGoto[key]) {
+        f.contentWindow && f.contentWindow.postMessage(pendingGoto[key], '*');
+        delete pendingGoto[key];
+      }
+      // A frame created by a deep-link is the visible one, so it must also
+      // learn it is active (the activate() broadcast below can fire before
+      // the document exists to hear it).
+      f.contentWindow && f.contentWindow.postMessage({ oht: 'active', active: activeKey === key }, '*');
+    });
     f.src = m.src;
     f.dataset.key = key;
     framesEl.appendChild(f);
@@ -267,7 +314,7 @@
       frames[k].classList.toggle('active', k === key);
     });
     Array.prototype.forEach.call(tabsEl.children, function (t) {
-      t.classList.toggle('active', t.dataset.key === key);
+      t.classList.toggle('on', t.dataset.key === key);
     });
     // Only the foreground module is allowed to auto-refresh the shared auth
     // token, so multiple open modules never race each other on refresh.
@@ -279,11 +326,34 @@
     try { localStorage.setItem('oht:lastTab', key); } catch (e) {}
   }
 
+  // Deep-link into a module: open/switch to it, then hand it the argument as
+  // an oht:'goto' message. If its iframe is being created right now, the goto
+  // is held until the document has loaded (see ensureFrame's load handler).
+  function openModule(app, arg) {
+    var m = MODULES.filter(function (x) { return x.key === app; })[0];
+    if (!m) return;
+    var existed = !!frames[app];
+    activate(app);
+    if (arg === undefined || arg === null) return;
+    var msg = { oht: 'goto', app: app, arg: arg };
+    if (existed && frameReady[app]) {
+      frames[app].contentWindow && frames[app].contentWindow.postMessage(msg, '*');
+    } else {
+      pendingGoto[app] = msg;
+    }
+  }
+
   // Cross-module postMessage relay (§3/§14): refresh broadcasts and deep-links
   // pass through the shell to every other open module.
+  //   { oht:'open', app:'<moduleKey>', arg:<any> }  -> shell opens/switches to
+  //     that module and delivers { oht:'goto', app, arg } into its frame.
+  //   { oht:'goto' | 'refresh', ... }               -> broadcast to siblings.
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || !d.oht) return;
+    if (d.oht === 'open') { openModule(d.app, d.arg); return; }
+    if (d.oht === 'installPrompt') { installBtn.click(); return; }
+    if (d.oht === 'signOut') { document.getElementById('signOutBtn').click(); return; }
     if (d.oht === 'refresh' || d.oht === 'goto') {
       Object.keys(frames).forEach(function (k) {
         if (frames[k].contentWindow !== ev.source) {
@@ -346,13 +416,25 @@
   });
 
   document.getElementById('signOutBtn').addEventListener('click', async function () {
+    var ok = await confirmDialog(
+      'Sign out of OHT Accounting?',
+      'Every open module closes and you are returned to the sign-in screen. Anything still waiting to sync stays queued in this browser and syncs the next time you sign in on this device.',
+      'Sign out', true
+    );
+    if (!ok) return;
     await sb.auth.signOut();
     Object.keys(frames).forEach(function (k) { frames[k].remove(); });
     frames = {};
+    frameReady = {};
+    pendingGoto = {};
+    activeKey = null;
     showAuth();
   });
 
   updateNetStatus();
+  if (!navigator.onLine) {
+    toast('You are offline. Changes are saved in this browser and will sync later.', true);
+  }
   checkProfileAndEnter();
 
   if ('serviceWorker' in navigator) {
@@ -406,10 +488,10 @@
       steps = 'Open the browser’s <b>3-dot menu</b> (⋮) and choose <b>"Install app"</b> or <b>"Add to Home screen"</b>.';
     }
     document.getElementById('installStepsBody').innerHTML = steps;
-    document.getElementById('installStepsModal').classList.add('open');
+    document.getElementById('installStepsModal').classList.add('on');
   });
   document.getElementById('installStepsClose').addEventListener('click', function () {
-    document.getElementById('installStepsModal').classList.remove('open');
+    document.getElementById('installStepsModal').classList.remove('on');
   });
 })();
 </script>

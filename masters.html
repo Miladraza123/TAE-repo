@@ -6,52 +6,67 @@
 <title>Masters — OHT Accounting</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root{
-    --bg:#DDE1E6; --bg2:#FFFFFF; --bg3:#F5F7F8; --fg:#1F2933; --muted:#7B8794;
-    --accent:#A67C2E; --accent2:#8F6B27; --danger:#9B2C2C; --ok:#14614A; --border:#CBD2D9;
-  }
-  *{box-sizing:border-box;}
-  html,body{height:100%;margin:0;}
-  body{font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
-  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
-  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
-  .tabs{display:flex;gap:4px;flex-wrap:wrap;}
-  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--fg);padding:8px 12px;font-size:13px;}
-  .tabs button{background:transparent;}
-  .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-  button.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
-  button.primary:hover{background:var(--accent2);}
-  button.danger{background:transparent;border-color:var(--danger);color:var(--danger);}
-  input[type=search]{padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--fg);min-width:180px;}
-  main{padding:14px;max-width:1100px;margin:0 auto;}
-  table{width:100%;border-collapse:collapse;font-size:13px;}
-  th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:left;}
-  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
-  tr.row:hover{background:var(--bg3);cursor:pointer;}
-  .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px;margin-bottom:12px;}
-  label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;letter-spacing:.03em;}
-  input,select,textarea{width:100%;padding:8px 10px;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--fg);font-size:13px;}
-  .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:18px;margin-bottom:16px;}
-  .card h2{margin:0 0 14px;font-size:15px;}
-  .actions{display:flex;gap:8px;margin-top:14px;justify-content:flex-end;}
-  .err{color:var(--danger);font-size:13px;margin-top:8px;min-height:16px;}
-  .ok{color:var(--ok);font-size:13px;margin-top:8px;min-height:16px;}
-  .chk{display:flex;align-items:center;gap:6px;}
-  .balance{font-size:11px;color:var(--muted);}
-  img.thumb{max-height:40px;max-width:80px;border-radius:4px;background:#fff;padding:2px;}
+  /* Page skeleton only — every component/token comes from theme.css. */
+  html,body{height:100%;}
+  main{flex:1; overflow-y:auto;}
+  .page{max-width:900px; margin:0 auto; padding-bottom:28px;}
+  .page > .doc-sheet{max-width:640px; margin:14px auto;}
+  .panel{background:var(--paper); border-bottom:1px solid var(--hair);}
+  .panel .toolbar{max-width:900px; margin:0 auto;}
+  .pad{padding:14px;}
+  .page-h{font-size:17px; margin:0 0 4px;}
+  .page-sub{font-size:12.5px; color:var(--mute); line-height:1.5; margin:0 0 14px;}
 </style>
 </head>
 <body>
 
-<div class="toolbar">
-  <h1>Masters</h1>
-  <div class="tabs" id="tabs"></div>
-  <input type="search" id="search" placeholder="Search...">
+<div class="app-shell">
+
+  <nav class="sidebar" id="sidebar">
+    <div class="head">
+      <span class="mark">OHT</span>
+      <span class="title">Masters</span>
+      <button class="close" id="navClose" type="button" aria-label="Close menu">✕</button>
+    </div>
+    <div class="grp" id="navMain"></div>
+    <hr class="sep">
+    <div class="grp">
+      <div class="grp-lbl">Tools &amp; Reports</div>
+      <div id="navTools"></div>
+      <div id="navReports"></div>
+    </div>
+    <hr class="sep">
+    <div class="grp" id="navAccount"></div>
+  </nav>
+
+  <div class="scrim" id="navScrim"></div>
+
+  <div class="main">
+    <div class="appbar">
+      <button class="hamburger" id="navOpen" type="button" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="22" height="22"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <span class="title" id="appbarTitle">Masters</span>
+    </div>
+    <main id="content"></main>
+  </div>
+
 </div>
 
-<main id="content"></main>
+<div class="sheet-scrim" id="sheetScrim"></div>
+<aside class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+  <div class="hdr">
+    <h3 class="sheet-title" id="sheetTitle"></h3>
+    <button class="icb" id="sheetClose" type="button" aria-label="Close">✕</button>
+  </div>
+  <div class="body" id="sheetBody"></div>
+  <div class="ftr" id="sheetFtr"></div>
+</aside>
+
+<div id="toastStack" class="toast-stack"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"></script>
@@ -66,78 +81,372 @@
     auth: { persistSession: true, autoRefreshToken: false }
   });
 
+  var inited = false;
   window.addEventListener('message', function (ev) {
     var d = ev.data;
-    if (!d || d.oht !== 'active') return;
-    d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+    if (!d || !d.oht) return;
+    if (d.oht === 'active') {
+      d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+      return;
+    }
+    if (d.oht === 'goto' && (!d.app || d.app === 'masters')) {
+      if (!d.arg || !VIEWS[d.arg]) return;
+      activeView = d.arg;
+      if (inited) { buildNav(); render(); }
+    }
   });
 
   function broadcastRefresh(kind) {
     window.parent.postMessage({ oht: 'refresh', kind: kind }, '*');
+    refreshCounts();
   }
 
-  var TABS = [
-    { key: 'parties', label: 'Parties' },
-    { key: 'items', label: 'Items' },
-    { key: 'services', label: 'Services' },
-    { key: 'companies', label: 'Firms' },
-    { key: 'warehouses', label: 'Warehouses' },
-    { key: 'partykinds', label: 'Party Kinds' },
-    { key: 'users', label: 'Manage Users' },
-    { key: 'recyclebin', label: 'Recycle Bin' },
-    { key: 'backup', label: 'Backup / Restore' }
-  ];
-  var activeTab = 'parties';
-  var me = { isAdmin: false, perms: {} };
+  // Deep-link into another module through the shell (index.html):
+  //   { oht:'open', app:'<moduleKey>', arg:<any> }
+  // The shell opens/switches to that module's iframe and relays
+  //   { oht:'goto', app:'<moduleKey>', arg:<any> }
+  // into it. Used here for the sidebar's report links (app 'reports', arg =
+  // one of reports.html's TABS keys).
+  function openInModule(app, arg) {
+    window.parent.postMessage({ oht: 'open', app: app, arg: arg }, '*');
+  }
 
-  function buildTabs() {
-    var tabsEl = document.getElementById('tabs');
-    tabsEl.innerHTML = '';
-    TABS.forEach(function (t) {
-      var b = document.createElement('button');
-      b.textContent = t.label;
-      b.className = t.key === activeTab ? 'active' : '';
-      b.addEventListener('click', function () { activeTab = t.key; buildTabs(); render(); });
-      tabsEl.appendChild(b);
+  // ===================================================================
+  // Shared UI helpers (§14) — toast + confirm dialog. Each module is its
+  // own document with no shared JS runtime, so each carries its own copy.
+  // ===================================================================
+  var MAX_TOASTS = 3;
+  function toast(message, isError) {
+    var stack = document.getElementById('toastStack');
+    if (!stack) return;
+    // A second toast never silently replaces an unread first one — they
+    // stack (column-reverse); only the oldest is evicted past MAX_TOASTS.
+    while (stack.children.length >= MAX_TOASTS) stack.removeChild(stack.firstChild);
+    var el = document.createElement('div');
+    el.className = 'toast' + (isError ? ' err' : '');
+    el.textContent = message;
+    stack.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('on'); });
+    setTimeout(function () {
+      el.classList.remove('on');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 240);
+    }, isError ? 5200 : 3200);
+  }
+
+  function confirmDialog(title, body, confirmLabel, isDangerous) {
+    return new Promise(function (resolve) {
+      var scrim = document.createElement('div');
+      scrim.className = 'confirm-scrim on';
+      var card = document.createElement('div');
+      card.className = 'confirm-card';
+      var h = document.createElement('h4'); h.textContent = title;
+      var p = document.createElement('p'); p.textContent = body;
+      var acts = document.createElement('div'); acts.className = 'acts';
+      var cancelBtn = document.createElement('button');
+      cancelBtn.className = 'btn'; cancelBtn.type = 'button'; cancelBtn.textContent = 'Cancel';
+      var okBtn = document.createElement('button');
+      okBtn.className = 'btn ' + (isDangerous ? 'dgr' : 'pri'); okBtn.type = 'button';
+      okBtn.textContent = confirmLabel || 'OK';
+      acts.appendChild(cancelBtn); acts.appendChild(okBtn);
+      card.appendChild(h); card.appendChild(p); card.appendChild(acts);
+      scrim.appendChild(card);
+      function close(val) {
+        document.removeEventListener('keydown', onKey, true);
+        if (scrim.parentNode) scrim.parentNode.removeChild(scrim);
+        resolve(val);
+      }
+      function onKey(e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); close(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); close(true); }
+      }
+      cancelBtn.addEventListener('click', function () { close(false); });
+      okBtn.addEventListener('click', function () { close(true); });
+      scrim.addEventListener('click', function (e) { if (e.target === scrim) close(false); });
+      document.addEventListener('keydown', onKey, true);
+      document.body.appendChild(scrim);
+      okBtn.focus();
     });
   }
-
-  document.getElementById('search').addEventListener('input', render);
 
   function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   }); }
+  function fmt(n) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function initials(name) {
+    var parts = String(name || '?').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '?';
+    return ((parts[0][0] || '') + (parts[1] ? parts[1][0] : '')).toUpperCase();
+  }
 
   // ===================================================================
-  // Generic simple-table CRUD helper (used by Companies/Warehouses)
+  // Icons — theme.css's recipe: 24-box, no fill, currentColor stroke 1.8
+  // ===================================================================
+  function ico(path, size) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" ' +
+      'stroke-linecap="round" stroke-linejoin="round"' + (size ? ' width="' + size + '" height="' + size + '"' : '') +
+      ' aria-hidden="true">' + path + '</svg>';
+  }
+  var ICON = {
+    parties: '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+    items: '<path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><path d="M3.3 7L12 12l8.7-5M12 22V12"/>',
+    services: '<path d="M14.7 6.3a4 4 0 0 0 5 5l-9 9a2.8 2.8 0 0 1-4-4l9-9z"/><path d="M14.7 6.3L17.5 3.5"/>',
+    companies: '<path d="M3 21h18"/><path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16"/><path d="M15 9h2a2 2 0 0 1 2 2v10"/><path d="M9 7h2M9 11h2M9 15h2"/>',
+    warehouses: '<path d="M3 21V9l9-6 9 6v12"/><path d="M9 21v-7h6v7"/>',
+    partykinds: '<path d="M20.6 13.4L12 22l-9-9V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.2"/>',
+    backup: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="M7 10l5 5 5-5"/><path d="M12 15V3"/>',
+    recyclebin: '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6M14 11v6"/>',
+    periodlock: '<rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/>',
+    report: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>',
+    users: '<path d="M12 2l8 4v6c0 5-3.4 8.7-8 10-4.6-1.3-8-5-8-10V6z"/><circle cx="12" cy="11" r="2.2"/><path d="M8.5 17a3.8 3.8 0 0 1 7 0"/>',
+    changepw: '<circle cx="8" cy="15" r="4"/><path d="M10.8 12.2L20 3"/><path d="M17 6l2.5 2.5M15 8l2 2"/>',
+    search: '<circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/>',
+    close: '<path d="M18 6L6 18M6 6l12 12"/>'
+  };
+
+  // ===================================================================
+  // Navigation model — mirrors the reference app's sidebar grouping.
+  // Report links are NOT local views: they deep-link into reports.html
+  // through the shell using its own tab keys.
+  // ===================================================================
+  var NAV_MAIN = [
+    { key: 'parties', label: 'Parties', table: 'parties', icon: ICON.parties },
+    { key: 'items', label: 'Items', table: 'items', icon: ICON.items },
+    { key: 'services', label: 'Services', table: 'services', icon: ICON.services },
+    { key: 'companies', label: 'Firms', table: 'companies', icon: ICON.companies },
+    { key: 'warehouses', label: 'Warehouses', table: 'warehouses', icon: ICON.warehouses },
+    { key: 'partykinds', label: 'Party Kinds', table: 'party_kinds', icon: ICON.partykinds }
+  ];
+  var NAV_TOOLS = [
+    { key: 'backup', label: 'Backup / Restore', icon: ICON.backup },
+    { key: 'recyclebin', label: 'Recycle Bin', icon: ICON.recyclebin },
+    { key: 'periodlock', label: 'Period Lock', icon: ICON.periodlock }
+  ];
+  // arg values are reports.html's TABS keys — verified against that file.
+  var NAV_REPORTS = [
+    { arg: 'trial', label: 'Trial Balance' },
+    { arg: 'aging', label: 'Receivable Aging' },
+    { arg: 'pl', label: 'Profit & Loss' },
+    { arg: 'statement', label: 'Statement of Account' },
+    { arg: 'stockledger', label: 'Item Stock Ledger' },
+    { arg: 'matcons', label: 'Material Consumption' },
+    { arg: 'matprofit', label: 'Material Cost & Profit' },
+    { arg: 'mataudit', label: 'Consumption Audit' }
+  ];
+  var NAV_ACCOUNT = [
+    { key: 'users', label: 'Manage Users', icon: ICON.users },
+    { key: 'changepw', label: 'Change Password', icon: ICON.changepw }
+  ];
+
+  var activeView = 'parties';
+  var searchTerm = '';
+  var me = { isAdmin: false, perms: {} };
+  var navCounts = {};
+
+  function labelFor(key) {
+    var all = NAV_MAIN.concat(NAV_TOOLS, NAV_ACCOUNT);
+    for (var i = 0; i < all.length; i++) if (all[i].key === key) return all[i].label;
+    return 'Masters';
+  }
+
+  function navItemHtml(it, withCount) {
+    return '<button type="button" class="navitem' + (it.key === activeView ? ' on' : '') + '" data-key="' + it.key + '">' +
+      ico(it.icon) + '<span>' + esc(it.label) + '</span>' +
+      (withCount ? '<span class="count" data-count="' + it.key + '">' + (navCounts[it.key] == null ? '' : navCounts[it.key]) + '</span>' : '') +
+      '</button>';
+  }
+
+  function buildNav() {
+    document.getElementById('navMain').innerHTML = NAV_MAIN.map(function (it) { return navItemHtml(it, true); }).join('');
+    document.getElementById('navTools').innerHTML = NAV_TOOLS.map(function (it) { return navItemHtml(it, false); }).join('');
+    document.getElementById('navReports').innerHTML = NAV_REPORTS.map(function (r) {
+      return '<button type="button" class="navitem" data-report="' + r.arg + '">' +
+        ico(ICON.report) + '<span>' + esc(r.label) + '</span><span class="count">↗</span></button>';
+    }).join('');
+    document.getElementById('navAccount').innerHTML = NAV_ACCOUNT.map(function (it) { return navItemHtml(it, false); }).join('');
+
+    Array.prototype.forEach.call(document.querySelectorAll('.navitem[data-key]'), function (b) {
+      b.addEventListener('click', function () { navigate(b.dataset.key); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.navitem[data-report]'), function (b) {
+      b.addEventListener('click', function () {
+        setDrawer(false);
+        openInModule('reports', b.dataset.report);
+      });
+    });
+    document.getElementById('appbarTitle').textContent = labelFor(activeView);
+  }
+
+  function navigate(key) {
+    if (!VIEWS[key]) return;
+    activeView = key;
+    searchTerm = '';
+    closeSheet();
+    setDrawer(false);
+    buildNav();
+    render();
+  }
+
+  // ---- off-canvas drawer (≤860px; theme.css owns the transform/backdrop) ----
+  function setDrawer(open) {
+    document.getElementById('sidebar').classList.toggle('open', !!open);
+    document.getElementById('navScrim').classList.toggle('on', !!open);
+  }
+  document.getElementById('navOpen').addEventListener('click', function () { setDrawer(true); });
+  document.getElementById('navClose').addEventListener('click', function () { setDrawer(false); });
+  document.getElementById('navScrim').addEventListener('click', function () { setDrawer(false); });
+
+  // ---- live count badges: one cheap head-count per master table ----
+  // Debounced, because a bulk restore calls broadcastRefresh() once per table.
+  var countsTimer = null;
+  function refreshCounts() {
+    clearTimeout(countsTimer);
+    countsTimer = setTimeout(doRefreshCounts, 200);
+  }
+  async function doRefreshCounts() {
+    for (var i = 0; i < NAV_MAIN.length; i++) {
+      var it = NAV_MAIN[i];
+      var res = await sb.from(it.table).select('*', { count: 'exact', head: true }).is('deleted_at', null);
+      if (res.error) continue;
+      navCounts[it.key] = res.count || 0;
+      var el = document.querySelector('.count[data-count="' + it.key + '"]');
+      if (el) el.textContent = navCounts[it.key];
+    }
+  }
+
+  // ===================================================================
+  // Editor side-sheet (§9)
+  // ===================================================================
+  var sheetEl = document.getElementById('sheet');
+  var sheetScrimEl = document.getElementById('sheetScrim');
+  function openSheet(title, bodyHtml, ftrHtml) {
+    document.getElementById('sheetTitle').textContent = title;
+    document.getElementById('sheetBody').innerHTML = bodyHtml;
+    document.getElementById('sheetFtr').innerHTML = ftrHtml || '';
+    sheetEl.classList.add('on');
+    sheetScrimEl.classList.add('on');
+    document.getElementById('sheetBody').scrollTop = 0;
+  }
+  function closeSheet() {
+    sheetEl.classList.remove('on');
+    sheetScrimEl.classList.remove('on');
+    document.getElementById('sheetBody').innerHTML = '';
+    document.getElementById('sheetFtr').innerHTML = '';
+  }
+  function sheetOpen() { return sheetEl.classList.contains('on'); }
+  document.getElementById('sheetClose').addEventListener('click', closeSheet);
+  sheetScrimEl.addEventListener('click', closeSheet);
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && sheetOpen()) closeSheet();
+  });
+
+  // Standard footer for an editor sheet. Ids are the ones the save/delete
+  // handlers below already bind to.
+  function editorFtr(canDelete) {
+    return (canDelete ? '<button type="button" class="btn dgr" id="delBtn">Delete</button>' : '') +
+      '<div style="flex:1"></div>' +
+      '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
+      '<button type="button" class="btn pri" id="saveBtn">Save</button>';
+  }
+
+  // ===================================================================
+  // List chrome: toolbar + search (§8)
+  // ===================================================================
+  function toolbarHtml(placeholder, addLabel) {
+    return '<div class="panel"><div class="toolbar">' +
+      '<div class="search-wrap' + (searchTerm ? ' has-val' : '') + '">' +
+        ico(ICON.search, 16).replace('<svg ', '<svg class="icn" ') +
+        '<input type="search" id="search" placeholder="' + esc(placeholder) + '" value="' + esc(searchTerm) + '">' +
+        '<button type="button" class="clear" id="searchClear" aria-label="Clear search">' + ico(ICON.close, 14) + '</button>' +
+      '</div>' +
+      (addLabel ? '<button type="button" class="btn pri" id="addBtn">' + esc(addLabel) + '</button>' : '') +
+      '</div></div>';
+  }
+  // Wires the search box to repaint ONLY the list container, so typing never
+  // re-renders (and never re-focuses) the input itself.
+  function wireToolbar(paint) {
+    var inp = document.getElementById('search');
+    if (!inp) return;
+    var wrap = inp.parentNode;
+    inp.addEventListener('input', function () {
+      searchTerm = inp.value || '';
+      wrap.classList.toggle('has-val', !!searchTerm);
+      paint();
+    });
+    document.getElementById('searchClear').addEventListener('click', function () {
+      searchTerm = '';
+      inp.value = '';
+      wrap.classList.remove('has-val');
+      paint();
+      inp.focus();
+    });
+  }
+
+  function emptyState(big, sub) {
+    return '<div class="empty-state"><div class="empty-big">' + esc(big) + '</div>' +
+      '<div class="empty-sub">' + esc(sub) + '</div></div>';
+  }
+
+  // One list row (§8): avatar, name + muted subtitle, optional badge,
+  // optional right-aligned monospace trailing amount.
+  function rowHtml(o) {
+    return '<button type="button" class="list-row' + (o.inactive ? ' inactive' : '') + '" data-id="' + esc(o.id) + '">' +
+      '<span class="avatar">' + (o.icon ? ico(o.icon, 17) : esc(o.initials || '')) + '</span>' +
+      '<span class="body"><span class="name">' + esc(o.name) + '</span>' +
+      '<span class="sub">' + esc(o.sub || '') + '</span></span>' +
+      (o.badge || '') +
+      (o.amt != null ? '<span class="trail"><span class="amt mono">' + esc(o.amt) + '</span>' +
+        (o.tag ? '<span class="tag">' + esc(o.tag) + '</span>' : '') + '</span>' : '') +
+      '<span class="chev"></span></button>';
+  }
+  function kindBadge(kind) {
+    var map = { customer: 'b-customer', supplier: 'b-supplier', both: 'b-both', expense: 'b-expense' };
+    if (!map[kind]) return '';
+    return '<span class="badge ' + map[kind] + '">' + esc(kind) + '</span>';
+  }
+
+  // ===================================================================
+  // Generic simple-table CRUD helper (used by Firms/Warehouses/Services/
+  // Party Kinds). The data-loading, merge-save and delete logic below is
+  // unchanged — only the markup around it moved to list-rows + a sheet.
   // ===================================================================
   function simpleCrud(opts) {
     // opts: {table, perm, editPerm, deletePerm, columns:[{key,label,type}], title}
     return {
       async render() {
-        var term = (document.getElementById('search').value || '').toLowerCase();
         var { data, error } = await sb.from(opts.table).select('*').is('deleted_at', null).order(opts.columns[0].key);
-        var rows = (data || []).filter(function (r) {
-          return !term || opts.columns.some(function (c) { return String(r[c.key] || '').toLowerCase().indexOf(term) >= 0; });
-        });
-        var html = '<div class="card"><h2>' + opts.title + '</h2>';
-        html += '<button class="primary" id="addBtn">+ Add ' + opts.title.replace(/s$/, '') + '</button></div>';
-        html += '<table><thead><tr>' + opts.columns.map(function (c) { return '<th>' + c.label + '</th>'; }).join('') + '<th></th></tr></thead><tbody>';
-        (rows || []).forEach(function (r) {
-          html += '<tr class="row" data-id="' + r.id + '">' +
-            opts.columns.map(function (c) {
-              if (c.type === 'image') return '<td>' + (r[c.key] ? '<img class="thumb" src="' + r[c.key] + '">' : '') + '</td>';
-              if (c.type === 'bool') return '<td>' + (r[c.key] ? '✓' : '') + '</td>';
-              return '<td>' + esc(r[c.key]) + '</td>';
-            }).join('') +
-            '</tr>';
-        });
-        html += '</tbody></table>';
-        document.getElementById('content').innerHTML = html;
-        document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
-        Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
-          tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
-        });
+        if (error) { document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet"><p class="warn-txt">' + esc(error.message) + '</p></div></div>'; return; }
+        var all = data || [];
+        document.getElementById('content').innerHTML =
+          toolbarHtml('Search ' + opts.title.toLowerCase() + '…', '+ Add ' + opts.title.replace(/s$/, '')) +
+          '<div class="page" id="listWrap"></div>';
+
+        var rows = [];
+        function paint() {
+          var term = (searchTerm || '').toLowerCase();
+          rows = all.filter(function (r) {
+            return !term || opts.columns.some(function (c) { return String(r[c.key] || '').toLowerCase().indexOf(term) >= 0; });
+          });
+          var html = rows.map(function (r) {
+            return rowHtml({
+              id: r.id,
+              icon: opts.icon,
+              name: r[opts.columns[0].key],
+              sub: opts.sub ? opts.sub(r) : '',
+              badge: opts.badge ? opts.badge(r) : '',
+              amt: opts.amt ? opts.amt(r) : null,
+              tag: opts.tag || '',
+              inactive: r.hasOwnProperty('active') ? r.active === false : false
+            });
+          }).join('');
+          document.getElementById('listWrap').innerHTML = html ||
+            emptyState('No ' + opts.title.toLowerCase() + ' yet', term ? 'Nothing matches “' + term + '”.' : 'Use “+ Add ' + opts.title.replace(/s$/, '') + '” to create the first one.');
+          Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+            el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+          });
+        }
+        paint();
+        wireToolbar(paint);
+        document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
         function openForm(id, rows) {
           var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : {};
@@ -147,21 +456,33 @@
           // save-time-derived "original" would look identical to "new" and
           // the merge would wrongly conclude nothing changed.
           var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null;
-          var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' ' + opts.title.replace(/s$/, '') + '</h2><div class="grid">';
+
+          var body = '', pending = [];
+          function flushPending() {
+            while (pending.length) {
+              var chunk = pending.splice(0, 2);
+              body += chunk.length === 2 ? '<div class="f2">' + chunk.join('') + '</div>' : chunk[0];
+            }
+          }
           opts.columns.forEach(function (c) {
             if (c.type === 'bool') {
-              html2 += '<div class="chk"><input type="checkbox" id="f_' + c.key + '"' + (rec[c.key] ? ' checked' : '') + '><label style="margin:0">' + c.label + '</label></div>';
+              flushPending();
+              body += '<div class="swrow"><label class="sw"><input type="checkbox" id="f_' + c.key + '"' + (rec[c.key] ? ' checked' : '') + '><span class="trk"></span></label>' +
+                '<span class="swlbl">' + esc(c.label) + '</span></div>';
             } else if (c.type === 'image') {
-              html2 += '<div><label>' + c.label + '</label><input type="file" accept="image/*" id="f_' + c.key + '_file">' +
-                (rec[c.key] ? '<img class="thumb" src="' + rec[c.key] + '" style="margin-top:6px">' : '') + '</div>';
+              flushPending();
+              body += '<div class="field"><label for="f_' + c.key + '_file">' + esc(c.label) + '</label>' +
+                '<input type="file" accept="image/*" id="f_' + c.key + '_file">' +
+                (rec[c.key] ? '<img class="thumb" style="margin-top:6px" src="' + esc(rec[c.key]) + '" alt="">' : '') + '</div>';
             } else {
-              html2 += '<div><label>' + c.label + '</label><input id="f_' + c.key + '" value="' + esc(rec[c.key]) + '"></div>';
+              pending.push('<div class="field"><label for="f_' + c.key + '">' + esc(c.label) + '</label>' +
+                '<input id="f_' + c.key + '" value="' + esc(rec[c.key]) + '"></div>');
             }
           });
-          html2 += '</div><div class="err" id="formErr"></div><div class="actions">' +
-            (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
-            '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
-          document.getElementById('content').innerHTML = html2;
+          flushPending();
+          body += '<div class="warn-txt" id="formErr"></div>';
+
+          openSheet((id ? 'Edit ' : 'New ') + opts.title.replace(/s$/, ''), body, editorFtr(!!id));
 
           var pendingImages = {};
           opts.columns.filter(function (c) { return c.type === 'image'; }).forEach(function (c) {
@@ -175,7 +496,7 @@
             });
           });
 
-          document.getElementById('cancelBtn').addEventListener('click', render);
+          document.getElementById('cancelBtn').addEventListener('click', closeSheet);
           document.getElementById('saveBtn').addEventListener('click', async function () {
             var payload = {};
             opts.columns.forEach(function (c) {
@@ -187,14 +508,14 @@
             if (id && opts.useMerge) {
               function queueCrudMergeEdit() {
                 OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: opts.table, headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
-                alert('No internet — your change is saved locally and will sync when back online.');
+                toast('No internet — your change is saved locally and will sync when back online.', true);
               }
-              if (!navigator.onLine) { queueCrudMergeEdit(); broadcastRefresh(opts.table); render(); return; }
+              if (!navigator.onLine) { queueCrudMergeEdit(); broadcastRefresh(opts.table); closeSheet(); render(); return; }
               var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
                 p_table: opts.table, p_id: id, p_original: originalSnapshot, p_new: payload
               });
               if (mergeErr) {
-                if (OfflineQueue.isNetworkError(mergeErr)) { queueCrudMergeEdit(); broadcastRefresh(opts.table); render(); return; }
+                if (OfflineQueue.isNetworkError(mergeErr)) { queueCrudMergeEdit(); broadcastRefresh(opts.table); closeSheet(); render(); return; }
                 errEl.textContent = mergeErr.message; return;
               }
               if (mergeRes.status === 'deleted') { errEl.textContent = 'This record was deleted by someone else.'; return; }
@@ -211,14 +532,14 @@
               // applies): queue a plain update on network failure.
               if (!navigator.onLine) {
                 OfflineQueue.enqueue({ kind: 'update', table: opts.table, recordId: id, payload: payload });
-                alert('No internet — your change is saved locally and will sync when back online.');
-                broadcastRefresh(opts.table); render(); return;
+                toast('No internet — your change is saved locally and will sync when back online.', true);
+                broadcastRefresh(opts.table); closeSheet(); render(); return;
               }
               var updRes = await sb.from(opts.table).update(payload).eq('id', id);
               if (updRes.error) {
                 if (OfflineQueue.isNetworkError(updRes.error)) {
                   OfflineQueue.enqueue({ kind: 'update', table: opts.table, recordId: id, payload: payload });
-                  alert('No internet — your change is saved locally and will sync when back online.');
+                  toast('No internet — your change is saved locally and will sync when back online.', true);
                 } else {
                   errEl.textContent = updRes.error.message; return;
                 }
@@ -228,13 +549,13 @@
               var withId = Object.assign({ id: newId }, payload);
               if (!navigator.onLine) {
                 OfflineQueue.enqueue({ kind: 'insert', table: opts.table, payload: withId });
-                alert('No internet — saved locally, will sync automatically.');
+                toast('No internet — saved locally, will sync automatically.', true);
               } else {
                 var insRes = await sb.from(opts.table).insert(withId);
                 if (insRes.error) {
                   if (OfflineQueue.isNetworkError(insRes.error)) {
                     OfflineQueue.enqueue({ kind: 'insert', table: opts.table, payload: withId });
-                    alert('No internet — saved locally, will sync automatically.');
+                    toast('No internet — saved locally, will sync automatically.', true);
                   } else {
                     errEl.textContent = insRes.error.message; return;
                   }
@@ -242,14 +563,22 @@
               }
             }
             broadcastRefresh(opts.table);
+            closeSheet();
             render();
           });
           var delBtn = document.getElementById('delBtn');
           if (delBtn) delBtn.addEventListener('click', async function () {
-            if (!confirm('Delete this ' + opts.title.replace(/s$/, '').toLowerCase() + '?')) return;
+            var noun = opts.title.replace(/s$/, '').toLowerCase();
+            var ok = await confirmDialog(
+              'Delete ' + (rec[opts.columns[0].key] || 'this ' + noun) + '?',
+              'This ' + noun + ' moves to the Recycle Bin. Nothing already recorded against it changes, and anyone with the Recycle Bin permission can restore it.',
+              'Delete', true);
+            if (!ok) return;
             var res = await sb.from(opts.table).update({ deleted_at: new Date().toISOString() }).eq('id', id);
             if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+            toast(noun.charAt(0).toUpperCase() + noun.slice(1) + ' moved to the Recycle Bin.');
             broadcastRefresh(opts.table);
+            closeSheet();
             render();
           });
         }
@@ -258,23 +587,30 @@
   }
 
   var companiesCrud = simpleCrud({
-    table: 'companies', title: 'Firms', useMerge: true,
+    table: 'companies', title: 'Firms', useMerge: true, icon: ICON.companies,
+    sub: function (r) { return [r.city, r.phone, r.ntn ? 'NTN ' + r.ntn : ''].filter(Boolean).join(' · ') || '—'; },
+    badge: function (r) { return r.is_default ? '<span class="badge b-customer">default</span>' : ''; },
     columns: [
       { key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'phone', label: 'Phone' },
-      { key: 'ntn', label: 'NTN' }, { key: 'is_default', label: 'Default', type: 'bool' },
+      { key: 'ntn', label: 'NTN' }, { key: 'is_default', label: 'Default firm', type: 'bool' },
       { key: 'logo', label: 'Logo', type: 'image' }, { key: 'signature', label: 'Signature', type: 'image' }, { key: 'stamp', label: 'Stamp', type: 'image' }
     ]
   });
   var warehousesCrud = simpleCrud({
-    table: 'warehouses', title: 'Warehouses',
-    columns: [{ key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'is_default', label: 'Default', type: 'bool' }, { key: 'active', label: 'Active', type: 'bool' }]
+    table: 'warehouses', title: 'Warehouses', icon: ICON.warehouses,
+    sub: function (r) { return r.city || '—'; },
+    badge: function (r) { return r.is_default ? '<span class="badge b-customer">default</span>' : ''; },
+    columns: [{ key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'is_default', label: 'Default warehouse', type: 'bool' }, { key: 'active', label: 'Active', type: 'bool' }]
   });
   var servicesCrud = simpleCrud({
-    table: 'services', title: 'Services', useMerge: true,
+    table: 'services', title: 'Services', useMerge: true, icon: ICON.services,
+    sub: function (r) { return 'Tax ' + (Number(r.tax_pct) || 0) + '%' + (r.notes ? ' · ' + r.notes : ''); },
+    amt: function (r) { return fmt(r.rate); }, tag: 'rate',
     columns: [{ key: 'name', label: 'Name' }, { key: 'rate', label: 'Rate' }, { key: 'tax_pct', label: 'Tax %' }, { key: 'notes', label: 'Notes' }, { key: 'active', label: 'Active', type: 'bool' }]
   });
   var partyKindsCrud = simpleCrud({
-    table: 'party_kinds', title: 'Party Kinds',
+    table: 'party_kinds', title: 'Party Kinds', icon: ICON.partykinds,
+    sub: function () { return 'Party category'; },
     columns: [{ key: 'name', label: 'Name' }]
   });
 
@@ -283,49 +619,71 @@
   // ===================================================================
   var partiesView = {
     async render() {
-      var term = (document.getElementById('search').value || '').toLowerCase();
       var { data } = await sb.from('parties').select('*').is('deleted_at', null).order('name');
-      var rows = (data || []).filter(function (p) { return !term || p.name.toLowerCase().indexOf(term) >= 0; });
-      var html = '<div class="card"><h2>Parties</h2><button class="primary" id="addBtn">+ Add Party</button></div>';
-      html += '<table><thead><tr><th>Name</th><th>Kind</th><th>City</th><th>Phone</th><th>Opening</th></tr></thead><tbody>';
-      rows.forEach(function (p) {
-        html += '<tr class="row" data-id="' + p.id + '"><td>' + esc(p.name) + '</td><td>' + p.kind + '</td><td>' + esc(p.city) + '</td><td>' + esc(p.phone) + '</td>' +
-          '<td>' + (p.opening || 0) + ' ' + p.opening_side + '</td></tr>';
-      });
-      html += '</tbody></table>';
-      document.getElementById('content').innerHTML = html;
-      document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
-      Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
-        tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
-      });
+      var all = data || [];
+      document.getElementById('content').innerHTML =
+        toolbarHtml('Search parties…', '+ Add Party') + '<div class="page" id="listWrap"></div>';
+
+      var rows = [];
+      function paint() {
+        var term = (searchTerm || '').toLowerCase();
+        rows = all.filter(function (p) { return !term || p.name.toLowerCase().indexOf(term) >= 0; });
+        var html = rows.map(function (p) {
+          return rowHtml({
+            id: p.id,
+            initials: initials(p.name),
+            name: p.name,
+            sub: [p.phone, p.city].filter(Boolean).join(' · ') || '—',
+            badge: kindBadge(p.kind),
+            amt: fmt(p.opening || 0),
+            tag: (p.opening_side || '').toUpperCase(),
+            inactive: p.active === false
+          });
+        }).join('');
+        document.getElementById('listWrap').innerHTML = html ||
+          emptyState('No parties yet', term ? 'Nothing matches “' + term + '”.' : 'Add your first customer or supplier to get started.');
+        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+        });
+      }
+      paint();
+      wireToolbar(paint);
+      document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { kind: 'customer', opening_side: 'dr', credit_days: 0, active: true };
         var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null; // captured once, at open time (§25/§27)
-        var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Party</h2><div class="grid">' +
-          '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
-          '<div><label>Kind</label><select id="f_kind">' +
-            ['customer', 'supplier', 'both', 'expense'].map(function (k) { return '<option value="' + k + '"' + (k === rec.kind ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
-          '</select></div>' +
-          '<div><label>Phone</label><input id="f_phone" value="' + esc(rec.phone) + '"></div>' +
-          '<div><label>City</label><input id="f_city" value="' + esc(rec.city) + '"></div>' +
-          '<div><label>Address</label><input id="f_address" value="' + esc(rec.address) + '"></div>' +
-          '<div><label>NTN</label><input id="f_ntn" value="' + esc(rec.ntn) + '"></div>' +
-          '<div><label>Opening</label><input type="number" step="0.01" id="f_opening" value="' + (rec.opening || 0) + '"></div>' +
-          '<div><label>Opening side</label><select id="f_opening_side"><option value="dr"' + (rec.opening_side === 'dr' ? ' selected' : '') + '>Dr</option><option value="cr"' + (rec.opening_side === 'cr' ? ' selected' : '') + '>Cr</option></select></div>' +
-          '<div><label>Opening date</label><input type="date" id="f_opening_date" value="' + (rec.opening_date || '') + '"></div>' +
-          '<div><label>Credit days</label><input type="number" id="f_credit_days" value="' + (rec.credit_days || 0) + '"></div>' +
-          '<div id="expenseTypeWrap" style="display:' + (rec.kind === 'expense' ? 'block' : 'none') + '"><label>Expense type</label><select id="f_expense_type"><option value="">Operating</option><option value="bank_charges"' + (rec.expense_type === 'bank_charges' ? ' selected' : '') + '>Bank charges</option></select></div>' +
-          '</div><div><label>Notes</label><textarea id="f_notes">' + esc(rec.notes) + '</textarea></div>' +
-          '<div class="err" id="formErr"></div><div class="actions">' +
-          (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
-          '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
-        document.getElementById('content').innerHTML = html2;
+        var body =
+          '<div class="field"><label for="f_name">Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_kind">Kind</label><select id="f_kind">' +
+              ['customer', 'supplier', 'both', 'expense'].map(function (k) { return '<option value="' + k + '"' + (k === rec.kind ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
+            '</select></div>' +
+            '<div class="field"><label for="f_phone">Phone</label><input id="f_phone" value="' + esc(rec.phone) + '"></div>' +
+          '</div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_city">City</label><input id="f_city" value="' + esc(rec.city) + '"></div>' +
+            '<div class="field"><label for="f_ntn">NTN</label><input id="f_ntn" value="' + esc(rec.ntn) + '"></div>' +
+          '</div>' +
+          '<div class="field"><label for="f_address">Address</label><input id="f_address" value="' + esc(rec.address) + '"></div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_opening">Opening</label><input class="num" type="number" step="0.01" id="f_opening" value="' + (rec.opening || 0) + '"></div>' +
+            '<div class="field"><label for="f_opening_side">Opening side</label><select id="f_opening_side"><option value="dr"' + (rec.opening_side === 'dr' ? ' selected' : '') + '>Dr</option><option value="cr"' + (rec.opening_side === 'cr' ? ' selected' : '') + '>Cr</option></select></div>' +
+          '</div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_opening_date">Opening date</label><input type="date" id="f_opening_date" value="' + (rec.opening_date || '') + '"></div>' +
+            '<div class="field"><label for="f_credit_days">Credit days</label><input class="num" type="number" id="f_credit_days" value="' + (rec.credit_days || 0) + '"></div>' +
+          '</div>' +
+          '<div class="field" id="expenseTypeWrap" style="display:' + (rec.kind === 'expense' ? 'block' : 'none') + '"><label for="f_expense_type">Expense type</label><select id="f_expense_type"><option value="">Operating</option><option value="bank_charges"' + (rec.expense_type === 'bank_charges' ? ' selected' : '') + '>Bank charges</option></select></div>' +
+          '<div class="field"><label for="f_notes">Notes</label><textarea id="f_notes" rows="3">' + esc(rec.notes) + '</textarea></div>' +
+          '<div class="warn-txt" id="formErr"></div>';
+
+        openSheet((id ? 'Edit ' : 'New ') + 'Party', body, editorFtr(!!id));
 
         document.getElementById('f_kind').addEventListener('change', function () {
           document.getElementById('expenseTypeWrap').style.display = this.value === 'expense' ? 'block' : 'none';
         });
-        document.getElementById('cancelBtn').addEventListener('click', render);
+        document.getElementById('cancelBtn').addEventListener('click', closeSheet);
         document.getElementById('saveBtn').addEventListener('click', async function () {
           var payload = {
             name: document.getElementById('f_name').value,
@@ -345,14 +703,14 @@
           if (id) {
             function queuePartyEdit() {
               OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'parties', headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
-              alert('No internet — your change is saved locally and will sync when back online.');
+              toast('No internet — your change is saved locally and will sync when back online.', true);
             }
-            if (!navigator.onLine) { queuePartyEdit(); broadcastRefresh('parties'); render(); return; }
+            if (!navigator.onLine) { queuePartyEdit(); broadcastRefresh('parties'); closeSheet(); render(); return; }
             var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
               p_table: 'parties', p_id: id, p_original: originalSnapshot, p_new: payload
             });
             if (mergeErr) {
-              if (OfflineQueue.isNetworkError(mergeErr)) { queuePartyEdit(); broadcastRefresh('parties'); render(); return; }
+              if (OfflineQueue.isNetworkError(mergeErr)) { queuePartyEdit(); broadcastRefresh('parties'); closeSheet(); render(); return; }
               document.getElementById('formErr').textContent = mergeErr.message;
               return;
             }
@@ -368,13 +726,13 @@
             var withId = Object.assign({ id: newId }, payload);
             if (!navigator.onLine) {
               OfflineQueue.enqueue({ kind: 'insert', table: 'parties', payload: withId });
-              alert('No internet — saved locally, will sync automatically.');
+              toast('No internet — saved locally, will sync automatically.', true);
             } else {
               var insRes = await sb.from('parties').insert(withId);
               if (insRes.error) {
                 if (OfflineQueue.isNetworkError(insRes.error)) {
                   OfflineQueue.enqueue({ kind: 'insert', table: 'parties', payload: withId });
-                  alert('No internet — saved locally, will sync automatically.');
+                  toast('No internet — saved locally, will sync automatically.', true);
                 } else {
                   document.getElementById('formErr').textContent = insRes.error.message;
                   return;
@@ -383,14 +741,21 @@
             }
           }
           broadcastRefresh('parties');
+          closeSheet();
           render();
         });
         var delBtn = document.getElementById('delBtn');
         if (delBtn) delBtn.addEventListener('click', async function () {
-          if (!confirm('Delete this party?')) return;
+          var ok = await confirmDialog(
+            'Delete ' + (rec.name || 'this party') + '?',
+            'The party moves to the Recycle Bin. Invoices, payments and ledger entries already recorded against it are kept exactly as they are, and anyone with the Recycle Bin permission can restore it.',
+            'Delete', true);
+          if (!ok) return;
           var res = await sb.from('parties').update({ deleted_at: new Date().toISOString() }).eq('id', id);
           if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          toast('Party moved to the Recycle Bin.');
           broadcastRefresh('parties');
+          closeSheet();
           render();
         });
       }
@@ -405,14 +770,21 @@
     var units = data || [];
     var wrap = document.getElementById('unitsWrap');
     if (!wrap) return;
-    var html = '<div class="card"><h2>Alternate Units</h2><table><thead><tr><th>Unit</th><th>1 unit = how many base units</th><th></th></tr></thead><tbody>';
+    var html = '<div class="group-lbl">Alternate units</div>';
+    html += '<div class="lines" style="margin-top:8px">';
+    if (!units.length) html += '<div class="ln"><span class="sub" style="color:var(--mute);font-size:12px">Only the base unit so far.</span></div>';
     units.forEach(function (u) {
-      html += '<tr><td>' + esc(u.unit) + '</td><td>' + u.factor + '</td><td><button type="button" class="rmUnitBtn" data-id="' + u.id + '" style="color:var(--danger)">✕</button></td></tr>';
+      html += '<div class="ln"><div class="ln-top">' +
+        '<div style="flex:1;min-width:0"><div style="font-weight:600">' + esc(u.unit) + '</div>' +
+        '<div style="font-size:11.5px;color:var(--mute)">1 ' + esc(u.unit) + ' = <span class="mono">' + u.factor + '</span> base units</div></div>' +
+        '<button type="button" class="icb rmUnitBtn" data-id="' + u.id + '" aria-label="Remove unit" style="color:var(--debit)">✕</button>' +
+        '</div></div>';
     });
-    html += '</tbody></table><div style="display:flex;gap:8px;margin-top:8px;align-items:flex-end">' +
-      '<div><label>Unit name</label><input id="newUnitName" style="width:120px"></div>' +
-      '<div><label>Factor</label><input type="number" step="0.0001" id="newUnitFactor" value="1" style="width:100px"></div>' +
-      '<button type="button" id="addUnitBtn">+ Add unit</button></div></div>';
+    html += '</div>';
+    html += '<div class="f2" style="margin-top:10px;align-items:flex-end">' +
+      '<div class="field"><label for="newUnitName">Unit name</label><input id="newUnitName"></div>' +
+      '<div class="field"><label for="newUnitFactor">Factor</label><input class="num" type="number" step="0.0001" id="newUnitFactor" value="1"></div>' +
+      '</div><button type="button" class="btn" id="addUnitBtn">+ Add unit</button>';
     wrap.innerHTML = html;
     Array.prototype.forEach.call(wrap.querySelectorAll('.rmUnitBtn'), function (btn) {
       btn.addEventListener('click', async function () {
@@ -425,58 +797,80 @@
       var factor = Number(document.getElementById('newUnitFactor').value) || 1;
       if (!unitName) return;
       var res = await sb.from('item_units').insert({ item_id: itemId, unit: unitName, factor: factor });
-      if (res.error) { alert(res.error.message); return; }
+      if (res.error) { toast(res.error.message, true); return; }
       loadItemUnits(itemId);
     });
   }
 
   var itemsView = {
     async render() {
-      var term = (document.getElementById('search').value || '').toLowerCase();
       var { data } = await sb.from('items').select('*').is('deleted_at', null).order('name');
-      var rows = (data || []).filter(function (i) { return !term || i.name.toLowerCase().indexOf(term) >= 0; });
-      var html = '<div class="card"><h2>Items</h2><button class="primary" id="addBtn">+ Add Item</button></div>';
-      html += '<table><thead><tr><th>Name</th><th>Type</th><th>Unit</th><th>Sale rate</th><th>Buy rate</th><th>Stock</th><th>Avg cost</th></tr></thead><tbody>';
-      rows.forEach(function (i) {
-        var low = i.reorder_level && i.stock_qty <= i.reorder_level;
-        html += '<tr class="row" data-id="' + i.id + '"><td>' + esc(i.name) + (low ? ' <span style="color:#f59e0b">● low</span>' : '') + '</td>' +
-          '<td>' + (i.item_type === 'raw_material_consumption' ? 'Raw Material' : 'General Goods') + '</td><td>' + esc(i.unit) + '</td>' +
-          '<td>' + i.sale_rate + '</td><td>' + i.buy_rate + '</td><td>' + i.stock_qty + '</td><td>' + i.avg_cost + '</td></tr>';
-      });
-      html += '</tbody></table>';
-      document.getElementById('content').innerHTML = html;
-      document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
-      Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
-        tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
-      });
+      var all = data || [];
+      document.getElementById('content').innerHTML =
+        toolbarHtml('Search items…', '+ Add Item') + '<div class="page" id="listWrap"></div>';
+
+      var rows = [];
+      function paint() {
+        var term = (searchTerm || '').toLowerCase();
+        rows = all.filter(function (i) { return !term || i.name.toLowerCase().indexOf(term) >= 0; });
+        var html = rows.map(function (i) {
+          var low = i.reorder_level && i.stock_qty <= i.reorder_level;
+          return rowHtml({
+            id: i.id,
+            icon: ICON.items,
+            name: i.name,
+            sub: (i.item_type === 'raw_material_consumption' ? 'Raw Material' : 'General Goods') +
+              ' · ' + (i.unit || '') + ' · stock ' + i.stock_qty + ' · avg cost ' + fmt(i.avg_cost),
+            badge: low ? '<span class="badge b-supplier">low stock</span>' : '',
+            amt: fmt(i.sale_rate),
+            tag: 'sale',
+            inactive: i.active === false
+          });
+        }).join('');
+        document.getElementById('listWrap').innerHTML = html ||
+          emptyState('No items yet', term ? 'Nothing matches “' + term + '”.' : 'Add the goods or raw materials you buy and sell.');
+        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+        });
+      }
+      paint();
+      wireToolbar(paint);
+      document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { unit: 'pcs', active: true, item_type: 'general_goods' };
         var originalSnapshot = id ? JSON.parse(JSON.stringify(rec)) : null; // captured once, at open time (§25/§27)
-        var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' Item</h2><div class="grid">' +
-          '<div><label>Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
-          '<div><label>Item Type</label><select id="f_item_type">' +
-            '<option value="general_goods"' + (rec.item_type !== 'raw_material_consumption' ? ' selected' : '') + '>General Goods</option>' +
-            '<option value="raw_material_consumption"' + (rec.item_type === 'raw_material_consumption' ? ' selected' : '') + '>Raw Material</option>' +
-          '</select></div>' +
-          '<div><label>Unit</label><input id="f_unit" value="' + esc(rec.unit) + '"></div>' +
-          '<div><label>Sale rate</label><input type="number" step="0.01" id="f_sale_rate" value="' + (rec.sale_rate || 0) + '"></div>' +
-          '<div><label>Buy rate</label><input type="number" step="0.01" id="f_buy_rate" value="' + (rec.buy_rate || 0) + '"></div>' +
-          '<div><label>Tax %</label><input type="number" step="0.01" id="f_tax_pct" value="' + (rec.tax_pct || 0) + '"></div>' +
-          '<div><label>Opening qty</label><input type="number" step="0.001" id="f_opening_qty" value="' + (rec.opening_qty || 0) + '"' + (id ? '' : '') + '></div>' +
-          '<div><label>Opening rate</label><input type="number" step="0.01" id="f_opening_rate" value="' + (rec.opening_rate || 0) + '"></div>' +
-          '<div><label>Reorder level</label><input type="number" step="0.001" id="f_reorder_level" value="' + (rec.reorder_level || 0) + '"></div>' +
-          '<div><label>HS code</label><input id="f_hs_code" value="' + esc(rec.hs_code) + '"></div>' +
+        var body =
+          '<div class="field"><label for="f_name">Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_item_type">Item type</label><select id="f_item_type">' +
+              '<option value="general_goods"' + (rec.item_type !== 'raw_material_consumption' ? ' selected' : '') + '>General Goods</option>' +
+              '<option value="raw_material_consumption"' + (rec.item_type === 'raw_material_consumption' ? ' selected' : '') + '>Raw Material</option>' +
+            '</select></div>' +
+            '<div class="field"><label for="f_unit">Unit</label><input id="f_unit" value="' + esc(rec.unit) + '"></div>' +
           '</div>' +
-          (id ? '<p class="balance">Live stock: ' + rec.stock_qty + ' @ avg cost ' + rec.avg_cost + ' (computed by the costing engine — not editable directly)</p>' : '') +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_sale_rate">Sale rate</label><input class="num" type="number" step="0.01" id="f_sale_rate" value="' + (rec.sale_rate || 0) + '"></div>' +
+            '<div class="field"><label for="f_buy_rate">Buy rate</label><input class="num" type="number" step="0.01" id="f_buy_rate" value="' + (rec.buy_rate || 0) + '"></div>' +
+          '</div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_tax_pct">Tax %</label><input class="num" type="number" step="0.01" id="f_tax_pct" value="' + (rec.tax_pct || 0) + '"></div>' +
+            '<div class="field"><label for="f_reorder_level">Reorder level</label><input class="num" type="number" step="0.001" id="f_reorder_level" value="' + (rec.reorder_level || 0) + '"></div>' +
+          '</div>' +
+          '<div class="f2">' +
+            '<div class="field"><label for="f_opening_qty">Opening qty</label><input class="num" type="number" step="0.001" id="f_opening_qty" value="' + (rec.opening_qty || 0) + '"></div>' +
+            '<div class="field"><label for="f_opening_rate">Opening rate</label><input class="num" type="number" step="0.01" id="f_opening_rate" value="' + (rec.opening_rate || 0) + '"></div>' +
+          '</div>' +
+          '<div class="field"><label for="f_hs_code">HS code</label><input id="f_hs_code" value="' + esc(rec.hs_code) + '"><div class="hint">' +
+            (id ? 'Live stock ' + rec.stock_qty + ' @ avg cost ' + rec.avg_cost + ' — computed by the costing engine, not editable directly.' : 'Stock and average cost are computed by the costing engine once this item starts trading.') +
+          '</div></div>' +
           (id ? '<div id="unitsWrap"></div>' : '') +
-          '<div class="err" id="formErr"></div><div class="actions">' +
-          (id ? '<button class="danger" id="delBtn">Delete</button>' : '') +
-          '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
-        document.getElementById('content').innerHTML = html2;
+          '<div class="warn-txt" id="formErr"></div>';
+
+        openSheet((id ? 'Edit ' : 'New ') + 'Item', body, editorFtr(!!id));
         if (id) loadItemUnits(id);
 
-        document.getElementById('cancelBtn').addEventListener('click', render);
+        document.getElementById('cancelBtn').addEventListener('click', closeSheet);
         document.getElementById('saveBtn').addEventListener('click', async function () {
           var payload = {
             name: document.getElementById('f_name').value,
@@ -494,14 +888,14 @@
           if (id) {
             function queueItemEdit() {
               OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'items', headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
-              alert('No internet — your change is saved locally and will sync when back online.');
+              toast('No internet — your change is saved locally and will sync when back online.', true);
             }
-            if (!navigator.onLine) { queueItemEdit(); broadcastRefresh('items'); render(); return; }
+            if (!navigator.onLine) { queueItemEdit(); broadcastRefresh('items'); closeSheet(); render(); return; }
             var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
               p_table: 'items', p_id: id, p_original: originalSnapshot, p_new: payload
             });
             if (mergeErr) {
-              if (OfflineQueue.isNetworkError(mergeErr)) { queueItemEdit(); broadcastRefresh('items'); render(); return; }
+              if (OfflineQueue.isNetworkError(mergeErr)) { queueItemEdit(); broadcastRefresh('items'); closeSheet(); render(); return; }
               document.getElementById('formErr').textContent = mergeErr.message;
               return;
             }
@@ -517,13 +911,13 @@
             var withId = Object.assign({ id: newItemId }, payload);
             if (!navigator.onLine) {
               OfflineQueue.enqueue({ kind: 'insert', table: 'items', payload: withId });
-              alert('No internet — saved locally, will sync automatically.');
+              toast('No internet — saved locally, will sync automatically.', true);
             } else {
               var insRes = await sb.from('items').insert(withId);
               if (insRes.error) {
                 if (OfflineQueue.isNetworkError(insRes.error)) {
                   OfflineQueue.enqueue({ kind: 'insert', table: 'items', payload: withId });
-                  alert('No internet — saved locally, will sync automatically.');
+                  toast('No internet — saved locally, will sync automatically.', true);
                 } else {
                   document.getElementById('formErr').textContent = insRes.error.message;
                   return;
@@ -532,14 +926,21 @@
             }
           }
           broadcastRefresh('items');
+          closeSheet();
           render();
         });
         var delBtn = document.getElementById('delBtn');
         if (delBtn) delBtn.addEventListener('click', async function () {
-          if (!confirm('Delete this item?')) return;
+          var ok = await confirmDialog(
+            'Delete ' + (rec.name || 'this item') + '?',
+            'The item moves to the Recycle Bin. Invoices and stock history already recorded for it are kept exactly as they are, and anyone with the Recycle Bin permission can restore it.',
+            'Delete', true);
+          if (!ok) return;
           var res = await sb.from('items').update({ deleted_at: new Date().toISOString() }).eq('id', id);
           if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          toast('Item moved to the Recycle Bin.');
           broadcastRefresh('items');
+          closeSheet();
           render();
         });
       }
@@ -559,44 +960,63 @@
   var usersView = {
     async render() {
       if (!me.isAdmin) {
-        document.getElementById('content').innerHTML = '<div class="card"><p>Only admins can manage users.</p></div>';
+        document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet">' +
+          emptyState('Admins only', 'Only an admin can add users or change what they are allowed to do.') + '</div></div>';
         return;
       }
       var { data } = await sb.from('app_users').select('*').order('username');
-      var rows = data || [];
+      var all = data || [];
       var { count: activeCount } = await sb.from('app_users').select('id', { count: 'exact', head: true }).eq('is_active', true);
-      var html = '<div class="card"><h2>Manage Users</h2><p class="balance">' + (activeCount || 0) + ' / 15 active users (Professional plan limit)</p>' +
-        '<button class="primary" id="addBtn">+ New user</button></div>';
-      html += '<table><thead><tr><th>Username</th><th>Admin</th><th>Active</th></tr></thead><tbody>';
-      rows.forEach(function (u) {
-        html += '<tr class="row" data-id="' + u.id + '"><td>' + esc(u.username) + '</td><td>' + (u.is_admin ? '✓' : '') + '</td><td>' + (u.is_active ? '✓' : '✗') + '</td></tr>';
-      });
-      html += '</tbody></table>';
-      document.getElementById('content').innerHTML = html;
-      document.getElementById('addBtn').addEventListener('click', function () { openForm(null); });
-      Array.prototype.forEach.call(document.querySelectorAll('tr.row'), function (tr) {
-        tr.addEventListener('click', function () { openForm(tr.dataset.id, rows); });
-      });
+      document.getElementById('content').innerHTML =
+        toolbarHtml('Search users…', '+ New user') +
+        '<div class="page"><div class="pad"><p class="page-sub">' + (activeCount || 0) + ' / 15 active users (Professional plan limit)</p></div>' +
+        '<div id="listWrap"></div></div>';
+
+      var rows = [];
+      function paint() {
+        var term = (searchTerm || '').toLowerCase();
+        rows = all.filter(function (u) { return !term || String(u.username || '').toLowerCase().indexOf(term) >= 0; });
+        var html = rows.map(function (u) {
+          return rowHtml({
+            id: u.id,
+            initials: initials(u.username),
+            name: u.username,
+            sub: u.is_admin ? 'Admin — every permission' : (Object.keys(u.perms || {}).filter(function (k) { return u.perms[k]; }).length + ' permission(s)'),
+            badge: u.is_admin ? '<span class="badge b-finance">admin</span>' : '',
+            inactive: !u.is_active
+          });
+        }).join('');
+        document.getElementById('listWrap').innerHTML = html || emptyState('No users', 'Nothing matches “' + term + '”.');
+        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+        });
+      }
+      paint();
+      wireToolbar(paint);
+      document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { is_active: true, perms: {} };
         var perms = rec.perms || {};
-        var html2 = '<div class="card"><h2>' + (id ? 'Edit' : 'New') + ' User</h2><div class="grid">';
-        if (!id) html2 += '<div style="grid-column:1/-1"><label>Supabase Auth User ID</label><input id="f_id" placeholder="paste the auth.users id created in Supabase Dashboard"></div>';
-        html2 += '<div><label>Username</label><input id="f_username" value="' + esc(rec.username) + '"></div>' +
-          '<div class="chk"><input type="checkbox" id="f_is_admin"' + (rec.is_admin ? ' checked' : '') + '><label style="margin:0">Admin (bypasses all permission checks)</label></div>' +
-          '<div class="chk"><input type="checkbox" id="f_is_active"' + (rec.is_active ? ' checked' : '') + '><label style="margin:0">Active</label></div>' +
-          '</div>';
+        var body = '';
+        if (!id) body += '<div class="field"><label for="f_id">Supabase Auth user ID</label><input id="f_id" placeholder="paste the auth.users id created in Supabase Dashboard">' +
+          '<div class="hint">Create the sign-in account in the Supabase Dashboard first, then paste its user id here.</div></div>';
+        body += '<div class="field"><label for="f_username">Username</label><input id="f_username" value="' + esc(rec.username) + '"></div>' +
+          '<div class="swrow"><label class="sw"><input type="checkbox" id="f_is_admin"' + (rec.is_admin ? ' checked' : '') + '><span class="trk"></span></label>' +
+          '<span class="swlbl">Admin — bypasses all permission checks</span></div>' +
+          '<div class="swrow"><label class="sw"><input type="checkbox" id="f_is_active"' + (rec.is_active ? ' checked' : '') + '><span class="trk"></span></label>' +
+          '<span class="swlbl">Active — may sign in</span></div>';
         Object.keys(PERM_GROUPS).forEach(function (group) {
-          html2 += '<div style="margin-top:10px"><strong style="font-size:12px">' + group + '</strong> <button type="button" class="selectAllBtn" data-group="' + esc(group) + '" style="margin-left:8px;font-size:11px;padding:2px 8px">select all</button><div class="grid">';
+          body += '<div class="group-lbl">' + esc(group) +
+            ' <button type="button" class="btn selectAllBtn" data-group="' + esc(group) + '" style="float:right;padding:2px 8px;font-size:10.5px;text-transform:none;letter-spacing:0">select all</button></div>';
           PERM_GROUPS[group].forEach(function (key) {
-            html2 += '<div class="chk"><input type="checkbox" class="permChk" data-group="' + esc(group) + '" data-key="' + key + '"' + (perms[key] ? ' checked' : '') + '><label style="margin:0">' + key + '</label></div>';
+            body += '<div class="swrow"><label class="sw"><input type="checkbox" class="permChk" data-group="' + esc(group) + '" data-key="' + key + '"' + (perms[key] ? ' checked' : '') + '><span class="trk"></span></label>' +
+              '<span class="swlbl">' + key + '</span></div>';
           });
-          html2 += '</div></div>';
         });
-        html2 += '<div class="err" id="formErr"></div><div class="actions">' +
-          '<button id="cancelBtn">Cancel</button><button class="primary" id="saveBtn">Save</button></div></div>';
-        document.getElementById('content').innerHTML = html2;
+        body += '<div class="warn-txt" id="formErr"></div>';
+
+        openSheet((id ? 'Edit ' : 'New ') + 'User', body, editorFtr(false));
 
         Array.prototype.forEach.call(document.querySelectorAll('.selectAllBtn'), function (btn) {
           btn.addEventListener('click', function () {
@@ -604,7 +1024,7 @@
           });
         });
 
-        document.getElementById('cancelBtn').addEventListener('click', render);
+        document.getElementById('cancelBtn').addEventListener('click', closeSheet);
         document.getElementById('saveBtn').addEventListener('click', async function () {
           var newPerms = {};
           Array.prototype.forEach.call(document.querySelectorAll('.permChk'), function (c) { newPerms[c.dataset.key] = c.checked; });
@@ -625,6 +1045,8 @@
             res = await sb.from('app_users').insert(Object.assign({ id: authId }, payload));
           }
           if (res.error) { errEl.textContent = res.error.message; return; }
+          toast('User saved.');
+          closeSheet();
           render();
         });
       }
@@ -657,27 +1079,142 @@
 
   var recycleBinView = {
     async render() {
-      var html = '<div class="card"><h2>Recycle Bin</h2><p class="balance">Soft-deleted records across every module. Restoring requires the recycle_bin permission (or admin).</p></div>';
-      document.getElementById('content').innerHTML = html + '<div id="rb_rows">Loading…</div>';
+      document.getElementById('content').innerHTML =
+        '<div class="page"><div class="pad" style="padding-bottom:0"><h2 class="page-h doc-h">Recycle Bin</h2>' +
+        '<p class="page-sub">Soft-deleted records from every module. Restoring puts a record back exactly as it was, and requires the recycle_bin permission (or admin).</p></div>' +
+        '<div id="rb_rows" class="pad">Loading…</div></div>';
       var rowsHtml = '';
       for (var i = 0; i < RECYCLE_TABLES.length; i++) {
         var t = RECYCLE_TABLES[i];
         var { data, error } = await sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50);
         if (error || !data || !data.length) continue;
-        rowsHtml += '<div class="card"><h2>' + t.label + '</h2><table><tbody>';
+        rowsHtml += '<div class="list-group-hdr">' + esc(t.label) + '</div>';
         data.forEach(function (r) {
-          rowsHtml += '<tr><td>' + esc(r[t.field]) + '</td><td style="color:var(--muted);font-size:11px">deleted ' + (r.deleted_at || '').slice(0, 19) + '</td>' +
-            '<td><button class="restoreBtn" data-table="' + t.table + '" data-id="' + r.id + '">Restore</button></td></tr>';
+          rowsHtml += '<div class="list-row">' +
+            '<span class="avatar">' + ico(ICON.recyclebin, 17) + '</span>' +
+            '<span class="body"><span class="name">' + esc(r[t.field]) + '</span>' +
+            '<span class="sub">deleted ' + esc((r.deleted_at || '').slice(0, 19).replace('T', ' ')) + '</span></span>' +
+            '<button type="button" class="btn restoreBtn" data-table="' + t.table + '" data-id="' + r.id + '">Restore</button>' +
+            '</div>';
         });
-        rowsHtml += '</tbody></table></div>';
       }
-      document.getElementById('rb_rows').innerHTML = rowsHtml || '<p style="color:var(--muted)">Recycle Bin is empty.</p>';
+      var wrap = document.getElementById('rb_rows');
+      if (rowsHtml) {
+        wrap.className = '';
+        wrap.innerHTML = rowsHtml;
+      } else {
+        wrap.className = 'pad';
+        wrap.innerHTML = emptyState('Recycle Bin is empty', 'Deleted records will appear here so they can be restored.');
+      }
       Array.prototype.forEach.call(document.querySelectorAll('.restoreBtn'), function (btn) {
         btn.addEventListener('click', async function () {
           var res = await sb.from(btn.dataset.table).update({ deleted_at: null }).eq('id', btn.dataset.id);
-          if (res.error) { alert(res.error.message); return; }
+          if (res.error) { toast(res.error.message, true); return; }
+          toast('Restored.');
+          broadcastRefresh(btn.dataset.table);
           recycleBinView.render();
         });
+      });
+    }
+  };
+
+  // ===================================================================
+  // Period Lock — sets period_lock.locked_before (singleton row id=1).
+  // The rule itself is enforced DB-side by the existing triggers
+  // (check_period_lock_vouchers / check_period_lock_sheets); this screen
+  // only sets the date. Writing is gated by the same RLS policy as the
+  // period_lock permission: is_app_admin() or has_perm('period_lock').
+  // ===================================================================
+  var periodLockView = {
+    async render() {
+      var canEdit = me.isAdmin || !!me.perms.period_lock;
+      var { data, error } = await sb.from('period_lock').select('locked_before').eq('id', 1).maybeSingle();
+      if (error) {
+        document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet"><p class="warn-txt">' + esc(error.message) + '</p></div></div>';
+        return;
+      }
+      var current = (data && data.locked_before) || '';
+      var html = '<div class="page"><div class="doc-sheet">' +
+        '<h2 class="page-h doc-h">Period Lock</h2>' +
+        '<p class="page-sub">Entries dated <strong>before</strong> this date are frozen: they can no longer be edited or deleted, by anyone, on any device — the database itself refuses the change. Soft-delete and restore from the Recycle Bin still work. Leave the date empty to leave every period open.</p>' +
+        '<div class="field" style="max-width:280px"><label for="pl_date">Locked before</label>' +
+        '<input type="date" id="pl_date" value="' + esc(current) + '"' + (canEdit ? '' : ' disabled') + '>' +
+        '<div class="hint">' + (current ? 'Currently locked before ' + esc(current) + '.' : 'No period is locked right now.') + '</div></div>' +
+        (canEdit
+          ? '<div style="display:flex;gap:8px"><button type="button" class="btn pri" id="pl_save">Save lock date</button>' +
+            (current ? '<button type="button" class="btn" id="pl_clear">Clear lock</button>' : '') + '</div>'
+          : '<p class="page-sub">You do not have the <strong>period_lock</strong> permission, so this is read-only. Ask an admin to change it.</p>') +
+        '</div></div>';
+      document.getElementById('content').innerHTML = html;
+      if (!canEdit) return;
+
+      async function save(value, title, bodyText) {
+        var ok = await confirmDialog(title, bodyText, 'Save', true);
+        if (!ok) return;
+        var res = await sb.from('period_lock').update({ locked_before: value || null }).eq('id', 1);
+        if (res.error) { toast(res.error.message, true); return; }
+        toast(value ? 'Period locked before ' + value + '.' : 'Period lock cleared.');
+        broadcastRefresh('period_lock');
+        periodLockView.render();
+      }
+      document.getElementById('pl_save').addEventListener('click', function () {
+        var val = document.getElementById('pl_date').value;
+        if (!val) {
+          save('', 'Clear the period lock?', 'Every period becomes editable again for anyone with the right permissions.');
+          return;
+        }
+        save(val, 'Lock everything before ' + val + '?',
+          'Invoices, returns and cash-book sheets dated before ' + val + ' can no longer be edited or deleted by anyone, including admins, until the lock is changed.');
+      });
+      var clearBtn = document.getElementById('pl_clear');
+      if (clearBtn) clearBtn.addEventListener('click', function () {
+        save('', 'Clear the period lock?', 'Every period becomes editable again for anyone with the right permissions.');
+      });
+    }
+  };
+
+  // ===================================================================
+  // Change Password — the user is already authenticated in this session,
+  // so Supabase does not need the current password to set a new one.
+  // ===================================================================
+  var changePwView = {
+    async render() {
+      document.getElementById('content').innerHTML =
+        '<div class="page"><div class="doc-sheet">' +
+        '<h2 class="page-h doc-h">Change Password</h2>' +
+        '<p class="page-sub">Sets the password for the account you are signed in as. You stay signed in on this device; other devices keep working until their session expires.</p>' +
+        '<div style="max-width:340px">' +
+        '<div class="field" id="pw1wrap"><label for="pw_new">New password</label><input type="password" id="pw_new" autocomplete="new-password">' +
+        '<div class="hint">At least 8 characters.</div></div>' +
+        '<div class="field" id="pw2wrap"><label for="pw_confirm">Confirm new password</label><input type="password" id="pw_confirm" autocomplete="new-password">' +
+        '<div class="hint"></div></div>' +
+        '<button type="button" class="btn pri" id="pw_save">Update password</button>' +
+        '</div></div></div>';
+
+      document.getElementById('pw_save').addEventListener('click', async function () {
+        var w1 = document.getElementById('pw1wrap'), w2 = document.getElementById('pw2wrap');
+        var p1 = document.getElementById('pw_new').value, p2 = document.getElementById('pw_confirm').value;
+        w1.classList.remove('bad'); w2.classList.remove('bad');
+        w2.querySelector('.hint').textContent = '';
+        if (!p1 || p1.length < 8) {
+          w1.classList.add('bad');
+          w1.querySelector('.hint').textContent = 'Use at least 8 characters.';
+          return;
+        }
+        w1.querySelector('.hint').textContent = 'At least 8 characters.';
+        if (p1 !== p2) {
+          w2.classList.add('bad');
+          w2.querySelector('.hint').textContent = 'The two passwords do not match.';
+          return;
+        }
+        var btn = document.getElementById('pw_save');
+        btn.disabled = true;
+        var { error } = await sb.auth.updateUser({ password: p1 });
+        btn.disabled = false;
+        if (error) { toast(error.message, true); return; }
+        document.getElementById('pw_new').value = '';
+        document.getElementById('pw_confirm').value = '';
+        toast('Password updated.');
       });
     }
   };
@@ -700,21 +1237,34 @@
   var backupView = {
     async render() {
       if (!me.isAdmin) {
-        document.getElementById('content').innerHTML = '<div class="card"><p>Only admins can back up or restore.</p></div>';
+        document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet">' +
+          emptyState('Admins only', 'Only an admin can back up or restore this company’s data.') + '</div></div>';
         return;
       }
-      var html = '<div class="card"><h2>Backup now</h2><p class="balance">Downloads a plain, unencrypted JSON snapshot of every table for local safekeeping.</p>' +
-        '<button class="primary" id="bk_run">Download backup.json</button></div>';
-      html += '<div class="card"><h2>Restore (merge)</h2><p class="balance">Upserts by id into whichever tables the file contains — never deletes anything the file doesn\'t mention. Accepts .json or .json.gz.</p>' +
-        '<input type="file" id="rs_file" accept=".json,.gz"> <button class="primary" id="rs_run" disabled>Restore</button>' +
-        '<div class="err" id="rs_err"></div><div class="ok" id="rs_ok"></div></div>';
+      var html = '<div class="page"><div class="doc-sheet">' +
+        '<h2 class="page-h doc-h">Backup now</h2>' +
+        '<p class="page-sub">Downloads a plain, unencrypted JSON snapshot of every table for local safekeeping.</p>' +
+        '<button type="button" class="btn pri" id="bk_run">Download backup.json</button>' +
+        '<div class="group-lbl">Restore (merge)</div>' +
+        '<p class="page-sub">Upserts by id into whichever tables the file contains — it never deletes anything the file doesn’t mention. Accepts .json or .json.gz.</p>' +
+        '<div class="field" style="max-width:340px"><label for="rs_file">Backup file</label><input type="file" id="rs_file" accept=".json,.gz"></div>' +
+        '<button type="button" class="btn pri" id="rs_run" disabled>Restore</button>' +
+        '<div class="warn-txt" id="rs_err" style="margin-top:8px;white-space:pre-line"></div><div class="ok-txt" id="rs_ok"></div>' +
+        '</div></div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('bk_run').addEventListener('click', backupView.runBackup);
 
       var fileEl = document.getElementById('rs_file');
       var picked = null;
       fileEl.addEventListener('change', function () { picked = fileEl.files[0]; document.getElementById('rs_run').disabled = !picked; });
-      document.getElementById('rs_run').addEventListener('click', function () { backupView.runRestore(picked); });
+      document.getElementById('rs_run').addEventListener('click', async function () {
+        var ok = await confirmDialog(
+          'Restore from this file?',
+          'Every record in the file is written over the matching record here (matched by id). Records that are not in the file are left untouched — nothing is deleted.',
+          'Restore', true);
+        if (!ok) return;
+        backupView.runRestore(picked);
+      });
     },
 
     async runBackup() {
@@ -736,6 +1286,7 @@
       a.href = URL.createObjectURL(blob);
       a.download = 'OHT-Backup-' + new Date().toISOString().slice(0, 10) + '.json';
       a.click();
+      toast('Backup downloaded.');
     },
 
     async runRestore(file) {
@@ -775,24 +1326,31 @@
     }
   };
 
-  var VIEWS = { parties: partiesView, items: itemsView, services: servicesCrud, companies: companiesCrud, warehouses: warehousesCrud, partykinds: partyKindsCrud, users: usersView, recyclebin: recycleBinView, backup: backupView };
+  var VIEWS = {
+    parties: partiesView, items: itemsView, services: servicesCrud, companies: companiesCrud,
+    warehouses: warehousesCrud, partykinds: partyKindsCrud, users: usersView,
+    recyclebin: recycleBinView, backup: backupView, periodlock: periodLockView, changepw: changePwView
+  };
 
   async function render() {
-    var v = VIEWS[activeTab];
+    var v = VIEWS[activeView];
     if (v) await v.render();
   }
 
   (async function init() {
     var { data: userData } = await sb.auth.getUser();
     if (!userData || !userData.user) {
-      document.getElementById('content').innerHTML = '<p>Please sign in from the main app.</p>';
+      document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet">' +
+        emptyState('Not signed in', 'Please sign in from the main app.') + '</div></div>';
       return;
     }
     var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
     if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
-    buildTabs();
+    buildNav();
     render();
+    refreshCounts();
     OfflineQueue.startAutoFlush(sb);
+    inited = true;
   })();
 })();
 </script>

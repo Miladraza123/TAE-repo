@@ -6,36 +6,16 @@
 <title>Reports — OHT Accounting</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="theme.css">
 <style>
-  :root{
-    --bg:#DDE1E6; --bg2:#FFFFFF; --bg3:#F5F7F8; --fg:#1F2933; --muted:#7B8794;
-    --accent:#A67C2E; --accent2:#8F6B27; --danger:#9B2C2C; --ok:#14614A; --border:#CBD2D9;
-  }
-  *{box-sizing:border-box;}
-  html,body{height:100%;margin:0;}
-  body{font-family:'IBM Plex Sans',-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;background:var(--bg);color:var(--fg);}
-  .toolbar{display:flex;align-items:center;gap:8px;padding:10px 14px;background:var(--bg2);border-bottom:1px solid var(--border);flex-wrap:wrap;}
-  .toolbar h1{font-size:16px;margin:0 12px 0 0;font-weight:700;}
-  .tabs{display:flex;gap:4px;flex-wrap:wrap;}
-  button{cursor:pointer;border-radius:8px;border:1px solid var(--border);background:var(--bg3);color:var(--fg);padding:8px 12px;font-size:13px;}
-  .tabs button{background:transparent;}
-  .tabs button.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-  main{padding:14px;max-width:1100px;margin:0 auto;}
-  table{width:100%;border-collapse:collapse;font-size:13px;}
-  th,td{padding:7px 9px;border-bottom:1px solid var(--border);text-align:left;}
-  th{color:var(--muted);font-weight:600;font-size:12px;text-transform:uppercase;}
-  .card{background:var(--bg2);border:1px solid var(--border);border-radius:12px;padding:16px;margin-bottom:14px;}
-  label{font-size:11px;color:var(--muted);display:block;margin-bottom:4px;text-transform:uppercase;}
-  input,select{padding:7px 9px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--fg);font-size:13px;}
-  .filters{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:14px;}
-  .stat{background:var(--bg2);border:1px solid var(--border);border-radius:10px;padding:12px 16px;min-width:150px;}
-  .stat .label{font-size:11px;color:var(--muted);text-transform:uppercase;}
-  .stat .val{font-size:20px;font-weight:700;margin-top:4px;}
-  .statrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
-  .bucket-b0{color:#B7791F;} .bucket-b30{color:#C05621;} .bucket-b60{color:#9B2C2C;} .bucket-b90{color:#7B241C;}
-  .warn{color:var(--danger);}
-  .badge-return{color:var(--accent2);font-weight:600;}
+  /* Everything visual now comes from theme.css. What stays here is the page
+     skeleton and — untouched — the print rules. */
+  html,body{height:100%;}
+  body{display:flex;flex-direction:column;}
+  main{flex:1;overflow-y:auto;padding:16px 14px 28px;}
+  .toolbar h1{font-size:16px;margin:0 8px 0 0;font-weight:700;}
+  main > .toolbar.filters{max-width:980px; margin:0 auto 4px; padding-left:0; padding-right:0;}
   @media print{
     @page{size:A4;}
     body{background:#fff;color:#000;}
@@ -52,13 +32,14 @@
 </head>
 <body>
 
-<div class="toolbar">
+<div class="toolbar tabs-wrap">
   <h1>Reports</h1>
   <div class="tabs" id="tabs"></div>
 </div>
 
 <main id="content"></main>
 <div class="poweredBy">Powered by "OHT Solutions"</div>
+<div id="toastStack" class="toast-stack"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script>
@@ -73,9 +54,41 @@
 
   window.addEventListener('message', function (ev) {
     var d = ev.data;
-    if (!d || d.oht !== 'active') return;
-    d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+    if (!d || !d.oht) return;
+    if (d.oht === 'active') {
+      d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+      return;
+    }
+    // Deep-link from another module (Masters' sidebar report links):
+    //   masters.html -> parent: { oht:'open', app:'reports', arg:'<tabkey>' }
+    //   index.html   -> here:   { oht:'goto', app:'reports', arg:'<tabkey>' }
+    // `arg` is one of this file's TABS keys. A goto that arrives before
+    // init() has finished just sets activeTab — init() then renders it.
+    if (d.oht === 'goto' && (!d.app || d.app === 'reports')) {
+      var key = d.arg;
+      if (!key || !VIEWS[key]) return;
+      activeTab = key;
+      if (inited) { buildTabs(); render(); }
+    }
   });
+
+  // ---- shared toast helper (§14) — same helper index.html/masters.html use;
+  // each module is its own document, so each carries its own copy. ----
+  var MAX_TOASTS = 3;
+  function toast(message, isError) {
+    var stack = document.getElementById('toastStack');
+    if (!stack) return;
+    while (stack.children.length >= MAX_TOASTS) stack.removeChild(stack.firstChild);
+    var el = document.createElement('div');
+    el.className = 'toast' + (isError ? ' err' : '');
+    el.textContent = message;
+    stack.appendChild(el);
+    requestAnimationFrame(function () { el.classList.add('on'); });
+    setTimeout(function () {
+      el.classList.remove('on');
+      setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 240);
+    }, isError ? 5200 : 3200);
+  }
 
   function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function fmt(n) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
@@ -87,12 +100,12 @@
   // material-consumption reports below (mirrors §21 Profit & Loss's own
   // From/To + quick-range pattern, factored out since three views share it).
   function dateRangeFilterHtml(prefix, from, to) {
-    return '<div><label>From</label><input type="date" id="' + prefix + '_from" value="' + from + '"></div>' +
-      '<div><label>To</label><input type="date" id="' + prefix + '_to" value="' + to + '"></div>' +
-      '<button type="button" id="' + prefix + '_today">Today</button>' +
-      '<button type="button" id="' + prefix + '_month">This month</button>' +
-      '<button type="button" id="' + prefix + '_lastmonth">Last month</button>' +
-      '<button type="button" id="' + prefix + '_year">This year</button>';
+    return '<div class="field"><label for="' + prefix + '_from">From</label><input type="date" id="' + prefix + '_from" value="' + from + '"></div>' +
+      '<div class="field"><label for="' + prefix + '_to">To</label><input type="date" id="' + prefix + '_to" value="' + to + '"></div>' +
+      '<button type="button" class="btn" id="' + prefix + '_today">Today</button>' +
+      '<button type="button" class="btn" id="' + prefix + '_month">This month</button>' +
+      '<button type="button" class="btn" id="' + prefix + '_lastmonth">Last month</button>' +
+      '<button type="button" class="btn" id="' + prefix + '_year">This year</button>';
   }
   function setDateRange(prefix, f, t, onRun) {
     document.getElementById(prefix + '_from').value = f;
@@ -140,7 +153,42 @@
     { key: 'mataudit', label: 'Consumption Audit' }
   ];
   var activeTab = 'trial';
+  var inited = false;
   var partiesCache = [], itemsCache = [], warehousesCache = [];
+
+  // ---- letterhead (§12) -------------------------------------------------
+  // Presentation only: the default firm's name/address heads every report the
+  // way it heads a printed statement. Never used in any calculation.
+  var firm = null;
+  async function loadFirm() {
+    if (firm) return firm;
+    var res = await sb.from('companies').select('name,city,phone,ntn,is_default').is('deleted_at', null).order('is_default', { ascending: false });
+    var rows = (res && res.data) || [];
+    firm = rows[0] || { name: 'OHT Accounting', city: '', phone: '', ntn: '' };
+    return firm;
+  }
+  function firmMark() {
+    var n = (firm && firm.name ? firm.name : 'OHT').trim();
+    return esc(n.charAt(0).toUpperCase() || 'O');
+  }
+  function firmAddr() {
+    if (!firm) return '';
+    return [firm.city, firm.phone, firm.ntn ? 'NTN ' + firm.ntn : ''].filter(Boolean).join(' · ');
+  }
+  function emptyState(big, sub) {
+    return '<div class="empty-state"><div class="empty-big">' + esc(big) + '</div>' +
+      '<div class="empty-sub">' + esc(sub) + '</div></div>';
+  }
+  // Every report body opens with this: letterhead + serif title + sub-line.
+  function docHead(title, sub) {
+    return '<div class="letterhead">' +
+        '<div class="mark2">' + firmMark() + '</div>' +
+        '<div><div class="firm-name">' + esc(firm ? firm.name : 'OHT Accounting') + '</div>' +
+        '<div class="firm-addr">' + esc(firmAddr()) + '</div></div>' +
+      '</div>' +
+      '<h2 class="stmt-title">' + esc(title) + '</h2>' +
+      '<div class="stmt-sub">' + esc(sub || '') + '</div>';
+  }
 
   // Cost-visibility gate for raw-material figures — mirrors billing.html's
   // canViewMaterialCost() exactly (same me.isAdmin / me.perms.material_cost_view
@@ -153,8 +201,9 @@
     el.innerHTML = '';
     TABS.forEach(function (t) {
       var b = document.createElement('button');
+      b.type = 'button';
       b.textContent = t.label;
-      b.className = t.key === activeTab ? 'active' : '';
+      b.className = t.key === activeTab ? 'on' : '';
       b.addEventListener('click', function () { activeTab = t.key; buildTabs(); render(); });
       el.appendChild(b);
     });
@@ -165,34 +214,50 @@
   // ===================================================================
   var trialView = {
     async render() {
+      await loadFirm();
       var asOf = document.getElementById('tb_asof') ? document.getElementById('tb_asof').value : todayStr();
-      var html = '<div class="filters"><div><label>As of</label><input type="date" id="tb_asof" value="' + asOf + '"></div>' +
-        '<button id="tb_reload">Refresh</button> <button id="tb_reconcile">Run reconciliation check</button></div>';
-      html += '<div id="tb_body">Loading…</div>';
+      var html = '<div class="toolbar filters">' +
+        '<div class="field"><label for="tb_asof">As of</label><input type="date" id="tb_asof" value="' + asOf + '"></div>' +
+        '<button type="button" class="btn" id="tb_reload">Refresh</button>' +
+        '<button type="button" class="btn" id="tb_reconcile">Run reconciliation check</button></div>';
+      html += '<div class="doc-sheet" id="tb_body">Loading…</div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('tb_reload').addEventListener('click', trialView.render);
       document.getElementById('tb_reconcile').addEventListener('click', trialView.runReconcile);
 
       var { data, error } = await sb.rpc('trial_balance', { p_as_of: asOf });
       var body = document.getElementById('tb_body');
-      if (error) { body.innerHTML = '<p class="warn">' + error.message + '</p>'; return; }
+      if (error) { body.innerHTML = docHead('Trial Balance', 'As of ' + asOf) + '<p class="warn">' + esc(error.message) + '</p>'; return; }
       var totalDr = 0, totalCr = 0;
       (data || []).forEach(function (r) { if (r.side === 'dr') totalDr += Number(r.balance); else totalCr += Number(r.balance); });
-      var h = '<div class="statrow"><div class="stat"><div class="label">Total Dr</div><div class="val">' + fmt(totalDr) + '</div></div>' +
-        '<div class="stat"><div class="label">Total Cr</div><div class="val">' + fmt(totalCr) + '</div></div></div>';
-      h += '<table><thead><tr><th>Party</th><th style="text-align:right">Balance</th><th>Side</th></tr></thead><tbody>';
+      var h = docHead('Trial Balance', 'As of ' + asOf);
+      h += '<div id="tb_recon"></div>';
+      h += '<table class="doc-table"><thead><tr><th>Party</th><th class="num">Balance</th><th>Side</th></tr></thead><tbody>';
       (data || []).forEach(function (r) {
-        h += '<tr><td>' + esc(r.party_name) + '</td><td style="text-align:right">' + fmt(r.balance) + '</td><td>' + r.side.toUpperCase() + '</td></tr>';
+        h += '<tr><td>' + esc(r.party_name) + '</td><td class="num mono">' + fmt(r.balance) + '</td>' +
+          '<td class="' + (r.side === 'dr' ? 'bucket-b60' : 'bucket-payable') + '">' + r.side.toUpperCase() + '</td></tr>';
       });
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td>Total Dr</td><td class="num mono">' + fmt(totalDr) + '</td><td></td></tr>' +
+        '<tr><td>Total Cr</td><td class="num mono">' + fmt(totalCr) + '</td><td></td></tr></tfoot></table>';
       body.innerHTML = h;
     },
     async runReconcile() {
       var asOf = document.getElementById('tb_asof').value;
+      var out = document.getElementById('tb_recon');
       var { data, error } = await sb.rpc('aging_reconcile', { p_as_of: asOf });
-      if (error) { alert(error.message); return; }
-      if (!data || !data.length) { alert('Reconciliation OK — Trial Balance and Receivable Aging agree for every party.'); }
-      else { alert('Reconciliation found ' + data.length + ' discrepant part(ies):\n' + data.map(function (r) { return r.party_name + ': diff ' + fmt(r.difference); }).join('\n')); }
+      if (error) { toast(error.message, true); return; }
+      if (!data || !data.length) {
+        if (out) out.innerHTML = '';
+        toast('Reconciliation OK — Trial Balance and Receivable Aging agree for every party.');
+        return;
+      }
+      toast('Reconciliation found ' + data.length + ' discrepant party(ies) — listed above the table.', true);
+      if (!out) return;
+      out.innerHTML = '<table class="doc-table" style="margin-bottom:14px"><thead><tr>' +
+        '<th>Party with a Trial Balance / Aging discrepancy</th><th class="num">Difference</th></tr></thead><tbody>' +
+        data.map(function (r) {
+          return '<tr><td>' + esc(r.party_name) + '</td><td class="num mono warn">' + fmt(r.difference) + '</td></tr>';
+        }).join('') + '</tbody></table>';
     }
   };
 
@@ -201,28 +266,34 @@
   // ===================================================================
   var agingView = {
     async render() {
+      await loadFirm();
       var asOf = document.getElementById('ag_asof') ? document.getElementById('ag_asof').value : todayStr();
-      var html = '<div class="filters"><div><label>As of</label><input type="date" id="ag_asof" value="' + asOf + '"></div><button id="ag_reload">Refresh</button></div>';
-      html += '<div id="ag_body">Loading…</div>';
+      var html = '<div class="toolbar filters">' +
+        '<div class="field"><label for="ag_asof">As of</label><input type="date" id="ag_asof" value="' + asOf + '"></div>' +
+        '<button type="button" class="btn" id="ag_reload">Refresh</button></div>';
+      html += '<div class="doc-sheet" id="ag_body">Loading…</div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('ag_reload').addEventListener('click', agingView.render);
 
       var { data, error } = await sb.rpc('receivable_aging', { p_as_of: asOf });
       var body = document.getElementById('ag_body');
-      if (error) { body.innerHTML = '<p class="warn">' + error.message + '</p>'; return; }
+      if (error) { body.innerHTML = docHead('Receivable Aging', 'As of ' + asOf) + '<p class="warn">' + esc(error.message) + '</p>'; return; }
       var rows = (data || []).sort(function (a, b) { return b.outstanding - a.outstanding; });
       var buckets = { notdue: 0, b0: 0, b30: 0, b60: 0, b90: 0, payable: 0, advance: 0 };
       rows.forEach(function (r) { buckets[r.bucket] = (buckets[r.bucket] || 0) + Number(r.outstanding); });
-      var h = '<div class="statrow">' +
-        ['notdue', 'b0', 'b30', 'b60', 'b90'].map(function (k) {
-          var labels = { notdue: 'Not due', b0: '1-30 days', b30: '31-60 days', b60: '61-90 days', b90: '90+ days' };
-          return '<div class="stat"><div class="label">' + labels[k] + '</div><div class="val bucket-' + k + '">' + fmt(buckets[k]) + '</div></div>';
-        }).join('') + '</div>';
-      h += '<table><thead><tr><th>Party</th><th>Doc</th><th>Date</th><th>Due</th><th style="text-align:right">Original</th><th style="text-align:right">Outstanding</th><th>Days</th><th>Bucket</th></tr></thead><tbody>';
+      var bucketKeys = ['notdue', 'b0', 'b30', 'b60', 'b90'];
+      var bucketLabels = { notdue: 'Not due', b0: '1-30 days', b30: '31-60 days', b60: '61-90 days', b90: '90+ days' };
+      var h = docHead('Receivable Aging', 'As of ' + asOf);
+      h += '<table class="doc-table" style="margin-bottom:16px"><thead><tr>' +
+        bucketKeys.map(function (k) { return '<th class="num">' + bucketLabels[k] + '</th>'; }).join('') +
+        '</tr></thead><tbody><tr>' +
+        bucketKeys.map(function (k) { return '<td class="num mono bucket-' + k + '">' + fmt(buckets[k]) + '</td>'; }).join('') +
+        '</tr></tbody></table>';
+      h += '<table class="doc-table"><thead><tr><th>Party</th><th>Doc</th><th>Date</th><th>Due</th><th class="num">Original</th><th class="num">Outstanding</th><th class="num">Days</th><th>Bucket</th></tr></thead><tbody>';
       rows.forEach(function (r) {
-        h += '<tr><td>' + esc(r.party_name) + '</td><td>' + esc(r.doc_no) + '</td><td>' + (r.doc_date || '') + '</td><td>' + (r.due_date || '') + '</td>' +
-          '<td style="text-align:right">' + fmt(r.original_amount) + '</td><td style="text-align:right">' + fmt(r.outstanding) + '</td>' +
-          '<td>' + (r.days_overdue || 0) + '</td><td class="bucket-' + r.bucket + '">' + r.bucket + '</td></tr>';
+        h += '<tr><td>' + esc(r.party_name) + '</td><td class="mono">' + esc(r.doc_no) + '</td><td class="mono">' + (r.doc_date || '') + '</td><td class="mono">' + (r.due_date || '') + '</td>' +
+          '<td class="num mono">' + fmt(r.original_amount) + '</td><td class="num mono">' + fmt(r.outstanding) + '</td>' +
+          '<td class="num mono">' + (r.days_overdue || 0) + '</td><td class="bucket-' + r.bucket + '">' + esc(bucketLabels[r.bucket] || r.bucket) + '</td></tr>';
       });
       h += '</tbody></table>';
       body.innerHTML = h;
@@ -236,12 +307,14 @@
     async render() {
       var from = document.getElementById('pl_from') ? document.getElementById('pl_from').value : firstOfMonth();
       var to = document.getElementById('pl_to') ? document.getElementById('pl_to').value : todayStr();
-      var html = '<div class="filters">' +
-        '<div><label>From</label><input type="date" id="pl_from" value="' + from + '"></div>' +
-        '<div><label>To</label><input type="date" id="pl_to" value="' + to + '"></div>' +
-        '<button id="pl_today">Today</button><button id="pl_month">This month</button><button id="pl_lastmonth">Last month</button><button id="pl_year">This year</button>' +
-        '<button class="primary" id="pl_run">Run</button></div>';
-      html += '<div id="pl_body">Pick a range and click Run.</div>';
+      await loadFirm();
+      var html = '<div class="toolbar filters">' +
+        '<div class="field"><label for="pl_from">From</label><input type="date" id="pl_from" value="' + from + '"></div>' +
+        '<div class="field"><label for="pl_to">To</label><input type="date" id="pl_to" value="' + to + '"></div>' +
+        '<button type="button" class="btn" id="pl_today">Today</button><button type="button" class="btn" id="pl_month">This month</button>' +
+        '<button type="button" class="btn" id="pl_lastmonth">Last month</button><button type="button" class="btn" id="pl_year">This year</button>' +
+        '<button type="button" class="btn pri" id="pl_run">Run</button></div>';
+      html += '<div class="doc-sheet" id="pl_body">Pick a range and click Run.</div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('pl_run').addEventListener('click', plView.run);
       document.getElementById('pl_today').addEventListener('click', function () { setRange(todayStr(), todayStr()); });
@@ -321,18 +394,22 @@
       var netMarginPct = netSales !== 0 ? (netProfit / netSales) * 100 : 0;
 
       function row(label, val, bold) {
-        return '<tr' + (bold ? ' style="font-weight:700;background:var(--bg3)"' : '') + '><td>' + label + '</td><td style="text-align:right">' + fmt(val) + '</td></tr>';
+        return '<tr' + (bold ? ' class="sum"' : '') + '><td>' + label + '</td><td class="num mono' +
+          (Number(val) < 0 ? ' warn' : '') + '">' + fmt(val) + '</td></tr>';
       }
-      var h = '<table><tbody>' +
+      var h = docHead('Profit & Loss', from + '  to  ' + to);
+      h += '<table class="doc-table"><tbody>' +
         row('Gross Sales', grossSales) + row('Sales Returns', -salesReturnsInRange) + row('Discounts', -discounts) +
         row('Net Sales', netSales, true) + row('COGS', -cogs) + row('Gross Profit', grossProfit, true) +
-        '<tr><td colspan="2" style="color:var(--muted)">Gross Margin: ' + grossMarginPct.toFixed(1) + '%</td></tr>' +
+        '<tr class="note"><td colspan="2">Gross Margin: ' + grossMarginPct.toFixed(1) + '%</td></tr>' +
         row('Other Income (Loading/Cartage/Cutting)', otherIncome) + row('Service Revenue', serviceRevenue) +
         row('Total Revenue (Net Sales + Service Revenue)', totalRevenue) +
         row('Operating Expenses', -opEx) + row('Operating Profit', operatingProfit, true) +
-        row('Finance/Bank Charges', -financeCharges) + row('Net Profit', netProfit, true) +
-        '<tr><td colspan="2" style="color:var(--muted)">Net Margin: ' + netMarginPct.toFixed(1) + '%</td></tr>' +
-        '</tbody></table>';
+        row('Finance/Bank Charges', -financeCharges) +
+        '</tbody><tfoot>' +
+        '<tr><td>Net Profit</td><td class="num mono' + (netProfit < 0 ? ' warn' : '') + '">' + fmt(netProfit) + '</td></tr>' +
+        '<tr class="note"><td colspan="2">Net Margin: ' + netMarginPct.toFixed(1) + '%</td></tr>' +
+        '</tfoot></table>';
       body.innerHTML = h;
     }
   };
@@ -342,26 +419,36 @@
   // ===================================================================
   var statementView = {
     async render() {
+      await loadFirm();
       if (!partiesCache.length) { var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name'); partiesCache = data || []; }
-      var html = '<div class="filters"><div><label>Party</label><select id="st_party"><option value="">Pick…</option>' +
+      var html = '<div class="toolbar filters">' +
+        '<div class="field"><label for="st_party">Party</label><select id="st_party"><option value="">Pick…</option>' +
         partiesCache.map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
-        '<button id="st_run">Show</button></div><div id="st_body"></div>';
+        '<button type="button" class="btn pri" id="st_run">Show</button></div><div id="st_body"></div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('st_run').addEventListener('click', statementView.run);
     },
     async run() {
-      var partyId = document.getElementById('st_party').value;
+      var sel = document.getElementById('st_party');
+      var partyId = sel.value;
+      var partyName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
       var body = document.getElementById('st_body');
       if (!partyId) { body.innerHTML = ''; return; }
-      body.innerHTML = 'Loading…';
+      body.innerHTML = '<div class="doc-sheet">Loading…</div>';
 
       var events = await buildLedgerEvents(partyId);
-      var h = '<table><thead><tr><th>Date</th><th>Description</th><th style="text-align:right">Dr</th><th style="text-align:right">Cr</th><th style="text-align:right">Balance</th></tr></thead><tbody>';
+      var closing = events.length ? events[events.length - 1].running : 0;
+      var h = '<div class="doc-sheet">' + docHead('Statement of Account', partyName + ' · as of ' + todayStr());
+      h += '<div class="stmt-balance ' + (closing >= 0 ? 'dr' : 'cr') + '">' + fmt(Math.abs(closing)) +
+        '<span class="side">' + (closing >= 0 ? 'Dr' : 'Cr') + '</span></div>' +
+        '<div class="stmt-sub">Closing balance</div>';
+      h += '<table class="doc-table"><thead><tr><th>Date</th><th>Description</th><th class="num">Dr</th><th class="num">Cr</th><th class="num">Balance</th></tr></thead><tbody>';
       events.forEach(function (e) {
-        h += '<tr><td>' + e.date + '</td><td>' + esc(e.desc) + '</td><td style="text-align:right">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
-          '<td style="text-align:right">' + (e.cr ? fmt(e.cr) : '') + '</td><td style="text-align:right">' + fmt(Math.abs(e.running)) + ' ' + (e.running >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
+        h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
+          '<td class="num mono">' + (e.cr ? fmt(e.cr) : '') + '</td><td class="num mono">' + fmt(Math.abs(e.running)) + ' ' + (e.running >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
       });
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td colspan="4">Closing balance</td><td class="num mono">' +
+        fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr') + '</td></tr></tfoot></table></div>';
       body.innerHTML = h;
     }
   };
@@ -424,10 +511,12 @@
   // ===================================================================
   var stockLedgerView = {
     async render() {
+      await loadFirm();
       if (!itemsCache.length) { var { data } = await sb.from('items').select('id,name,unit,stock_qty,avg_cost').is('deleted_at', null).order('name'); itemsCache = data || []; }
-      var html = '<div class="filters"><div><label>Item</label><select id="sl_item"><option value="">Pick…</option>' +
+      var html = '<div class="toolbar filters">' +
+        '<div class="field"><label for="sl_item">Item</label><select id="sl_item"><option value="">Pick…</option>' +
         itemsCache.map(function (i) { return '<option value="' + i.id + '">' + esc(i.name) + '</option>'; }).join('') + '</select></div>' +
-        '<button id="sl_run">Show</button></div><div id="sl_body"></div>';
+        '<button type="button" class="btn pri" id="sl_run">Show</button></div><div id="sl_body"></div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('sl_run').addEventListener('click', stockLedgerView.run);
     },
@@ -435,7 +524,7 @@
       var itemId = document.getElementById('sl_item').value;
       var body = document.getElementById('sl_body');
       if (!itemId) { body.innerHTML = ''; return; }
-      body.innerHTML = 'Loading…';
+      body.innerHTML = '<div class="doc-sheet">Loading…</div>';
       var item = itemsCache.filter(function (i) { return i.id === itemId; })[0];
 
       var [{ data: lines }, { data: returnLines }, { data: adj }] = await Promise.all([
@@ -457,14 +546,15 @@
       events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
       var running = 0;
-      var h = '<div class="statrow"><div class="stat"><div class="label">Live stock</div><div class="val">' + item.stock_qty + ' ' + item.unit + '</div></div>' +
-        '<div class="stat"><div class="label">Avg cost</div><div class="val">' + fmt(item.avg_cost) + '</div></div></div>';
-      h += '<table><thead><tr><th>Date</th><th>Event</th><th style="text-align:right">Qty ±</th><th style="text-align:right">Running</th></tr></thead><tbody>';
+      var h = '<div class="doc-sheet">' + docHead('Item Stock Ledger', item.name + ' · as of ' + todayStr());
+      h += '<div class="stmt-balance">' + item.stock_qty + '<span class="side">' + esc(item.unit) + '</span></div>' +
+        '<div class="stmt-sub">Live stock · average cost ' + fmt(item.avg_cost) + '</div>';
+      h += '<table class="doc-table"><thead><tr><th>Date</th><th>Event</th><th class="num">Qty ±</th><th class="num">Running</th></tr></thead><tbody>';
       events.forEach(function (e) {
         running += Number(e.qty) || 0;
-        h += '<tr><td>' + e.date + '</td><td>' + esc(e.desc) + '</td><td style="text-align:right">' + e.qty + '</td><td style="text-align:right">' + running + '</td></tr>';
+        h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono' + (Number(e.qty) < 0 ? ' warn' : '') + '">' + e.qty + '</td><td class="num mono">' + running + '</td></tr>';
       });
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td colspan="3">Closing stock</td><td class="num mono">' + running + '</td></tr></tfoot></table></div>';
       body.innerHTML = h;
     }
   };
@@ -490,13 +580,14 @@
       var wh = document.getElementById('mc_wh') ? document.getElementById('mc_wh').value : '';
       var party = document.getElementById('mc_party') ? document.getElementById('mc_party').value : '';
 
-      var html = '<div class="filters">' + dateRangeFilterHtml('mc', from, to) +
-        '<div><label>Final Product</label><select id="mc_final">' + itemSelectOptions(finalItem) + '</select></div>' +
-        '<div><label>Raw Material</label><select id="mc_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
-        '<div><label>Warehouse</label><select id="mc_wh">' + warehouseSelectOptions(wh) + '</select></div>' +
-        '<div><label>Customer</label><select id="mc_party">' + partySelectOptions(party) + '</select></div>' +
-        '<button class="primary" id="mc_run">Run</button></div>';
-      html += '<div id="mc_body">Loading…</div>';
+      await loadFirm();
+      var html = '<div class="toolbar filters">' + dateRangeFilterHtml('mc', from, to) +
+        '<div class="field"><label for="mc_final">Final Product</label><select id="mc_final">' + itemSelectOptions(finalItem) + '</select></div>' +
+        '<div class="field"><label for="mc_raw">Raw Material</label><select id="mc_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
+        '<div class="field"><label for="mc_wh">Warehouse</label><select id="mc_wh">' + warehouseSelectOptions(wh) + '</select></div>' +
+        '<div class="field"><label for="mc_party">Customer</label><select id="mc_party">' + partySelectOptions(party) + '</select></div>' +
+        '<button type="button" class="btn pri" id="mc_run">Run</button></div>';
+      html += '<div class="doc-sheet" id="mc_body">Loading…</div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('mc_run').addEventListener('click', matConsumptionView.run);
       wireDateRangeButtons('mc', matConsumptionView.run);
@@ -507,38 +598,39 @@
       var finalItem = document.getElementById('mc_final').value, rawItem = document.getElementById('mc_raw').value;
       var wh = document.getElementById('mc_wh').value, party = document.getElementById('mc_party').value;
       var body = document.getElementById('mc_body');
-      body.innerHTML = 'Loading…';
+      var head = docHead('Material Consumption', from + '  to  ' + to);
+      body.innerHTML = head + '<p class="stmt-sub">Loading…</p>';
 
       var vq = sb.from('vouchers').select('id,vno,vdate,party_id').eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to);
       if (party) vq = vq.eq('party_id', party);
       var { data: vouchers, error: vErr } = await vq;
-      if (vErr) { body.innerHTML = '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      if (vErr) { body.innerHTML = head + '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
       var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
       var voucherIds = (vouchers || []).map(function (v) { return v.id; });
-      if (!voucherIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (!voucherIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
 
       var lq = sb.from('voucher_lines').select('id,voucher_id,item_id,amount').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
       if (finalItem) lq = lq.eq('item_id', finalItem);
       var { data: lines, error: lErr } = await lq;
-      if (lErr) { body.innerHTML = '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      if (lErr) { body.innerHTML = head + '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
       var lineMap = {}; (lines || []).forEach(function (l) { lineMap[l.id] = l; });
       var lineIds = (lines || []).map(function (l) { return l.id; });
-      if (!lineIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (!lineIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
 
       var cq = sb.from('voucher_line_material_consumption').select('id,voucher_line_id,raw_item_id,warehouse_id,qty,unit,cost_amount,notes,created_at')
         .in('voucher_line_id', lineIds).order('created_at', { ascending: false }).range(0, 1999);
       if (rawItem) cq = cq.eq('raw_item_id', rawItem);
       if (wh) cq = cq.eq('warehouse_id', wh);
       var { data: rows, error: cErr } = await cq;
-      if (cErr) { body.innerHTML = '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
-      if (!rows || !rows.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (cErr) { body.innerHTML = head + '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      if (!rows || !rows.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
 
       var showCost = canViewMaterialCost();
       var totalCost = 0;
-      var h = '';
+      var h = head;
       if (rows.length >= 2000) h += '<p class="warn">Showing the first 2000 matching rows — narrow the filters for a complete result.</p>';
-      h += '<table><thead><tr><th>Date</th><th>Invoice No</th><th>Customer</th><th>Final Product</th><th>Raw Material</th>' +
-        '<th style="text-align:right">Qty</th><th>Unit</th><th>Warehouse</th>' + (showCost ? '<th style="text-align:right">Cost</th>' : '') + '</tr></thead><tbody>';
+      h += '<table class="doc-table"><thead><tr><th>Date</th><th>Invoice No</th><th>Customer</th><th>Final Product</th><th>Raw Material</th>' +
+        '<th class="num">Qty</th><th>Unit</th><th>Warehouse</th>' + (showCost ? '<th class="num">Cost</th>' : '') + '</tr></thead><tbody>';
       rows.forEach(function (r) {
         var line = lineMap[r.voucher_line_id];
         var v = line ? voucherMap[line.voucher_id] : null;
@@ -547,18 +639,18 @@
         var rawItm = itemsCache.filter(function (i) { return i.id === r.raw_item_id; })[0];
         var w = warehousesCache.filter(function (x) { return x.id === r.warehouse_id; })[0];
         totalCost += Number(r.cost_amount || 0);
-        h += '<tr><td>' + (v ? v.vdate : '') + '</td><td>' + (v ? esc(v.vno) : '') + '</td>' +
+        h += '<tr><td class="mono">' + (v ? v.vdate : '') + '</td><td class="mono">' + (v ? esc(v.vno) : '') + '</td>' +
           '<td>' + (p ? esc(p.name) : '—') + '</td>' +
           '<td>' + (finalItm ? esc(finalItm.name) : '(deleted item)') + '</td>' +
           '<td>' + (rawItm ? esc(rawItm.name) : '(deleted item)') + '</td>' +
-          '<td style="text-align:right">' + fmtQty(r.qty) + '</td><td>' + esc(r.unit || '') + '</td>' +
+          '<td class="num mono">' + fmtQty(r.qty) + '</td><td>' + esc(r.unit || '') + '</td>' +
           '<td>' + (w ? esc(w.name) : '—') + '</td>' +
-          (showCost ? '<td style="text-align:right">' + fmt(r.cost_amount) + '</td>' : '') +
+          (showCost ? '<td class="num mono">' + fmt(r.cost_amount) + '</td>' : '') +
           '</tr>';
       });
-      h += '<tr style="font-weight:700;background:var(--bg3)"><td colspan="8">Total (' + rows.length + ' row(s))</td>' +
-        (showCost ? '<td style="text-align:right">' + fmt(totalCost) + '</td>' : '') + '</tr>';
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td colspan="8">Total (' + rows.length + ' row(s))</td>' +
+        (showCost ? '<td class="num mono">' + fmt(totalCost) + '</td>' : '') + '</tr></tfoot>';
+      h += '</table>';
       body.innerHTML = h;
     }
   };
@@ -576,14 +668,15 @@
       var groupBy = document.getElementById('mp_group') ? document.getElementById('mp_group').value : 'invoice';
       var item = document.getElementById('mp_item') ? document.getElementById('mp_item').value : '';
 
-      var html = '<div class="filters">' + dateRangeFilterHtml('mp', from, to) +
-        '<div><label>Group by</label><select id="mp_group">' +
+      await loadFirm();
+      var html = '<div class="toolbar filters">' + dateRangeFilterHtml('mp', from, to) +
+        '<div class="field"><label for="mp_group">Group by</label><select id="mp_group">' +
         '<option value="invoice"' + (groupBy === 'invoice' ? ' selected' : '') + '>Invoice</option>' +
         '<option value="item"' + (groupBy === 'item' ? ' selected' : '') + '>Final Product</option>' +
         '</select></div>' +
-        '<div><label>Final Product</label><select id="mp_item">' + itemSelectOptions(item) + '</select></div>' +
-        '<button class="primary" id="mp_run">Run</button></div>';
-      html += '<div id="mp_body">Loading…</div>';
+        '<div class="field"><label for="mp_item">Final Product</label><select id="mp_item">' + itemSelectOptions(item) + '</select></div>' +
+        '<button type="button" class="btn pri" id="mp_run">Run</button></div>';
+      html += '<div class="doc-sheet" id="mp_body">Loading…</div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('mp_run').addEventListener('click', matProfitView.run);
       wireDateRangeButtons('mp', matProfitView.run);
@@ -593,24 +686,25 @@
       var from = document.getElementById('mp_from').value, to = document.getElementById('mp_to').value;
       var groupBy = document.getElementById('mp_group').value, item = document.getElementById('mp_item').value;
       var body = document.getElementById('mp_body');
-      body.innerHTML = 'Computing…';
+      var head = docHead('Material Cost & Profit', from + '  to  ' + to + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'));
+      body.innerHTML = head + '<p class="stmt-sub">Computing…</p>';
 
       var { data: vouchers, error: vErr } = await sb.from('vouchers').select('id,vno,vdate,party_id')
         .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to);
-      if (vErr) { body.innerHTML = '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      if (vErr) { body.innerHTML = head + '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
       var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
       var voucherIds = (vouchers || []).map(function (v) { return v.id; });
-      if (!voucherIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (!voucherIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
 
       var lq = sb.from('voucher_lines').select('id,voucher_id,item_id,amount').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
       if (item) lq = lq.eq('item_id', item);
       var { data: lines, error: lErr } = await lq;
-      if (lErr) { body.innerHTML = '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
-      if (!lines || !lines.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (lErr) { body.innerHTML = head + '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      if (!lines || !lines.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
       var lineIds = lines.map(function (l) { return l.id; });
 
       var { data: consump, error: cErr } = await sb.from('voucher_line_material_consumption').select('voucher_line_id,cost_amount').in('voucher_line_id', lineIds);
-      if (cErr) { body.innerHTML = '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      if (cErr) { body.innerHTML = head + '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
       var costByLine = {};
       (consump || []).forEach(function (c) { costByLine[c.voucher_line_id] = (costByLine[c.voucher_line_id] || 0) + Number(c.cost_amount || 0); });
 
@@ -645,9 +739,9 @@
       var showCost = canViewMaterialCost();
       var totalSale = 0, totalCost = 0;
       var labelHeader = groupBy === 'invoice' ? 'Invoice' : 'Final Product';
-      var h = '<table><thead><tr><th>' + labelHeader + '</th>' + (groupBy === 'invoice' ? '<th>Date</th><th>Customer</th>' : '') +
-        '<th style="text-align:right">Sale Amount</th>' +
-        (showCost ? '<th style="text-align:right">Material Cost</th><th style="text-align:right">Margin</th><th style="text-align:right">Margin %</th>' : '') +
+      var h = head + '<table class="doc-table"><thead><tr><th>' + labelHeader + '</th>' + (groupBy === 'invoice' ? '<th>Date</th><th>Customer</th>' : '') +
+        '<th class="num">Sale Amount</th>' +
+        (showCost ? '<th class="num">Material Cost</th><th class="num">Margin</th><th class="num">Margin %</th>' : '') +
         '</tr></thead><tbody>';
       groupArr.forEach(function (g) {
         totalSale += g.sale; totalCost += g.cost;
@@ -656,24 +750,24 @@
           var v = voucherMap[g.key];
           label = v ? esc(v.vno) : '(deleted invoice)';
           var p = v ? partiesCache.filter(function (x) { return x.id === v.party_id; })[0] : null;
-          extraCells = '<td>' + (v ? v.vdate : '') + '</td><td>' + (p ? esc(p.name) : '—') + '</td>';
+          extraCells = '<td class="mono">' + (v ? v.vdate : '') + '</td><td>' + (p ? esc(p.name) : '—') + '</td>';
         } else {
           var it = itemsCache.filter(function (x) { return x.id === g.key; })[0];
           label = it ? esc(it.name) : '(deleted item)';
         }
         h += '<tr><td>' + label + '</td>' + extraCells +
-          '<td style="text-align:right">' + fmt(g.sale) + '</td>' +
-          (showCost ? '<td style="text-align:right">' + fmt(g.cost) + '</td><td style="text-align:right">' + fmt(g.margin) + '</td><td style="text-align:right">' + g.marginPct.toFixed(1) + '%</td>' : '') +
+          '<td class="num mono">' + fmt(g.sale) + '</td>' +
+          (showCost ? '<td class="num mono">' + fmt(g.cost) + '</td><td class="num mono' + (g.margin < 0 ? ' warn' : '') + '">' + fmt(g.margin) + '</td><td class="num mono">' + g.marginPct.toFixed(1) + '%</td>' : '') +
           '</tr>';
       });
       var totalMargin = totalSale - totalCost;
       var totalMarginPct = totalSale !== 0 ? (totalMargin / totalSale) * 100 : 0;
       var labelColspan = groupBy === 'invoice' ? 3 : 1;
-      h += '<tr style="font-weight:700;background:var(--bg3)"><td colspan="' + labelColspan + '">Total</td>' +
-        '<td style="text-align:right">' + fmt(totalSale) + '</td>' +
-        (showCost ? '<td style="text-align:right">' + fmt(totalCost) + '</td><td style="text-align:right">' + fmt(totalMargin) + '</td><td style="text-align:right">' + totalMarginPct.toFixed(1) + '%</td>' : '') +
-        '</tr>';
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td colspan="' + labelColspan + '">Total</td>' +
+        '<td class="num mono">' + fmt(totalSale) + '</td>' +
+        (showCost ? '<td class="num mono">' + fmt(totalCost) + '</td><td class="num mono' + (totalMargin < 0 ? ' warn' : '') + '">' + fmt(totalMargin) + '</td><td class="num mono">' + totalMarginPct.toFixed(1) + '%</td>' : '') +
+        '</tr></tfoot>';
+      h += '</table>';
       body.innerHTML = h;
     }
   };
@@ -691,11 +785,12 @@
       var finalItem = document.getElementById('ma_final') ? document.getElementById('ma_final').value : '';
       var rawItem = document.getElementById('ma_raw') ? document.getElementById('ma_raw').value : '';
 
-      var html = '<div class="filters">' + dateRangeFilterHtml('ma', from, to) +
-        '<div><label>Final Product</label><select id="ma_final">' + itemSelectOptions(finalItem) + '</select></div>' +
-        '<div><label>Raw Material</label><select id="ma_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
-        '<button class="primary" id="ma_run">Run</button></div>';
-      html += '<div id="ma_body">Loading…</div>';
+      await loadFirm();
+      var html = '<div class="toolbar filters">' + dateRangeFilterHtml('ma', from, to) +
+        '<div class="field"><label for="ma_final">Final Product</label><select id="ma_final">' + itemSelectOptions(finalItem) + '</select></div>' +
+        '<div class="field"><label for="ma_raw">Raw Material</label><select id="ma_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
+        '<button type="button" class="btn pri" id="ma_run">Run</button></div>';
+      html += '<div class="doc-sheet" id="ma_body">Loading…</div>';
       document.getElementById('content').innerHTML = html;
       document.getElementById('ma_run').addEventListener('click', matAuditView.run);
       wireDateRangeButtons('ma', matAuditView.run);
@@ -705,34 +800,35 @@
       var from = document.getElementById('ma_from').value, to = document.getElementById('ma_to').value;
       var finalItem = document.getElementById('ma_final').value, rawItem = document.getElementById('ma_raw').value;
       var body = document.getElementById('ma_body');
-      body.innerHTML = 'Loading…';
+      var head = docHead('Consumption Audit', from + '  to  ' + to + ' · cancelled invoices and returned material');
+      body.innerHTML = head + '<p class="stmt-sub">Loading…</p>';
 
       // Deliberately NOT filtered on deleted_at — a cancelled invoice is
       // exactly what this audit needs to surface.
       var { data: vouchers, error: vErr } = await sb.from('vouchers').select('id,vno,vdate,party_id,deleted_at')
         .eq('vtype', 'sale').gte('vdate', from).lte('vdate', to);
-      if (vErr) { body.innerHTML = '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      if (vErr) { body.innerHTML = head + '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
       var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
       var voucherIds = (vouchers || []).map(function (v) { return v.id; });
-      if (!voucherIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (!voucherIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
 
       var lq = sb.from('voucher_lines').select('id,voucher_id,item_id').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
       if (finalItem) lq = lq.eq('item_id', finalItem);
       var { data: lines, error: lErr } = await lq;
-      if (lErr) { body.innerHTML = '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
-      if (!lines || !lines.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (lErr) { body.innerHTML = head + '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      if (!lines || !lines.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
       var lineMap = {}; lines.forEach(function (l) { lineMap[l.id] = l; });
       var lineIds = lines.map(function (l) { return l.id; });
 
       var cq = sb.from('voucher_line_material_consumption').select('id,voucher_line_id,raw_item_id,qty,unit,cost_amount').in('voucher_line_id', lineIds).range(0, 1999);
       if (rawItem) cq = cq.eq('raw_item_id', rawItem);
       var { data: consump, error: cErr } = await cq;
-      if (cErr) { body.innerHTML = '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
-      if (!consump || !consump.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      if (cErr) { body.innerHTML = head + '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      if (!consump || !consump.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
       var consumpIds = consump.map(function (c) { return c.id; });
 
       var { data: restorations, error: rErr } = await sb.from('sales_return_material_restoration').select('consumption_id,qty').in('consumption_id', consumpIds);
-      if (rErr) { body.innerHTML = '<p class="warn">' + esc(rErr.message) + '</p>'; return; }
+      if (rErr) { body.innerHTML = head + '<p class="warn">' + esc(rErr.message) + '</p>'; return; }
       var restoredByConsumption = {};
       (restorations || []).forEach(function (r) { restoredByConsumption[r.consumption_id] = (restoredByConsumption[r.consumption_id] || 0) + Number(r.qty || 0); });
 
@@ -743,7 +839,7 @@
         return { c: c, line: line, voucher: v, restored: restored, remaining: Number(c.qty) - restored };
       }).filter(function (r) { return (r.voucher && r.voucher.deleted_at) || r.restored > 0; });
 
-      if (!rows.length) { body.innerHTML = '<p>No reversed or cancelled consumption for the selected filters.</p>'; return; }
+      if (!rows.length) { body.innerHTML = head + emptyState('Nothing reversed', 'No cancelled or returned consumption matches these filters.'); return; }
 
       rows.sort(function (a, b) {
         var da = a.voucher ? a.voucher.vdate : '', db = b.voucher ? b.voucher.vdate : '';
@@ -752,29 +848,29 @@
 
       var showCost = canViewMaterialCost();
       var totalCost = 0, totalRestoredQty = 0;
-      var h = '<table><thead><tr><th>Date</th><th>Invoice No</th><th>Status</th><th>Final Product</th><th>Raw Material</th>' +
-        '<th style="text-align:right">Qty Consumed</th><th style="text-align:right">Qty Restored</th><th style="text-align:right">Net Consumption</th>' +
-        (showCost ? '<th style="text-align:right">Cost</th>' : '') + '</tr></thead><tbody>';
+      var h = head + '<table class="doc-table"><thead><tr><th>Date</th><th>Invoice No</th><th>Status</th><th>Final Product</th><th>Raw Material</th>' +
+        '<th class="num">Qty Consumed</th><th class="num">Qty Restored</th><th class="num">Net Consumption</th>' +
+        (showCost ? '<th class="num">Cost</th>' : '') + '</tr></thead><tbody>';
       rows.forEach(function (r) {
         var v = r.voucher, line = r.line;
         var finalItm = line ? itemsCache.filter(function (i) { return i.id === line.item_id; })[0] : null;
         var rawItm = itemsCache.filter(function (i) { return i.id === r.c.raw_item_id; })[0];
-        var badge = (v && v.deleted_at) ? '<span class="warn">Cancelled</span>' : (r.restored > 0 ? '<span class="badge-return">Returned</span>' : '');
+        var badge = (v && v.deleted_at) ? '<span class="badge b-void">Cancelled</span>' : (r.restored > 0 ? '<span class="badge b-supplier">Returned</span>' : '');
         totalCost += Number(r.c.cost_amount || 0);
         totalRestoredQty += r.restored;
-        h += '<tr><td>' + (v ? v.vdate : '') + '</td><td>' + (v ? esc(v.vno) : '') + '</td><td>' + badge + '</td>' +
+        h += '<tr><td class="mono">' + (v ? v.vdate : '') + '</td><td class="mono">' + (v ? esc(v.vno) : '') + '</td><td>' + badge + '</td>' +
           '<td>' + (finalItm ? esc(finalItm.name) : '(deleted item)') + '</td>' +
           '<td>' + (rawItm ? esc(rawItm.name) : '(deleted item)') + '</td>' +
-          '<td style="text-align:right">' + fmtQty(r.c.qty) + '</td>' +
-          '<td style="text-align:right">' + (r.restored ? fmtQty(r.restored) : '—') + '</td>' +
-          '<td style="text-align:right">' + fmtQty(r.remaining) + '</td>' +
-          (showCost ? '<td style="text-align:right">' + fmt(r.c.cost_amount) + '</td>' : '') +
+          '<td class="num mono">' + fmtQty(r.c.qty) + '</td>' +
+          '<td class="num mono">' + (r.restored ? fmtQty(r.restored) : '—') + '</td>' +
+          '<td class="num mono">' + fmtQty(r.remaining) + '</td>' +
+          (showCost ? '<td class="num mono">' + fmt(r.c.cost_amount) + '</td>' : '') +
           '</tr>';
       });
-      h += '<tr style="font-weight:700;background:var(--bg3)"><td colspan="6">Total (' + rows.length + ' row(s))</td>' +
-        '<td style="text-align:right">' + fmtQty(totalRestoredQty) + '</td><td></td>' +
-        (showCost ? '<td style="text-align:right">' + fmt(totalCost) + '</td>' : '') + '</tr>';
-      h += '</tbody></table>';
+      h += '</tbody><tfoot><tr><td colspan="6">Total (' + rows.length + ' row(s))</td>' +
+        '<td class="num mono">' + fmtQty(totalRestoredQty) + '</td><td></td>' +
+        (showCost ? '<td class="num mono">' + fmt(totalCost) + '</td>' : '') + '</tr></tfoot>';
+      h += '</table>';
       body.innerHTML = h;
     }
   };
@@ -797,6 +893,8 @@
     }
     var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
     if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
+    await loadFirm();
+    inited = true;
     buildTabs();
     render();
   })();
