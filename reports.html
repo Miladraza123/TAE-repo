@@ -35,6 +35,7 @@
   .statrow{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px;}
   .bucket-b0{color:#B7791F;} .bucket-b30{color:#C05621;} .bucket-b60{color:#9B2C2C;} .bucket-b90{color:#7B241C;}
   .warn{color:var(--danger);}
+  .badge-return{color:var(--accent2);font-weight:600;}
   @media print{
     @page{size:A4;}
     body{background:#fff;color:#000;}
@@ -78,17 +79,74 @@
 
   function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
   function fmt(n) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+  function fmtQty(n) { return Number(n || 0).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 3 }); }
   function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function firstOfMonth() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01'; }
+
+  // Shared date-range filter markup + quick-range buttons, used by the
+  // material-consumption reports below (mirrors §21 Profit & Loss's own
+  // From/To + quick-range pattern, factored out since three views share it).
+  function dateRangeFilterHtml(prefix, from, to) {
+    return '<div><label>From</label><input type="date" id="' + prefix + '_from" value="' + from + '"></div>' +
+      '<div><label>To</label><input type="date" id="' + prefix + '_to" value="' + to + '"></div>' +
+      '<button type="button" id="' + prefix + '_today">Today</button>' +
+      '<button type="button" id="' + prefix + '_month">This month</button>' +
+      '<button type="button" id="' + prefix + '_lastmonth">Last month</button>' +
+      '<button type="button" id="' + prefix + '_year">This year</button>';
+  }
+  function setDateRange(prefix, f, t, onRun) {
+    document.getElementById(prefix + '_from').value = f;
+    document.getElementById(prefix + '_to').value = t;
+    onRun();
+  }
+  function wireDateRangeButtons(prefix, onRun) {
+    document.getElementById(prefix + '_today').addEventListener('click', function () { setDateRange(prefix, todayStr(), todayStr(), onRun); });
+    document.getElementById(prefix + '_month').addEventListener('click', function () { setDateRange(prefix, firstOfMonth(), todayStr(), onRun); });
+    document.getElementById(prefix + '_lastmonth').addEventListener('click', function () {
+      var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+      var f = d.toISOString().slice(0, 10);
+      var endD = new Date(d.getFullYear(), d.getMonth() + 1, 0);
+      setDateRange(prefix, f, endD.toISOString().slice(0, 10), onRun);
+    });
+    document.getElementById(prefix + '_year').addEventListener('click', function () {
+      var y = new Date().getFullYear();
+      setDateRange(prefix, y + '-01-01', todayStr(), onRun);
+    });
+  }
+  function itemSelectOptions(selected) {
+    return '<option value="">All</option>' + itemsCache.map(function (i) {
+      return '<option value="' + i.id + '"' + (i.id === selected ? ' selected' : '') + '>' + esc(i.name) + '</option>';
+    }).join('');
+  }
+  function partySelectOptions(selected) {
+    return '<option value="">All</option>' + partiesCache.map(function (p) {
+      return '<option value="' + p.id + '"' + (p.id === selected ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+    }).join('');
+  }
+  function warehouseSelectOptions(selected) {
+    return '<option value="">All</option>' + warehousesCache.map(function (w) {
+      return '<option value="' + w.id + '"' + (w.id === selected ? ' selected' : '') + '>' + esc(w.name) + '</option>';
+    }).join('');
+  }
 
   var TABS = [
     { key: 'trial', label: 'Trial Balance' },
     { key: 'aging', label: 'Receivable Aging' },
     { key: 'pl', label: 'Profit & Loss' },
     { key: 'statement', label: 'Statement of Account' },
-    { key: 'stockledger', label: 'Item Stock Ledger' }
+    { key: 'stockledger', label: 'Item Stock Ledger' },
+    { key: 'matcons', label: 'Material Consumption' },
+    { key: 'matprofit', label: 'Material Cost & Profit' },
+    { key: 'mataudit', label: 'Consumption Audit' }
   ];
   var activeTab = 'trial';
-  var partiesCache = [], itemsCache = [];
+  var partiesCache = [], itemsCache = [], warehousesCache = [];
+
+  // Cost-visibility gate for raw-material figures — mirrors billing.html's
+  // canViewMaterialCost() exactly (same me.isAdmin / me.perms.material_cost_view
+  // check, same app_users.perms source, populated in init() below).
+  var me = { isAdmin: false, perms: {} };
+  function canViewMaterialCost() { return me.isAdmin || !!me.perms.material_cost_view; }
 
   function buildTabs() {
     var el = document.getElementById('tabs');
@@ -411,7 +469,320 @@
     }
   };
 
-  var VIEWS = { trial: trialView, aging: agingView, pl: plView, statement: statementView, stockledger: stockLedgerView };
+  // ===================================================================
+  // Raw Material Consumption Report — every voucher_line_material_consumption
+  // row, filterable by date, final product, raw material, warehouse and
+  // customer (covers the by-invoice/by-item/by-warehouse/by-customer/
+  // date-wise variants via one flexible table).
+  // ===================================================================
+  var matConsumptionView = {
+    async loadCaches() {
+      if (!itemsCache.length) { var { data } = await sb.from('items').select('id,name,unit').is('deleted_at', null).order('name'); itemsCache = data || []; }
+      if (!partiesCache.length) { var { data: pd } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name'); partiesCache = pd || []; }
+      if (!warehousesCache.length) { var { data: wd } = await sb.from('warehouses').select('id,name').is('deleted_at', null).order('name'); warehousesCache = wd || []; }
+    },
+    async render() {
+      await matConsumptionView.loadCaches();
+      var from = document.getElementById('mc_from') ? document.getElementById('mc_from').value : firstOfMonth();
+      var to = document.getElementById('mc_to') ? document.getElementById('mc_to').value : todayStr();
+      var finalItem = document.getElementById('mc_final') ? document.getElementById('mc_final').value : '';
+      var rawItem = document.getElementById('mc_raw') ? document.getElementById('mc_raw').value : '';
+      var wh = document.getElementById('mc_wh') ? document.getElementById('mc_wh').value : '';
+      var party = document.getElementById('mc_party') ? document.getElementById('mc_party').value : '';
+
+      var html = '<div class="filters">' + dateRangeFilterHtml('mc', from, to) +
+        '<div><label>Final Product</label><select id="mc_final">' + itemSelectOptions(finalItem) + '</select></div>' +
+        '<div><label>Raw Material</label><select id="mc_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
+        '<div><label>Warehouse</label><select id="mc_wh">' + warehouseSelectOptions(wh) + '</select></div>' +
+        '<div><label>Customer</label><select id="mc_party">' + partySelectOptions(party) + '</select></div>' +
+        '<button class="primary" id="mc_run">Run</button></div>';
+      html += '<div id="mc_body">Loading…</div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('mc_run').addEventListener('click', matConsumptionView.run);
+      wireDateRangeButtons('mc', matConsumptionView.run);
+      matConsumptionView.run();
+    },
+    async run() {
+      var from = document.getElementById('mc_from').value, to = document.getElementById('mc_to').value;
+      var finalItem = document.getElementById('mc_final').value, rawItem = document.getElementById('mc_raw').value;
+      var wh = document.getElementById('mc_wh').value, party = document.getElementById('mc_party').value;
+      var body = document.getElementById('mc_body');
+      body.innerHTML = 'Loading…';
+
+      var vq = sb.from('vouchers').select('id,vno,vdate,party_id').eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to);
+      if (party) vq = vq.eq('party_id', party);
+      var { data: vouchers, error: vErr } = await vq;
+      if (vErr) { body.innerHTML = '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
+      var voucherIds = (vouchers || []).map(function (v) { return v.id; });
+      if (!voucherIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+
+      var lq = sb.from('voucher_lines').select('id,voucher_id,item_id,amount').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
+      if (finalItem) lq = lq.eq('item_id', finalItem);
+      var { data: lines, error: lErr } = await lq;
+      if (lErr) { body.innerHTML = '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      var lineMap = {}; (lines || []).forEach(function (l) { lineMap[l.id] = l; });
+      var lineIds = (lines || []).map(function (l) { return l.id; });
+      if (!lineIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+
+      var cq = sb.from('voucher_line_material_consumption').select('id,voucher_line_id,raw_item_id,warehouse_id,qty,unit,cost_amount,notes,created_at')
+        .in('voucher_line_id', lineIds).order('created_at', { ascending: false }).range(0, 1999);
+      if (rawItem) cq = cq.eq('raw_item_id', rawItem);
+      if (wh) cq = cq.eq('warehouse_id', wh);
+      var { data: rows, error: cErr } = await cq;
+      if (cErr) { body.innerHTML = '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      if (!rows || !rows.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+
+      var showCost = canViewMaterialCost();
+      var totalCost = 0;
+      var h = '';
+      if (rows.length >= 2000) h += '<p class="warn">Showing the first 2000 matching rows — narrow the filters for a complete result.</p>';
+      h += '<table><thead><tr><th>Date</th><th>Invoice No</th><th>Customer</th><th>Final Product</th><th>Raw Material</th>' +
+        '<th style="text-align:right">Qty</th><th>Unit</th><th>Warehouse</th>' + (showCost ? '<th style="text-align:right">Cost</th>' : '') + '</tr></thead><tbody>';
+      rows.forEach(function (r) {
+        var line = lineMap[r.voucher_line_id];
+        var v = line ? voucherMap[line.voucher_id] : null;
+        var p = v ? partiesCache.filter(function (x) { return x.id === v.party_id; })[0] : null;
+        var finalItm = line ? itemsCache.filter(function (i) { return i.id === line.item_id; })[0] : null;
+        var rawItm = itemsCache.filter(function (i) { return i.id === r.raw_item_id; })[0];
+        var w = warehousesCache.filter(function (x) { return x.id === r.warehouse_id; })[0];
+        totalCost += Number(r.cost_amount || 0);
+        h += '<tr><td>' + (v ? v.vdate : '') + '</td><td>' + (v ? esc(v.vno) : '') + '</td>' +
+          '<td>' + (p ? esc(p.name) : '—') + '</td>' +
+          '<td>' + (finalItm ? esc(finalItm.name) : '(deleted item)') + '</td>' +
+          '<td>' + (rawItm ? esc(rawItm.name) : '(deleted item)') + '</td>' +
+          '<td style="text-align:right">' + fmtQty(r.qty) + '</td><td>' + esc(r.unit || '') + '</td>' +
+          '<td>' + (w ? esc(w.name) : '—') + '</td>' +
+          (showCost ? '<td style="text-align:right">' + fmt(r.cost_amount) + '</td>' : '') +
+          '</tr>';
+      });
+      h += '<tr style="font-weight:700;background:var(--bg3)"><td colspan="8">Total (' + rows.length + ' row(s))</td>' +
+        (showCost ? '<td style="text-align:right">' + fmt(totalCost) + '</td>' : '') + '</tr>';
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  // ===================================================================
+  // Material Cost & Profit Report — for each raw-material-type sale line,
+  // sale amount vs. total raw material cost consumed, grouped by invoice
+  // or by final product.
+  // ===================================================================
+  var matProfitView = {
+    async render() {
+      await matConsumptionView.loadCaches();
+      var from = document.getElementById('mp_from') ? document.getElementById('mp_from').value : firstOfMonth();
+      var to = document.getElementById('mp_to') ? document.getElementById('mp_to').value : todayStr();
+      var groupBy = document.getElementById('mp_group') ? document.getElementById('mp_group').value : 'invoice';
+      var item = document.getElementById('mp_item') ? document.getElementById('mp_item').value : '';
+
+      var html = '<div class="filters">' + dateRangeFilterHtml('mp', from, to) +
+        '<div><label>Group by</label><select id="mp_group">' +
+        '<option value="invoice"' + (groupBy === 'invoice' ? ' selected' : '') + '>Invoice</option>' +
+        '<option value="item"' + (groupBy === 'item' ? ' selected' : '') + '>Final Product</option>' +
+        '</select></div>' +
+        '<div><label>Final Product</label><select id="mp_item">' + itemSelectOptions(item) + '</select></div>' +
+        '<button class="primary" id="mp_run">Run</button></div>';
+      html += '<div id="mp_body">Loading…</div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('mp_run').addEventListener('click', matProfitView.run);
+      wireDateRangeButtons('mp', matProfitView.run);
+      matProfitView.run();
+    },
+    async run() {
+      var from = document.getElementById('mp_from').value, to = document.getElementById('mp_to').value;
+      var groupBy = document.getElementById('mp_group').value, item = document.getElementById('mp_item').value;
+      var body = document.getElementById('mp_body');
+      body.innerHTML = 'Computing…';
+
+      var { data: vouchers, error: vErr } = await sb.from('vouchers').select('id,vno,vdate,party_id')
+        .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to);
+      if (vErr) { body.innerHTML = '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
+      var voucherIds = (vouchers || []).map(function (v) { return v.id; });
+      if (!voucherIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+
+      var lq = sb.from('voucher_lines').select('id,voucher_id,item_id,amount').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
+      if (item) lq = lq.eq('item_id', item);
+      var { data: lines, error: lErr } = await lq;
+      if (lErr) { body.innerHTML = '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      if (!lines || !lines.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      var lineIds = lines.map(function (l) { return l.id; });
+
+      var { data: consump, error: cErr } = await sb.from('voucher_line_material_consumption').select('voucher_line_id,cost_amount').in('voucher_line_id', lineIds);
+      if (cErr) { body.innerHTML = '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      var costByLine = {};
+      (consump || []).forEach(function (c) { costByLine[c.voucher_line_id] = (costByLine[c.voucher_line_id] || 0) + Number(c.cost_amount || 0); });
+
+      var lineRows = lines.map(function (l) {
+        var cost = costByLine[l.id] || 0;
+        var sale = Number(l.amount || 0);
+        return { line: l, sale: sale, cost: cost };
+      });
+
+      var groups = {};
+      lineRows.forEach(function (lr) {
+        var key = groupBy === 'invoice' ? lr.line.voucher_id : (lr.line.item_id || 'none');
+        if (!groups[key]) groups[key] = { key: key, sale: 0, cost: 0 };
+        groups[key].sale += lr.sale; groups[key].cost += lr.cost;
+      });
+      var groupArr = Object.keys(groups).map(function (k) {
+        var g = groups[k]; g.margin = g.sale - g.cost; g.marginPct = g.sale !== 0 ? (g.margin / g.sale) * 100 : 0; return g;
+      });
+      if (groupBy === 'invoice') {
+        groupArr.sort(function (a, b) {
+          var va = voucherMap[a.key], vb = voucherMap[b.key];
+          return (va && vb) ? (va.vdate < vb.vdate ? 1 : va.vdate > vb.vdate ? -1 : 0) : 0;
+        });
+      } else {
+        groupArr.sort(function (a, b) {
+          var ia = itemsCache.filter(function (i) { return i.id === a.key; })[0];
+          var ib = itemsCache.filter(function (i) { return i.id === b.key; })[0];
+          return (ia && ib) ? ia.name.localeCompare(ib.name) : 0;
+        });
+      }
+
+      var showCost = canViewMaterialCost();
+      var totalSale = 0, totalCost = 0;
+      var labelHeader = groupBy === 'invoice' ? 'Invoice' : 'Final Product';
+      var h = '<table><thead><tr><th>' + labelHeader + '</th>' + (groupBy === 'invoice' ? '<th>Date</th><th>Customer</th>' : '') +
+        '<th style="text-align:right">Sale Amount</th>' +
+        (showCost ? '<th style="text-align:right">Material Cost</th><th style="text-align:right">Margin</th><th style="text-align:right">Margin %</th>' : '') +
+        '</tr></thead><tbody>';
+      groupArr.forEach(function (g) {
+        totalSale += g.sale; totalCost += g.cost;
+        var label, extraCells = '';
+        if (groupBy === 'invoice') {
+          var v = voucherMap[g.key];
+          label = v ? esc(v.vno) : '(deleted invoice)';
+          var p = v ? partiesCache.filter(function (x) { return x.id === v.party_id; })[0] : null;
+          extraCells = '<td>' + (v ? v.vdate : '') + '</td><td>' + (p ? esc(p.name) : '—') + '</td>';
+        } else {
+          var it = itemsCache.filter(function (x) { return x.id === g.key; })[0];
+          label = it ? esc(it.name) : '(deleted item)';
+        }
+        h += '<tr><td>' + label + '</td>' + extraCells +
+          '<td style="text-align:right">' + fmt(g.sale) + '</td>' +
+          (showCost ? '<td style="text-align:right">' + fmt(g.cost) + '</td><td style="text-align:right">' + fmt(g.margin) + '</td><td style="text-align:right">' + g.marginPct.toFixed(1) + '%</td>' : '') +
+          '</tr>';
+      });
+      var totalMargin = totalSale - totalCost;
+      var totalMarginPct = totalSale !== 0 ? (totalMargin / totalSale) * 100 : 0;
+      var labelColspan = groupBy === 'invoice' ? 3 : 1;
+      h += '<tr style="font-weight:700;background:var(--bg3)"><td colspan="' + labelColspan + '">Total</td>' +
+        '<td style="text-align:right">' + fmt(totalSale) + '</td>' +
+        (showCost ? '<td style="text-align:right">' + fmt(totalCost) + '</td><td style="text-align:right">' + fmt(totalMargin) + '</td><td style="text-align:right">' + totalMarginPct.toFixed(1) + '%</td>' : '') +
+        '</tr>';
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  // ===================================================================
+  // Reversed / Cancelled Consumption Audit — consumption rows tied to a
+  // soft-deleted sale voucher and/or (fully or partially) restored via a
+  // sales return, so an admin can see exactly what got reversed.
+  // ===================================================================
+  var matAuditView = {
+    async render() {
+      await matConsumptionView.loadCaches();
+      var from = document.getElementById('ma_from') ? document.getElementById('ma_from').value : firstOfMonth();
+      var to = document.getElementById('ma_to') ? document.getElementById('ma_to').value : todayStr();
+      var finalItem = document.getElementById('ma_final') ? document.getElementById('ma_final').value : '';
+      var rawItem = document.getElementById('ma_raw') ? document.getElementById('ma_raw').value : '';
+
+      var html = '<div class="filters">' + dateRangeFilterHtml('ma', from, to) +
+        '<div><label>Final Product</label><select id="ma_final">' + itemSelectOptions(finalItem) + '</select></div>' +
+        '<div><label>Raw Material</label><select id="ma_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
+        '<button class="primary" id="ma_run">Run</button></div>';
+      html += '<div id="ma_body">Loading…</div>';
+      document.getElementById('content').innerHTML = html;
+      document.getElementById('ma_run').addEventListener('click', matAuditView.run);
+      wireDateRangeButtons('ma', matAuditView.run);
+      matAuditView.run();
+    },
+    async run() {
+      var from = document.getElementById('ma_from').value, to = document.getElementById('ma_to').value;
+      var finalItem = document.getElementById('ma_final').value, rawItem = document.getElementById('ma_raw').value;
+      var body = document.getElementById('ma_body');
+      body.innerHTML = 'Loading…';
+
+      // Deliberately NOT filtered on deleted_at — a cancelled invoice is
+      // exactly what this audit needs to surface.
+      var { data: vouchers, error: vErr } = await sb.from('vouchers').select('id,vno,vdate,party_id,deleted_at')
+        .eq('vtype', 'sale').gte('vdate', from).lte('vdate', to);
+      if (vErr) { body.innerHTML = '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
+      var voucherIds = (vouchers || []).map(function (v) { return v.id; });
+      if (!voucherIds.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+
+      var lq = sb.from('voucher_lines').select('id,voucher_id,item_id').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
+      if (finalItem) lq = lq.eq('item_id', finalItem);
+      var { data: lines, error: lErr } = await lq;
+      if (lErr) { body.innerHTML = '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      if (!lines || !lines.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      var lineMap = {}; lines.forEach(function (l) { lineMap[l.id] = l; });
+      var lineIds = lines.map(function (l) { return l.id; });
+
+      var cq = sb.from('voucher_line_material_consumption').select('id,voucher_line_id,raw_item_id,qty,unit,cost_amount').in('voucher_line_id', lineIds).range(0, 1999);
+      if (rawItem) cq = cq.eq('raw_item_id', rawItem);
+      var { data: consump, error: cErr } = await cq;
+      if (cErr) { body.innerHTML = '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      if (!consump || !consump.length) { body.innerHTML = '<p>No data for the selected filters.</p>'; return; }
+      var consumpIds = consump.map(function (c) { return c.id; });
+
+      var { data: restorations, error: rErr } = await sb.from('sales_return_material_restoration').select('consumption_id,qty').in('consumption_id', consumpIds);
+      if (rErr) { body.innerHTML = '<p class="warn">' + esc(rErr.message) + '</p>'; return; }
+      var restoredByConsumption = {};
+      (restorations || []).forEach(function (r) { restoredByConsumption[r.consumption_id] = (restoredByConsumption[r.consumption_id] || 0) + Number(r.qty || 0); });
+
+      var rows = consump.map(function (c) {
+        var line = lineMap[c.voucher_line_id];
+        var v = line ? voucherMap[line.voucher_id] : null;
+        var restored = restoredByConsumption[c.id] || 0;
+        return { c: c, line: line, voucher: v, restored: restored, remaining: Number(c.qty) - restored };
+      }).filter(function (r) { return (r.voucher && r.voucher.deleted_at) || r.restored > 0; });
+
+      if (!rows.length) { body.innerHTML = '<p>No reversed or cancelled consumption for the selected filters.</p>'; return; }
+
+      rows.sort(function (a, b) {
+        var da = a.voucher ? a.voucher.vdate : '', db = b.voucher ? b.voucher.vdate : '';
+        return da < db ? 1 : da > db ? -1 : 0;
+      });
+
+      var showCost = canViewMaterialCost();
+      var totalCost = 0, totalRestoredQty = 0;
+      var h = '<table><thead><tr><th>Date</th><th>Invoice No</th><th>Status</th><th>Final Product</th><th>Raw Material</th>' +
+        '<th style="text-align:right">Qty Consumed</th><th style="text-align:right">Qty Restored</th><th style="text-align:right">Net Consumption</th>' +
+        (showCost ? '<th style="text-align:right">Cost</th>' : '') + '</tr></thead><tbody>';
+      rows.forEach(function (r) {
+        var v = r.voucher, line = r.line;
+        var finalItm = line ? itemsCache.filter(function (i) { return i.id === line.item_id; })[0] : null;
+        var rawItm = itemsCache.filter(function (i) { return i.id === r.c.raw_item_id; })[0];
+        var badge = (v && v.deleted_at) ? '<span class="warn">Cancelled</span>' : (r.restored > 0 ? '<span class="badge-return">Returned</span>' : '');
+        totalCost += Number(r.c.cost_amount || 0);
+        totalRestoredQty += r.restored;
+        h += '<tr><td>' + (v ? v.vdate : '') + '</td><td>' + (v ? esc(v.vno) : '') + '</td><td>' + badge + '</td>' +
+          '<td>' + (finalItm ? esc(finalItm.name) : '(deleted item)') + '</td>' +
+          '<td>' + (rawItm ? esc(rawItm.name) : '(deleted item)') + '</td>' +
+          '<td style="text-align:right">' + fmtQty(r.c.qty) + '</td>' +
+          '<td style="text-align:right">' + (r.restored ? fmtQty(r.restored) : '—') + '</td>' +
+          '<td style="text-align:right">' + fmtQty(r.remaining) + '</td>' +
+          (showCost ? '<td style="text-align:right">' + fmt(r.c.cost_amount) + '</td>' : '') +
+          '</tr>';
+      });
+      h += '<tr style="font-weight:700;background:var(--bg3)"><td colspan="6">Total (' + rows.length + ' row(s))</td>' +
+        '<td style="text-align:right">' + fmtQty(totalRestoredQty) + '</td><td></td>' +
+        (showCost ? '<td style="text-align:right">' + fmt(totalCost) + '</td>' : '') + '</tr>';
+      h += '</tbody></table>';
+      body.innerHTML = h;
+    }
+  };
+
+  var VIEWS = {
+    trial: trialView, aging: agingView, pl: plView, statement: statementView, stockledger: stockLedgerView,
+    matcons: matConsumptionView, matprofit: matProfitView, mataudit: matAuditView
+  };
 
   async function render() {
     var v = VIEWS[activeTab];
@@ -424,6 +795,8 @@
       document.getElementById('content').innerHTML = '<p>Please sign in from the main app.</p>';
       return;
     }
+    var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
+    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
     buildTabs();
     render();
   })();
