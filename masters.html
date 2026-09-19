@@ -19,14 +19,29 @@
 <style>
   /* Page skeleton only — every component/token comes from theme.css. */
   html,body{height:100%;}
-  main{flex:1; overflow-y:auto;}
+  main{flex:1; overflow-y:auto; padding:0;}
+  .main{min-height:0;}
   .embedded .sidebar, .embedded .appbar{display:none !important;}
-  .page{max-width:900px; margin:0 auto; padding-bottom:28px;}
-  .page > .doc-sheet{max-width:640px; margin:14px auto;}
-  .panel{background:var(--paper); border-bottom:1px solid var(--hair);}
-  .panel .toolbar{max-width:900px; margin:0 auto;}
-  .pad{padding:14px;}
-  .page-h{font-size:17px; margin:0 0 4px;}
+  /* Page pattern (theme.css .pg-*): hero with search/chips/+ Add, KPI cards
+     from the list's own numbers, one card holding the list or the tool. */
+  .pg-hero > *{max-width:1100px; margin-left:auto; margin-right:auto;}
+  .pg-body{max-width:1148px; margin-left:auto; margin-right:auto;}
+  .pg-search .clear{background:none; border:none; color:#B8AF9E; width:20px; height:20px; display:none; padding:0; flex:none;}
+  .pg-search.has-val .clear{display:block;}
+  .pg-search .clear svg{display:block; margin:auto;}
+  .pg-card .list-group-hdr{padding:6px 14px; font-size:10.5px; letter-spacing:.6px; text-transform:uppercase; color:var(--mute); font-weight:700; background:var(--panel); border-bottom:1px solid var(--hair);}
+  .pg-lrow{cursor:pointer;}
+  .pg-lrow.inactive{opacity:.55;}
+  .pg-lrow.inactive .nm::after{content:' \2014 off'; color:var(--mute); font-weight:400;}
+  .pg-lrow .amt .pg-pill{font-family:'IBM Plex Sans',sans-serif;}
+  .pg-lrow .amt .tag{font-size:9.5px; text-transform:uppercase; color:var(--mute); font-family:'IBM Plex Sans',sans-serif; font-weight:600;}
+  .pg-lrow .rowbtn{margin-left:auto; flex:none;}
+  @media (max-width:640px){
+    /* Narrow rows: drop the kind pill so the name and amount stay readable. */
+    .pg-lrow .amt > .pg-pill:first-child:not(:last-child){display:none;}
+  }
+  .pad{padding:16px 18px 18px;}
+  .pad .group-lbl{margin-top:18px;}
   .page-sub{font-size:12.5px; color:var(--mute); line-height:1.5; margin:0 0 14px;}
 </style>
 </head>
@@ -360,15 +375,68 @@
   // ===================================================================
   // List chrome: toolbar + search (§8)
   // ===================================================================
-  function toolbarHtml(placeholder, addLabel) {
-    return '<div class="panel"><div class="toolbar">' +
-      '<div class="search-wrap' + (searchTerm ? ' has-val' : '') + '">' +
-        ico(ICON.search, 16).replace('<svg ', '<svg class="icn" ') +
-        '<input type="search" id="search" placeholder="' + esc(placeholder) + '" value="' + esc(searchTerm) + '">' +
-        '<button type="button" class="clear" id="searchClear" aria-label="Clear search">' + ico(ICON.close, 14) + '</button>' +
+  // Page shell (theme.css .pg-*): hero band (crumb, title, sub-line, actions,
+  // controls) + body (KPI cards, one card holding the list or the tool).
+  //   o: { crumb, title, sub, actions, ctl, cardTitle, body }
+  function pgShell(o) {
+    return '<div class="pg-hero">' +
+        '<div class="pg-crumb">' + esc(o.crumb || 'Masters') + '</div>' +
+        '<div class="pg-row"><div style="min-width:0"><h2>' + esc(o.title) + '</h2><div class="pg-sub" id="pgSub">' + esc(o.sub || '') + '</div></div>' +
+          '<div class="pg-sp"></div><div class="pg-acts">' + (o.actions || '') + '</div></div>' +
+        (o.ctl ? '<div class="pg-ctl">' + o.ctl + '</div>' : '') +
       '</div>' +
-      (addLabel ? '<button type="button" class="btn pri" id="addBtn">' + esc(addLabel) + '</button>' : '') +
-      '</div></div>';
+      '<div class="pg-body">' +
+        '<div class="pg-kpis" id="pgKpis" style="display:none"></div>' +
+        '<div class="pg-card"><div class="pg-ch"><span class="pg-title">' + esc(o.cardTitle || o.title) + '</span><span class="pg-cnt" id="pgCnt"></span></div>' +
+          (o.body || '<div id="listWrap"></div>') +
+        '</div>' +
+      '</div>';
+  }
+  function setPgKpis(items) {
+    var el = document.getElementById('pgKpis');
+    if (!el) return;
+    if (!items || !items.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    el.innerHTML = items.map(function (it) {
+      return '<div class="pg-kpi"><div><div class="k">' + esc(it.label) + '</div><div class="v ' + (it.cls || '') + '">' +
+        (it.text != null ? esc(it.text) : fmt(it.val)) + '</div></div><div class="pg-ring ' + (it.cls || 'n') + '">' + esc(it.ring || '') + '</div></div>';
+    }).join('');
+  }
+  function setPgCount(n, word) {
+    var el = document.getElementById('pgCnt');
+    if (el) el.textContent = n == null ? '' : n + ' ' + (word || 'rows');
+  }
+  function setPgSub(text) {
+    var el = document.getElementById('pgSub');
+    if (el) el.textContent = text || '';
+  }
+  // Filter chips in the hero. opts: [{k,label}]; the .on chip is `cur`.
+  function chipsHtml(opts, cur) {
+    return opts.map(function (o) {
+      return '<button type="button" class="pg-chip' + (o.k === cur ? ' on' : '') + '" data-chip="' + esc(o.k) + '">' + esc(o.label) + '</button>';
+    }).join('');
+  }
+  function wireChips(onPick) {
+    Array.prototype.forEach.call(document.querySelectorAll('.pg-ctl .pg-chip'), function (b) {
+      b.addEventListener('click', function () {
+        Array.prototype.forEach.call(document.querySelectorAll('.pg-ctl .pg-chip'), function (x) { x.classList.toggle('on', x === b); });
+        onPick(b.dataset.chip);
+      });
+    });
+  }
+  function pill(text, tone) { return '<span class="pg-pill ' + (tone || 'n') + '">' + esc(text) + '</span>'; }
+
+  // List screen: hero with search (+ optional chips) and "+ Add", card with #listWrap.
+  function toolbarHtml(placeholder, addLabel, ctlExtra) {
+    return pgShell({
+      title: labelFor(activeView),
+      actions: addLabel ? '<button type="button" class="pg-hb pri" id="addBtn">' + esc(addLabel) + '</button>' : '',
+      ctl: '<label class="pg-search' + (searchTerm ? ' has-val' : '') + '">' +
+          ico(ICON.search, 14) +
+          '<input type="search" id="search" placeholder="' + esc(placeholder) + '" value="' + esc(searchTerm) + '">' +
+          '<button type="button" class="clear" id="searchClear" aria-label="Clear search">' + ico(ICON.close, 14) + '</button>' +
+        '</label>' + (ctlExtra ? '<span class="pg-sepv"></span>' + ctlExtra : '')
+    });
   }
   // Wires the search box to repaint ONLY the list container, so typing never
   // re-renders (and never re-focuses) the input itself.
@@ -391,26 +459,24 @@
   }
 
   function emptyState(big, sub) {
-    return '<div class="empty-state"><div class="empty-big">' + esc(big) + '</div>' +
-      '<div class="empty-sub">' + esc(sub) + '</div></div>';
+    return '<div class="pg-empty"><div class="big">' + esc(big) + '</div>' + esc(sub) + '</div>';
   }
 
-  // One list row (§8): avatar, name + muted subtitle, optional badge,
-  // optional right-aligned monospace trailing amount.
+  // One list row (theme.css .pg-lrow): avatar, name + muted subtitle,
+  // optional status pill, optional right-aligned monospace trailing amount.
   function rowHtml(o) {
-    return '<button type="button" class="list-row' + (o.inactive ? ' inactive' : '') + '" data-id="' + esc(o.id) + '">' +
-      '<span class="avatar">' + (o.icon ? ico(o.icon, 17) : esc(o.initials || '')) + '</span>' +
-      '<span class="body"><span class="name">' + esc(o.name) + '</span>' +
-      '<span class="sub">' + esc(o.sub || '') + '</span></span>' +
-      (o.badge || '') +
-      (o.amt != null ? '<span class="trail"><span class="amt mono">' + esc(o.amt) + '</span>' +
-        (o.tag ? '<span class="tag">' + esc(o.tag) + '</span>' : '') + '</span>' : '') +
-      '<span class="chev"></span></button>';
+    return '<button type="button" class="pg-lrow' + (o.inactive ? ' inactive' : '') + '" data-id="' + esc(o.id) + '">' +
+      '<span class="av' + (o.icon ? ' sq' : '') + '">' + (o.icon ? ico(o.icon, 16) : esc(o.initials || '')) + '</span>' +
+      '<span class="txt"><span class="nm">' + esc(o.name) + '</span>' +
+      '<span class="mt">' + esc(o.sub || '') + '</span></span>' +
+      '<span class="amt">' + (o.badge || '') +
+        (o.amt != null ? esc(o.amt) + (o.tag ? '<span class="tag">' + esc(o.tag) + '</span>' : '') : '') +
+      '</span></button>';
   }
   function kindBadge(kind) {
-    var map = { customer: 'b-customer', supplier: 'b-supplier', both: 'b-both', expense: 'b-expense' };
+    var map = { customer: 'b', supplier: 'a', both: 'a', expense: 'n' };
     if (!map[kind]) return '';
-    return '<span class="badge ' + map[kind] + '">' + esc(kind) + '</span>';
+    return pill(kind, map[kind]);
   }
 
   // ===================================================================
@@ -423,11 +489,10 @@
     return {
       async render() {
         var { data, error } = await sb.from(opts.table).select('*').is('deleted_at', null).order(opts.columns[0].key);
-        if (error) { document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet"><p class="warn-txt">' + esc(error.message) + '</p></div></div>'; return; }
+        if (error) { document.getElementById('content').innerHTML = pgShell({ title: opts.title, body: '<div class="pad"><p class="warn-txt">' + esc(error.message) + '</p></div>' }); return; }
         var all = data || [];
         document.getElementById('content').innerHTML =
-          toolbarHtml('Search ' + opts.title.toLowerCase() + '…', '+ Add ' + opts.title.replace(/s$/, '')) +
-          '<div class="page" id="listWrap"></div>';
+          toolbarHtml('Search ' + opts.title.toLowerCase() + '…', '+ Add ' + opts.title.replace(/s$/, ''));
 
         var rows = [];
         function paint() {
@@ -449,7 +514,9 @@
           }).join('');
           document.getElementById('listWrap').innerHTML = html ||
             emptyState('No ' + opts.title.toLowerCase() + ' yet', term ? 'Nothing matches “' + term + '”.' : 'Use “+ Add ' + opts.title.replace(/s$/, '') + '” to create the first one.');
-          Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+          setPgCount(rows.length, opts.title.toLowerCase());
+          setPgSub(rows.length + ' of ' + all.length + (opts.subline ? ' · ' + opts.subline : ''));
+          Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
             el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
           });
         }
@@ -598,7 +665,7 @@
   var companiesCrud = simpleCrud({
     table: 'companies', title: 'Firms', useMerge: true, icon: ICON.companies,
     sub: function (r) { return [r.city, r.phone, r.ntn ? 'NTN ' + r.ntn : ''].filter(Boolean).join(' · ') || '—'; },
-    badge: function (r) { return r.is_default ? '<span class="badge b-customer">default</span>' : ''; },
+    badge: function (r) { return r.is_default ? pill('default', 'b') : ''; },
     columns: [
       { key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'phone', label: 'Phone' },
       { key: 'ntn', label: 'NTN' }, { key: 'is_default', label: 'Default firm', type: 'bool' },
@@ -608,7 +675,7 @@
   var warehousesCrud = simpleCrud({
     table: 'warehouses', title: 'Warehouses', icon: ICON.warehouses,
     sub: function (r) { return r.city || '—'; },
-    badge: function (r) { return r.is_default ? '<span class="badge b-customer">default</span>' : ''; },
+    badge: function (r) { return r.is_default ? pill('default', 'b') : ''; },
     columns: [{ key: 'name', label: 'Name' }, { key: 'city', label: 'City' }, { key: 'is_default', label: 'Default warehouse', type: 'bool' }, { key: 'active', label: 'Active', type: 'bool' }]
   });
   var servicesCrud = simpleCrud({
@@ -630,13 +697,30 @@
     async render() {
       var { data } = await sb.from('parties').select('*').is('deleted_at', null).order('name');
       var all = data || [];
+      var kindFilter = '';
       document.getElementById('content').innerHTML =
-        toolbarHtml('Search parties…', '+ Add Party') + '<div class="page" id="listWrap"></div>';
+        toolbarHtml('Search parties…', '+ Add Party',
+          chipsHtml([{ k: '', label: 'All' }, { k: 'customer', label: 'Customers' }, { k: 'supplier', label: 'Suppliers' }, { k: 'both', label: 'Both' }, { k: 'expense', label: 'Expense' }], kindFilter));
 
       var rows = [];
       function paint() {
         var term = (searchTerm || '').toLowerCase();
-        rows = all.filter(function (p) { return !term || p.name.toLowerCase().indexOf(term) >= 0; });
+        rows = all.filter(function (p) {
+          if (kindFilter && p.kind !== kindFilter) return false;
+          return !term || p.name.toLowerCase().indexOf(term) >= 0;
+        });
+        var recv = 0, pay = 0;
+        rows.forEach(function (p) {
+          var o = Number(p.opening) || 0;
+          if ((p.opening_side || 'dr') === 'dr') recv += o; else pay += o;
+        });
+        setPgKpis([
+          { label: 'Parties', text: String(rows.length), cls: 'n', ring: '#' },
+          { label: 'Opening receivable', val: recv, cls: 'dr', ring: 'DR' },
+          { label: 'Opening payable', val: pay, cls: 'cr', ring: 'CR' }
+        ]);
+        setPgCount(rows.length, rows.length === 1 ? 'party' : 'parties');
+        setPgSub(rows.length + ' of ' + all.length + (kindFilter ? ' · ' + kindFilter : '') + ' · customers, suppliers and expense heads');
         var html = rows.map(function (p) {
           return rowHtml({
             id: p.id,
@@ -651,12 +735,13 @@
         }).join('');
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No parties yet', term ? 'Nothing matches “' + term + '”.' : 'Add your first customer or supplier to get started.');
-        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
           el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
         });
       }
       paint();
       wireToolbar(paint);
+      wireChips(function (k) { kindFilter = k; paint(); });
       document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
       function openForm(id, rows) {
@@ -815,13 +900,34 @@
     async render() {
       var { data } = await sb.from('items').select('*').is('deleted_at', null).order('name');
       var all = data || [];
+      var typeFilter = '';
       document.getElementById('content').innerHTML =
-        toolbarHtml('Search items…', '+ Add Item') + '<div class="page" id="listWrap"></div>';
+        toolbarHtml('Search items…', '+ Add Item',
+          chipsHtml([{ k: '', label: 'All' }, { k: 'general_goods', label: 'General goods' }, { k: 'raw_material_consumption', label: 'Raw material' }, { k: 'low', label: 'Low stock' }], typeFilter));
 
       var rows = [];
+      function isLow(i) { return !!(i.reorder_level && i.stock_qty <= i.reorder_level); }
       function paint() {
         var term = (searchTerm || '').toLowerCase();
-        rows = all.filter(function (i) { return !term || i.name.toLowerCase().indexOf(term) >= 0; });
+        rows = all.filter(function (i) {
+          if (typeFilter === 'low' && !isLow(i)) return false;
+          if (typeFilter && typeFilter !== 'low' && (i.item_type || 'general_goods') !== typeFilter) return false;
+          return !term || i.name.toLowerCase().indexOf(term) >= 0;
+        });
+        var inStock = 0, low = 0, stockValue = 0;
+        rows.forEach(function (i) {
+          if ((Number(i.stock_qty) || 0) > 0) inStock++;
+          if (isLow(i)) low++;
+          stockValue += (Number(i.stock_qty) || 0) * (Number(i.avg_cost) || 0);
+        });
+        setPgKpis([
+          { label: 'Items', text: String(rows.length), cls: 'n', ring: '#' },
+          { label: 'In stock', text: String(inStock), cls: 'cr', ring: '✓' },
+          { label: 'Low stock', text: String(low), cls: low ? 'wn' : 'n', ring: '!' },
+          { label: 'Stock value (avg cost)', val: stockValue, cls: 'cash', ring: 'Rs' }
+        ]);
+        setPgCount(rows.length, rows.length === 1 ? 'item' : 'items');
+        setPgSub(rows.length + ' of ' + all.length + ' · goods and raw materials you buy and sell');
         var html = rows.map(function (i) {
           var low = i.reorder_level && i.stock_qty <= i.reorder_level;
           return rowHtml({
@@ -830,7 +936,7 @@
             name: i.name,
             sub: (i.item_type === 'raw_material_consumption' ? 'Raw Material' : 'General Goods') +
               ' · ' + (i.unit || '') + ' · stock ' + i.stock_qty + ' · avg cost ' + fmt(i.avg_cost),
-            badge: low ? '<span class="badge b-supplier">low stock</span>' : '',
+            badge: low ? pill('low stock', 'a') : '',
             amt: fmt(i.sale_rate),
             tag: 'sale',
             inactive: i.active === false
@@ -838,12 +944,13 @@
         }).join('');
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No items yet', term ? 'Nothing matches “' + term + '”.' : 'Add the goods or raw materials you buy and sell.');
-        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
           el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
         });
       }
       paint();
       wireToolbar(paint);
+      wireChips(function (k) { typeFilter = k; paint(); });
       document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
       function openForm(id, rows) {
@@ -969,34 +1076,39 @@
   var usersView = {
     async render() {
       if (!me.isAdmin) {
-        document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet">' +
-          emptyState('Admins only', 'Only an admin can add users or change what they are allowed to do.') + '</div></div>';
+        document.getElementById('content').innerHTML = pgShell({ crumb: 'Account', title: 'Manage Users', cardTitle: 'Users',
+          body: emptyState('Admins only', 'Only an admin can add users or change what they are allowed to do.') });
         return;
       }
       var { data } = await sb.from('app_users').select('*').order('username');
       var all = data || [];
       var { count: activeCount } = await sb.from('app_users').select('id', { count: 'exact', head: true }).eq('is_active', true);
-      document.getElementById('content').innerHTML =
-        toolbarHtml('Search users…', '+ New user') +
-        '<div class="page"><div class="pad"><p class="page-sub">' + (activeCount || 0) + ' / 15 active users (Professional plan limit)</p></div>' +
-        '<div id="listWrap"></div></div>';
+      document.getElementById('content').innerHTML = toolbarHtml('Search users…', '+ New user');
+      setPgSub((activeCount || 0) + ' / 15 active users (Professional plan limit)');
 
       var rows = [];
       function paint() {
         var term = (searchTerm || '').toLowerCase();
         rows = all.filter(function (u) { return !term || String(u.username || '').toLowerCase().indexOf(term) >= 0; });
+        var admins = all.filter(function (u) { return u.is_admin; }).length;
+        setPgKpis([
+          { label: 'Active users', text: (activeCount || 0) + ' / 15', cls: (activeCount || 0) >= 15 ? 'wn' : 'cr', ring: '✓' },
+          { label: 'Admins', text: String(admins), cls: 'n', ring: 'A' },
+          { label: 'All users', text: String(all.length), cls: 'n', ring: '#' }
+        ]);
+        setPgCount(rows.length, rows.length === 1 ? 'user' : 'users');
         var html = rows.map(function (u) {
           return rowHtml({
             id: u.id,
             initials: initials(u.username),
             name: u.username,
             sub: u.is_admin ? 'Admin — every permission' : (Object.keys(u.perms || {}).filter(function (k) { return u.perms[k]; }).length + ' permission(s)'),
-            badge: u.is_admin ? '<span class="badge b-finance">admin</span>' : '',
+            badge: u.is_admin ? pill('admin', 'b') : '',
             inactive: !u.is_active
           });
         }).join('');
         document.getElementById('listWrap').innerHTML = html || emptyState('No users', 'Nothing matches “' + term + '”.');
-        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .list-row'), function (el) {
+        Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
           el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
         });
       }
@@ -1117,33 +1229,30 @@
 
   var recycleBinView = {
     async render() {
-      document.getElementById('content').innerHTML =
-        '<div class="page"><div class="pad" style="padding-bottom:0"><h2 class="page-h doc-h">Recycle Bin</h2>' +
-        '<p class="page-sub">Soft-deleted records from every module. Restoring puts a record back exactly as it was, and requires the recycle_bin permission (or admin).</p></div>' +
-        '<div id="rb_rows" class="pad">Loading…</div></div>';
-      var rowsHtml = '';
+      document.getElementById('content').innerHTML = pgShell({
+        crumb: 'Tools', title: 'Recycle Bin',
+        sub: 'Soft-deleted records from every module. Restoring puts a record back exactly as it was, and requires the recycle_bin permission (or admin).',
+        cardTitle: 'Deleted records', body: '<div id="rb_rows"><div class="pg-empty">Loading…</div></div>'
+      });
+      var rowsHtml = '', n = 0;
       for (var i = 0; i < RECYCLE_TABLES.length; i++) {
         var t = RECYCLE_TABLES[i];
         var { data, error } = await sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50);
         if (error || !data || !data.length) continue;
         rowsHtml += '<div class="list-group-hdr">' + esc(t.label) + '</div>';
         data.forEach(function (r) {
-          rowsHtml += '<div class="list-row">' +
-            '<span class="avatar">' + ico(ICON.recyclebin, 17) + '</span>' +
-            '<span class="body"><span class="name">' + esc(r[t.field]) + '</span>' +
-            '<span class="sub">deleted ' + esc((r.deleted_at || '').slice(0, 19).replace('T', ' ')) + '</span></span>' +
-            '<button type="button" class="btn restoreBtn" data-table="' + t.table + '" data-id="' + r.id + '">Restore</button>' +
+          n++;
+          rowsHtml += '<div class="pg-lrow" style="cursor:default">' +
+            '<span class="av sq">' + ico(ICON.recyclebin, 16) + '</span>' +
+            '<span class="txt"><span class="nm">' + esc(r[t.field]) + '</span>' +
+            '<span class="mt">deleted ' + esc((r.deleted_at || '').slice(0, 19).replace('T', ' ')) + '</span></span>' +
+            '<button type="button" class="btn rowbtn restoreBtn" data-table="' + t.table + '" data-id="' + r.id + '">Restore</button>' +
             '</div>';
         });
       }
       var wrap = document.getElementById('rb_rows');
-      if (rowsHtml) {
-        wrap.className = '';
-        wrap.innerHTML = rowsHtml;
-      } else {
-        wrap.className = 'pad';
-        wrap.innerHTML = emptyState('Recycle Bin is empty', 'Deleted records will appear here so they can be restored.');
-      }
+      wrap.innerHTML = rowsHtml || emptyState('Recycle Bin is empty', 'Deleted records will appear here so they can be restored.');
+      setPgCount(n, n === 1 ? 'record' : 'records');
       Array.prototype.forEach.call(document.querySelectorAll('.restoreBtn'), function (btn) {
         btn.addEventListener('click', async function () {
           var res = await sb.from(btn.dataset.table).update({ deleted_at: null }).eq('id', btn.dataset.id);
@@ -1168,12 +1277,14 @@
       var canEdit = me.isAdmin || !!me.perms.period_lock;
       var { data, error } = await sb.from('period_lock').select('locked_before').eq('id', 1).maybeSingle();
       if (error) {
-        document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet"><p class="warn-txt">' + esc(error.message) + '</p></div></div>';
+        document.getElementById('content').innerHTML = pgShell({ crumb: 'Tools', title: 'Period Lock', body: '<div class="pad"><p class="warn-txt">' + esc(error.message) + '</p></div>' });
         return;
       }
       var current = (data && data.locked_before) || '';
-      var html = '<div class="page"><div class="doc-sheet">' +
-        '<h2 class="page-h doc-h">Period Lock</h2>' +
+      var html = pgShell({
+        crumb: 'Tools', title: 'Period Lock',
+        sub: current ? 'Locked before ' + current : 'No period is locked right now',
+        cardTitle: 'Lock date', body: '<div class="pad">' +
         '<p class="page-sub">Entries dated <strong>before</strong> this date are frozen: they can no longer be edited or deleted, by anyone, on any device — the database itself refuses the change. Soft-delete and restore from the Recycle Bin still work. Leave the date empty to leave every period open.</p>' +
         '<div class="field" style="max-width:280px"><label for="pl_date">Locked before</label>' +
         '<input type="date" id="pl_date" value="' + esc(current) + '"' + (canEdit ? '' : ' disabled') + '>' +
@@ -1182,7 +1293,7 @@
           ? '<div style="display:flex;gap:8px"><button type="button" class="btn pri" id="pl_save">Save lock date</button>' +
             (current ? '<button type="button" class="btn" id="pl_clear">Clear lock</button>' : '') + '</div>'
           : '<p class="page-sub">You do not have the <strong>period_lock</strong> permission, so this is read-only. Ask an admin to change it.</p>') +
-        '</div></div>';
+        '</div>' });
       document.getElementById('content').innerHTML = html;
       if (!canEdit) return;
 
@@ -1217,9 +1328,10 @@
   // ===================================================================
   var changePwView = {
     async render() {
-      document.getElementById('content').innerHTML =
-        '<div class="page"><div class="doc-sheet">' +
-        '<h2 class="page-h doc-h">Change Password</h2>' +
+      document.getElementById('content').innerHTML = pgShell({
+        crumb: 'Account', title: 'Change Password',
+        sub: 'Sets the password for the account you are signed in as',
+        cardTitle: 'New password', body: '<div class="pad">' +
         '<p class="page-sub">Sets the password for the account you are signed in as. You stay signed in on this device; other devices keep working until their session expires.</p>' +
         '<div style="max-width:340px">' +
         '<div class="field" id="pw1wrap"><label for="pw_new">New password</label><input type="password" id="pw_new" autocomplete="new-password">' +
@@ -1227,7 +1339,7 @@
         '<div class="field" id="pw2wrap"><label for="pw_confirm">Confirm new password</label><input type="password" id="pw_confirm" autocomplete="new-password">' +
         '<div class="hint"></div></div>' +
         '<button type="button" class="btn pri" id="pw_save">Update password</button>' +
-        '</div></div></div>';
+        '</div></div>' });
 
       document.getElementById('pw_save').addEventListener('click', async function () {
         var w1 = document.getElementById('pw1wrap'), w2 = document.getElementById('pw2wrap');
@@ -1275,12 +1387,14 @@
   var backupView = {
     async render() {
       if (!me.isAdmin) {
-        document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet">' +
-          emptyState('Admins only', 'Only an admin can back up or restore this company’s data.') + '</div></div>';
+        document.getElementById('content').innerHTML = pgShell({ crumb: 'Tools', title: 'Backup / Restore',
+          body: emptyState('Admins only', 'Only an admin can back up or restore this company’s data.') });
         return;
       }
-      var html = '<div class="page"><div class="doc-sheet">' +
-        '<h2 class="page-h doc-h">Backup now</h2>' +
+      var html = pgShell({
+        crumb: 'Tools', title: 'Backup / Restore',
+        sub: 'Download a full JSON snapshot, or merge one back in',
+        cardTitle: 'Backup now', body: '<div class="pad">' +
         '<p class="page-sub">Downloads a plain, unencrypted JSON snapshot of every table for local safekeeping.</p>' +
         '<button type="button" class="btn pri" id="bk_run">Download backup.json</button>' +
         '<div class="group-lbl">Restore (merge)</div>' +
@@ -1288,7 +1402,7 @@
         '<div class="field" style="max-width:340px"><label for="rs_file">Backup file</label><input type="file" id="rs_file" accept=".json,.gz"></div>' +
         '<button type="button" class="btn pri" id="rs_run" disabled>Restore</button>' +
         '<div class="warn-txt" id="rs_err" style="margin-top:8px;white-space:pre-line"></div><div class="ok-txt" id="rs_ok"></div>' +
-        '</div></div>';
+        '</div>' });
       document.getElementById('content').innerHTML = html;
       document.getElementById('bk_run').addEventListener('click', backupView.runBackup);
 
@@ -1378,8 +1492,7 @@
   (async function init() {
     var { data: userData } = await sb.auth.getUser();
     if (!userData || !userData.user) {
-      document.getElementById('content').innerHTML = '<div class="page"><div class="doc-sheet">' +
-        emptyState('Not signed in', 'Please sign in from the main app.') + '</div></div>';
+      document.getElementById('content').innerHTML = pgShell({ title: 'Masters', body: emptyState('Not signed in', 'Please sign in from the main app.') });
       return;
     }
     var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
