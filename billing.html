@@ -769,7 +769,8 @@
       party_id: null, company_id: defCompany ? defCompany.id : null, narration: '',
       tax_on: false, discount: 0, paid: 0,
       loading_on: false, loading_amt: 0, cartage_on: false, cartage_amt: 0,
-      cutting_on: false, cutting_amt: 0
+      cutting_on: false, cutting_amt: 0,
+      other_charge_on: false, other_charge_name: '', other_charge_amt: 0
     };
   }
 
@@ -857,6 +858,7 @@
     if (e.header.loading_on) extra += Number(e.header.loading_amt) || 0;
     if (e.header.cartage_on) extra += Number(e.header.cartage_amt) || 0;
     if (e.header.cutting_on) extra += Number(e.header.cutting_amt) || 0;
+    if (e.header.other_charge_on) extra += Number(e.header.other_charge_amt) || 0;
     var disc = Number(e.header.discount) || 0;
     // Loading/cartage/cutting are billed to the party either way (sale or
     // purchase) — §21 governs their P&L classification (Other Income vs.
@@ -905,6 +907,10 @@
       '<div class="field"><label>Paid now</label><input type="number" step="0.01" class="num" id="f_paid" value="' + h.paid + '"></div>' +
       '</div>';
 
+    html += '<div class="group-lbl">Items</div>';
+    html += '<div class="lines" id="linesWrap"></div>';
+    html += '<button type="button" class="btn add-more" id="addLineBtn">+ Add line</button>';
+
     html += '<div class="group-lbl">Extra charges</div>';
     ['loading', 'cartage', 'cutting'].forEach(function (k) {
       var label = k.charAt(0).toUpperCase() + k.slice(1);
@@ -912,10 +918,9 @@
         '<label class="sw"><input type="checkbox" id="f_' + k + '_on"' + (h[k + '_on'] ? ' checked' : '') + '><span class="trk"></span></label>' +
         '<input type="number" step="0.01" class="amt-in" id="f_' + k + '_amt" value="' + h[k + '_amt'] + '"></div>';
     });
-
-    html += '<div class="group-lbl">Items</div>';
-    html += '<div class="lines" id="linesWrap"></div>';
-    html += '<button type="button" class="btn add-more" id="addLineBtn">+ Add line</button>';
+    html += '<div class="sw-row"><input type="text" class="oc-name-in" id="f_other_charge_name" placeholder="Other charge…" value="' + esc(h.other_charge_name || '') + '">' +
+      '<label class="sw"><input type="checkbox" id="f_other_charge_on"' + (h.other_charge_on ? ' checked' : '') + '><span class="trk"></span></label>' +
+      '<input type="number" step="0.01" class="amt-in" id="f_other_charge_amt" value="' + h.other_charge_amt + '"></div>';
 
     html += '<div class="group-lbl">Narration</div>';
     html += '<div class="field"><textarea id="f_narration" rows="2">' + esc(h.narration || '') + '</textarea></div>';
@@ -924,7 +929,7 @@
       '<div class="doc-sum-row"><span>Sub total</span><span class="v">' + fmtMoney(totals.sub) + '</span></div>' +
       '<div class="doc-sum-row"><span>Discount</span><span class="v">-' + fmtMoney(h.discount) + '</span></div>' +
       (h.tax_on ? '<div class="doc-sum-row"><span>Tax</span><span class="v">' + fmtMoney(totals.tax) + '</span></div>' : '') +
-      (totals.extra ? '<div class="doc-sum-row"><span>Loading / Cartage / Cutting</span><span class="v">' + fmtMoney(totals.extra) + '</span></div>' : '') +
+      (totals.extra ? '<div class="doc-sum-row"><span>Loading / Cartage / Cutting / Other</span><span class="v">' + fmtMoney(totals.extra) + '</span></div>' : '') +
       '<div class="doc-sum-row grand"><span>Grand total</span><span class="v">' + fmtMoney(totals.grand) + '</span></div>' +
       '<div class="doc-sum-row"><span>Paid</span><span class="v">' + fmtMoney(h.paid) + '</span></div>' +
       '<div class="doc-sum-row"><span>Balance</span><span class="v">' + fmtMoney(totals.grand - h.paid) + '</span></div>' +
@@ -1284,6 +1289,15 @@
       document.getElementById('f_' + k + '_amt').addEventListener('input', function () {
         e.header[k + '_amt'] = Number(document.getElementById('f_' + k + '_amt').value) || 0; refreshTotalsDisplay();
       });
+    });
+    document.getElementById('f_other_charge_name').addEventListener('input', function () {
+      e.header.other_charge_name = document.getElementById('f_other_charge_name').value || '';
+    });
+    document.getElementById('f_other_charge_on').addEventListener('change', function () {
+      e.header.other_charge_on = document.getElementById('f_other_charge_on').checked; refreshTotalsDisplay();
+    });
+    document.getElementById('f_other_charge_amt').addEventListener('input', function () {
+      e.header.other_charge_amt = Number(document.getElementById('f_other_charge_amt').value) || 0; refreshTotalsDisplay();
     });
     document.getElementById('saveBtn').addEventListener('click', saveVoucher);
     var delBtn = document.getElementById('deleteBtn');
@@ -1908,7 +1922,10 @@
     var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
     var h = { party_id: null, company_id: defCompany ? defCompany.id : null, narration: '', tax_on: false, discount: 0, status: 'open' };
     h[cfg.dateField] = new Date().toISOString().slice(0, 10);
-    if (cfg.hasCharges) { h.loading_on = false; h.loading_amt = 0; h.cartage_on = false; h.cartage_amt = 0; h.cutting_on = false; h.cutting_amt = 0; }
+    if (cfg.hasCharges) {
+      h.loading_on = false; h.loading_amt = 0; h.cartage_on = false; h.cartage_amt = 0; h.cutting_on = false; h.cutting_amt = 0;
+      h.other_charge_on = false; h.other_charge_name = ''; h.other_charge_amt = 0;
+    }
     return h;
   }
 
@@ -1946,6 +1963,7 @@
       if (d.header.loading_on) extra += Number(d.header.loading_amt) || 0;
       if (d.header.cartage_on) extra += Number(d.header.cartage_amt) || 0;
       if (d.header.cutting_on) extra += Number(d.header.cutting_amt) || 0;
+      if (d.header.other_charge_on) extra += Number(d.header.other_charge_amt) || 0;
     }
     var disc = Number(d.header.discount) || 0;
     return { sub: sub, tax: tax, extra: extra, grand: sub - disc + tax + extra };
@@ -1975,6 +1993,10 @@
       '<label class="sw"><input type="checkbox" id="d_taxon"' + (h.tax_on ? ' checked' : '') + '><span class="trk"></span></label>' +
       '</div>';
 
+    html += '<div class="group-lbl">Items</div>';
+    html += '<div class="lines" id="docLinesWrap"></div>';
+    html += '<button type="button" class="btn add-more" id="docAddLineBtn">+ Add line</button>';
+
     if (cfg.hasCharges) {
       html += '<div class="group-lbl">Extra charges</div>';
       ['loading', 'cartage', 'cutting'].forEach(function (k) {
@@ -1982,11 +2004,10 @@
           '<label class="sw"><input type="checkbox" id="d_' + k + '_on"' + (h[k + '_on'] ? ' checked' : '') + '><span class="trk"></span></label>' +
           '<input type="number" step="0.01" class="amt-in" id="d_' + k + '_amt" value="' + h[k + '_amt'] + '"></div>';
       });
+      html += '<div class="sw-row"><input type="text" class="oc-name-in" id="d_other_charge_name" placeholder="Other charge…" value="' + esc(h.other_charge_name || '') + '">' +
+        '<label class="sw"><input type="checkbox" id="d_other_charge_on"' + (h.other_charge_on ? ' checked' : '') + '><span class="trk"></span></label>' +
+        '<input type="number" step="0.01" class="amt-in" id="d_other_charge_amt" value="' + h.other_charge_amt + '"></div>';
     }
-
-    html += '<div class="group-lbl">Items</div>';
-    html += '<div class="lines" id="docLinesWrap"></div>';
-    html += '<button type="button" class="btn add-more" id="docAddLineBtn">+ Add line</button>';
 
     html += '<div class="group-lbl">Note</div>';
     html += '<div class="field"><textarea id="d_narration" rows="2">' + esc(h.narration || '') + '</textarea></div>';
@@ -1995,7 +2016,7 @@
       '<div class="doc-sum-row"><span>Sub total</span><span class="v">' + fmtMoney(totals.sub) + '</span></div>' +
       '<div class="doc-sum-row"><span>Discount</span><span class="v">-' + fmtMoney(h.discount) + '</span></div>' +
       (h.tax_on ? '<div class="doc-sum-row"><span>Tax</span><span class="v">' + fmtMoney(totals.tax) + '</span></div>' : '') +
-      (totals.extra ? '<div class="doc-sum-row"><span>Loading / Cartage / Cutting</span><span class="v">' + fmtMoney(totals.extra) + '</span></div>' : '') +
+      (totals.extra ? '<div class="doc-sum-row"><span>Loading / Cartage / Cutting / Other</span><span class="v">' + fmtMoney(totals.extra) + '</span></div>' : '') +
       '<div class="doc-sum-row grand"><span>Grand total</span><span class="v">' + fmtMoney(totals.grand) + '</span></div>' +
       '</div>';
 
@@ -2019,6 +2040,9 @@
         document.getElementById('d_' + k + '_on').addEventListener('change', function () { h[k + '_on'] = this.checked; renderDocEditor(); });
         document.getElementById('d_' + k + '_amt').addEventListener('input', function () { h[k + '_amt'] = Number(this.value) || 0; renderDocEditor(); });
       });
+      document.getElementById('d_other_charge_name').addEventListener('input', function () { h.other_charge_name = this.value || ''; });
+      document.getElementById('d_other_charge_on').addEventListener('change', function () { h.other_charge_on = this.checked; renderDocEditor(); });
+      document.getElementById('d_other_charge_amt').addEventListener('input', function () { h.other_charge_amt = Number(this.value) || 0; renderDocEditor(); });
     }
     document.getElementById('docAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0 }); renderDocLines(); });
     document.getElementById('docSaveBtn').addEventListener('click', saveDoc);
@@ -2214,6 +2238,7 @@
       if (h.loading_on) totalsRows.push({ label: 'Loading', value: fmtMoney(h.loading_amt) });
       if (h.cartage_on) totalsRows.push({ label: 'Cartage', value: fmtMoney(h.cartage_amt) });
       if (h.cutting_on) totalsRows.push({ label: 'Cutting', value: fmtMoney(h.cutting_amt) });
+      if (h.other_charge_on) totalsRows.push({ label: h.other_charge_name || 'Other', value: fmtMoney(h.other_charge_amt) });
     }
     totalsRows.push({ label: 'Grand total', value: fmtMoney(totals.grand), cls: 'grand' });
     var html = buildPdDoc({
@@ -2251,7 +2276,10 @@
       tax_on: d.header.tax_on, discount: d.header.discount, paid: 0,
       loading_on: cfg.hasCharges ? d.header.loading_on : false, loading_amt: cfg.hasCharges ? d.header.loading_amt : 0,
       cartage_on: cfg.hasCharges ? d.header.cartage_on : false, cartage_amt: cfg.hasCharges ? d.header.cartage_amt : 0,
-      cutting_on: cfg.hasCharges ? d.header.cutting_on : false, cutting_amt: cfg.hasCharges ? d.header.cutting_amt : 0
+      cutting_on: cfg.hasCharges ? d.header.cutting_on : false, cutting_amt: cfg.hasCharges ? d.header.cutting_amt : 0,
+      other_charge_on: cfg.hasCharges ? d.header.other_charge_on : false,
+      other_charge_name: cfg.hasCharges ? d.header.other_charge_name : '',
+      other_charge_amt: cfg.hasCharges ? d.header.other_charge_amt : 0
     };
     var newLines = d.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; }).map(function (l) {
       return { id: null, item_id: l.item_id, qty: l.qty, rate: l.rate, tax_pct: l.tax_pct, amount: l.amount, pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1 };
@@ -3083,6 +3111,7 @@
       (h.loading_on ? '<tr><td>Loading</td><td class="num">' + fmtMoney(h.loading_amt) + '</td></tr>' : '') +
       (h.cartage_on ? '<tr><td>Cartage</td><td class="num">' + fmtMoney(h.cartage_amt) + '</td></tr>' : '') +
       (h.cutting_on ? '<tr><td>Cutting</td><td class="num">' + fmtMoney(h.cutting_amt) + '</td></tr>' : '') +
+      (h.other_charge_on ? '<tr><td>' + esc(h.other_charge_name || 'Other') + '</td><td class="num">' + fmtMoney(h.other_charge_amt) + '</td></tr>' : '') +
       '<tr class="grand"><td>Grand total</td><td class="num">' + fmtMoney(totals.grand) + '</td></tr>' +
       '<tr><td>' + (isSale ? 'Received' : 'Paid') + '</td><td class="num">' + fmtMoney(h.paid) + '</td></tr>' +
       '<tr class="bal"><td>Balance ' + (isSale ? 'due' : 'payable') + '</td><td class="num">' + fmtMoney(balance) + '</td></tr>';

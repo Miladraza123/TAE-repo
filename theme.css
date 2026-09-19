@@ -524,6 +524,13 @@ table.doc-table tfoot td {
 }
 .sw-row input.amt-in:focus { outline:none; border-color:var(--cash); box-shadow:var(--focus-ring); }
 .sw-row input.amt-in:disabled { background:var(--panel); color:var(--mute); }
+/* "Other charges" row: a free-text label in place of the fixed .sw-lbl */
+.sw-row input.oc-name-in {
+  flex:1; min-width:0; padding:6px 9px; border:1px solid var(--line); border-radius:7px;
+  background:var(--paper); color:var(--ink); font-size:13.5px; font-weight:600;
+}
+.sw-row input.oc-name-in:focus { outline:none; border-color:var(--cash); box-shadow:var(--focus-ring); }
+.sw-row input.oc-name-in::placeholder { color:var(--mute); font-weight:400; }
 
 /* totals / summary block (invoice footer, statement footer) */
 .doc-sum { border-top:1px solid var(--hair); margin-top:14px; padding-top:10px; }
