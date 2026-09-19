@@ -550,6 +550,9 @@
               body += '<div class="field"><label for="f_' + c.key + '_file">' + esc(c.label) + '</label>' +
                 '<input type="file" accept="image/*" id="f_' + c.key + '_file">' +
                 (rec[c.key] ? '<img class="thumb" style="margin-top:6px" src="' + esc(rec[c.key]) + '" alt="">' : '') + '</div>';
+            } else if (c.type === 'number') {
+              pending.push('<div class="field"><label for="f_' + c.key + '">' + esc(c.label) + '</label>' +
+                '<input type="number" step="0.01" class="num" id="f_' + c.key + '" value="' + esc(rec[c.key]) + '"></div>');
             } else {
               pending.push('<div class="field"><label for="f_' + c.key + '">' + esc(c.label) + '</label>' +
                 '<input id="f_' + c.key + '" value="' + esc(rec[c.key]) + '"></div>');
@@ -578,6 +581,11 @@
             opts.columns.forEach(function (c) {
               if (c.type === 'bool') payload[c.key] = document.getElementById('f_' + c.key).checked;
               else if (c.type === 'image') { if (pendingImages[c.key] !== undefined) payload[c.key] = pendingImages[c.key]; }
+              // Every numeric column here (services.rate/tax_pct) is NOT NULL
+              // default 0 — an empty box must become 0, never the literal
+              // string '' Postgres rejects with "invalid input syntax for
+              // type numeric".
+              else if (c.type === 'number') payload[c.key] = Number(document.getElementById('f_' + c.key).value) || 0;
               else payload[c.key] = document.getElementById('f_' + c.key).value;
             });
             var errEl = document.getElementById('formErr');
@@ -682,7 +690,7 @@
     table: 'services', title: 'Services', useMerge: true, icon: ICON.services,
     sub: function (r) { return 'Tax ' + (Number(r.tax_pct) || 0) + '%' + (r.notes ? ' · ' + r.notes : ''); },
     amt: function (r) { return fmt(r.rate); }, tag: 'rate',
-    columns: [{ key: 'name', label: 'Name' }, { key: 'rate', label: 'Rate' }, { key: 'tax_pct', label: 'Tax %' }, { key: 'notes', label: 'Notes' }, { key: 'active', label: 'Active', type: 'bool' }]
+    columns: [{ key: 'name', label: 'Name' }, { key: 'rate', label: 'Rate', type: 'number' }, { key: 'tax_pct', label: 'Tax %', type: 'number' }, { key: 'notes', label: 'Notes' }, { key: 'active', label: 'Active', type: 'bool' }]
   });
   var partyKindsCrud = simpleCrud({
     table: 'party_kinds', title: 'Party Kinds', icon: ICON.partykinds,

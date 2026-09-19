@@ -779,6 +779,19 @@
       consumption_type: 'general_goods', materials: [] };
   }
 
+  // voucher_lines' real, client-writable columns. A line object on screen
+  // also carries UI-only fields (id before it is saved, and materials —
+  // that goes to voucher_line_material_consumption via syncAllLineMaterials,
+  // never to this table) that PostgREST rejects outright if sent in an
+  // insert ("Could not find the '<field>' column … in the schema cache").
+  var VOUCHER_LINE_COLS = ['item_id', 'qty', 'rate', 'tax_pct', 'amount', 'pcs_on', 'pcs',
+    'warehouse_id', 'sale_unit', 'sale_qty', 'unit_factor', 'consumption_type'];
+  function sanitizeVoucherLine(l) {
+    var o = {};
+    VOUCHER_LINE_COLS.forEach(function (k) { o[k] = l[k]; });
+    return o;
+  }
+
   function blankMaterial() {
     return { id: null, raw_item_id: null, warehouse_id: defaultWarehouseId(), qty: 0, notes: '' };
   }
@@ -1389,7 +1402,7 @@
         var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
         var headerPayload = Object.assign({ id: newId }, payload);
         var linesPayload = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; })
-          .map(function (l) { var c = Object.assign({}, l); delete c.id; c.voucher_id = newId; return c; });
+          .map(function (l) { var c = sanitizeVoucherLine(l); c.voucher_id = newId; return c; });
 
         if (!navigator.onLine) {
           OfflineQueue.enqueue({ kind: 'insert', table: 'vouchers', payload: headerPayload });
@@ -1806,7 +1819,9 @@
   };
   var docsState = { list: [] };
   var docEditing = null;
-  var DOC_IGNORE = ['id', 'created_at', 'created_by', 'updated_at', 'updated_by', 'version', 'deleted_at', 'sub_total', 'tax_total', 'grand_total', 'status', 'converted_invoice_id', 'converted_at'];
+  // quotations/purchase_orders name this column "subtotal" (no underscore) —
+  // unlike vouchers/service_invoices/service_quotations, which use "sub_total".
+  var DOC_IGNORE = ['id', 'created_at', 'created_by', 'updated_at', 'updated_by', 'version', 'deleted_at', 'subtotal', 'tax_total', 'grand_total', 'status', 'converted_invoice_id', 'converted_at'];
   var DOC_IGNORE_MAP = { quotation: DOC_IGNORE.concat(['qno']), po: DOC_IGNORE.concat(['pono']) };
 
   async function loadDocsList(type) {
@@ -2034,7 +2049,7 @@
     if (!validLines.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
 
     var totals = docTotals();
-    var payload = Object.assign({}, d.header, { sub_total: totals.sub, tax_total: totals.tax, grand_total: totals.grand });
+    var payload = Object.assign({}, d.header, { subtotal: totals.sub, tax_total: totals.tax, grand_total: totals.grand });
 
     try {
       if (d.isNew) {
