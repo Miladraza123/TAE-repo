@@ -195,6 +195,17 @@
     auth: { persistSession: true, autoRefreshToken: false }
   });
 
+  // A number field defaulting to "0" (a new document's Discount/Paid/
+  // extra-charge amounts, etc.) otherwise has to be selected and erased
+  // before the real figure can be typed. Auto-select it on focus instead —
+  // the first keystroke just replaces it — while a genuinely saved 0 still
+  // reads as 0 when the field isn't focused. Delegated on document so it
+  // covers every number input this page ever renders, current or future.
+  document.addEventListener('focusin', function (ev) {
+    var el = ev.target;
+    if (el && el.tagName === 'INPUT' && el.type === 'number' && el.value === '0') el.select();
+  });
+
   // ---- Foreground-tab auth refresh signaling (§3/§14) ----
   window.addEventListener('message', function (ev) {
     var d = ev.data;

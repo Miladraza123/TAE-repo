@@ -105,6 +105,15 @@
     auth: { persistSession: true, autoRefreshToken: false }
   });
 
+  // A number field defaulting to "0" otherwise has to be selected and
+  // erased before the real figure can be typed. Auto-select it on focus
+  // instead — the first keystroke just replaces it — while a genuinely
+  // saved 0 still reads as 0 when the field isn't focused.
+  document.addEventListener('focusin', function (ev) {
+    var el = ev.target;
+    if (el && el.tagName === 'INPUT' && el.type === 'number' && el.value === '0') el.select();
+  });
+
   var inited = false;
   window.addEventListener('message', function (ev) {
     var d = ev.data;

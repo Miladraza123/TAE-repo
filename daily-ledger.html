@@ -431,6 +431,16 @@
     auth: { persistSession: true, autoRefreshToken: false }
   });
 
+  // A number field defaulting to "0" (Opening balance on a brand-new day,
+  // etc.) otherwise has to be selected and erased before the real figure
+  // can be typed. Auto-select it on focus instead — the first keystroke
+  // just replaces it — while a genuinely saved 0 still reads as 0 when
+  // the field isn't focused.
+  document.addEventListener('focusin', function (ev) {
+    var el = ev.target;
+    if (el && el.tagName === 'INPUT' && el.type === 'number' && el.value === '0') el.select();
+  });
+
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || !d.oht) return;
@@ -1280,13 +1290,14 @@
     if (key === 'ArrowRight' && pos < FIELD_ORDER.length - 1 && atEdge(el, 'end')) {
       e.preventDefault(); focusCell(idx, FIELD_ORDER[pos + 1], 'start'); return;
     }
-    // A checkbox cell (d_tick/c_tick) toggles on Space (native) or Enter —
-    // Enter both ticks it AND advances, same as every other field's Enter.
-    if (el.type === 'checkbox' && (key === ' ' || key === 'Spacebar' || key === 'Enter')) {
+    // A checkbox cell (d_tick/c_tick) toggles on Space only — kept separate
+    // from Enter (§4), which always just navigates like every other field
+    // and must never also flip the tick in the same keypress.
+    if (el.type === 'checkbox' && (key === ' ' || key === 'Spacebar')) {
       e.preventDefault();
       el.checked = !el.checked;
       el.dispatchEvent(new Event('change', { bubbles: true }));
-      if (key !== 'Enter') return;
+      return;
     }
 
     if (key === 'Enter') {
