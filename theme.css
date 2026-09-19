@@ -488,6 +488,10 @@ table.doc-table tfoot td {
 .confirm-card h4 { margin:0 0 8px; font-size:15.5px; font-weight:700; }
 .confirm-card p { margin:0 0 18px; font-size:13.5px; color:var(--slate); line-height:1.55; }
 .confirm-card .acts { display:flex; gap:8px; justify-content:flex-end; }
+.confirm-card .po-lbl { margin:0 0 8px; font-size:11.5px; font-weight:700; letter-spacing:.3px; text-transform:uppercase; color:var(--mute); }
+.confirm-card .po-opt { display:flex; flex-direction:column; gap:6px; margin-bottom:14px; }
+.confirm-card .po-radio, .confirm-card .po-check { display:flex; align-items:center; gap:8px; font-size:13.5px; color:var(--ink); cursor:pointer; }
+.confirm-card .po-check { margin-bottom:16px; }
 
 /* ==========================================================================
    17. SHARED GAP-FILLERS
@@ -810,7 +814,10 @@ button.pg-lrow { width:100%; text-align:left; font:inherit; color:inherit; borde
   body.pd-on .pd thead { display:table-header-group; }
   body.pd-on .pd-foot { position:fixed; left:0; right:0; bottom:0; background:#fff; }
   body.pd-on .pd-sig { display:flex; gap:26px; margin-bottom:10px; }
-  body.pd-on .pd-sig div { flex:1; border-top:1px solid #6B6357; padding-top:4px; font-size:9.5px; color:#6B6357; text-transform:uppercase; letter-spacing:.6px; }
+  body.pd-on .pd-sig div { flex:1; border-top:1px solid #6B6357; padding-top:4px; font-size:9.5px; color:#6B6357; text-transform:uppercase; letter-spacing:.6px; position:relative; }
+  body.pd-on .pd-sig .sig-wrap { position:absolute; left:0; right:0; bottom:100%; margin-bottom:2px; display:flex; align-items:flex-end; justify-content:center; gap:4px; }
+  body.pd-on .pd-sig .sig-img { height:32px; max-width:70%; object-fit:contain; }
+  body.pd-on .pd-sig .stamp-img { height:46px; width:46px; object-fit:contain; opacity:.92; mix-blend-mode:multiply; margin-left:-8px; }
   body.pd-on .pd-fl { display:flex; justify-content:space-between; font-size:9.5px; color:#6B6357; border-top:1.5px solid #B0824A; padding-top:5px; }
   body.pd-on .pd-spacer { height:22mm; } /* keeps the last rows clear of the fixed footer */
 

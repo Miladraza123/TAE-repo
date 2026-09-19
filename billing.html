@@ -230,7 +230,7 @@
     var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }] = await Promise.all([
       sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
       sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty,item_type').is('deleted_at', null).order('name'),
-      sb.from('companies').select('id,name,city,phone,ntn,logo,is_default').is('deleted_at', null).order('name'),
+      sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('name'),
       sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
       sb.from('item_units').select('id,item_id,unit,factor').is('deleted_at', null)
     ]);
@@ -1805,6 +1805,9 @@
     var saleRes = await sb.from('vouchers').select('vno,company_id').eq('id', h.sale_id).maybeSingle().catch(function () { return { data: null }; });
     var saleInfo = (saleRes && saleRes.data) || {};
     var company = await firmForPrint(saleInfo.company_id);
+    var sigLabels = ['Issued by', 'Approved by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var rows = r.picked.map(function (l) {
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
@@ -1825,7 +1828,7 @@
       rows: rows,
       totals: [{ label: 'Total returned', value: fmtMoney(total), cls: 'grand' }],
       narrationLabel: 'Narration', narration: h.narration,
-      sigLabels: ['Issued by', 'Approved by'],
+      sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
       footerRight: 'Sales Return · ' + h.rno
     });
     showPrintDoc(html, h.rno + '.pdf');
@@ -2186,6 +2189,9 @@
   async function printDoc() {
     var d = docEditing, cfg = DOC_CONFIG[d.type], h = d.header;
     var company = await firmForPrint(h.company_id);
+    var sigLabels = ['Prepared by', 'Approved by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var totals = docTotals();
     var showTax = !!h.tax_on;
@@ -2219,7 +2225,7 @@
       ],
       cols: cols, rows: rows, totals: totalsRows,
       narrationLabel: 'Note', narration: h.narration,
-      sigLabels: ['Prepared by', 'Approved by'],
+      sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
       footerRight: cfg.title + ' · ' + h[cfg.numField]
     });
     showPrintDoc(html, h[cfg.numField] + '.pdf');
@@ -2568,10 +2574,13 @@
   async function printServiceDoc() {
     var d = svcEditing, cfg = SVC_CONFIG[d.type], h = d.header;
     var company = await firmForPrint(h.company_id);
+    var isInv = d.type === 'sinvoice';
+    var sigLabels = isInv ? ['Received by', 'Authorised by'] : ['Prepared by', 'Approved by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var totals = svcDisplayTotals();
     var showTax = !!h.tax_on;
-    var isInv = d.type === 'sinvoice';
     var rows = d.lines.filter(function (l) { return l.service_id || l.description; }).map(function (l) {
       var svc = svcState.services.filter(function (x) { return x.id === l.service_id; })[0];
       var cells = ['<td>' + esc(l.description || (svc ? svc.name : '')) + '</td>',
@@ -2605,7 +2614,7 @@
       ],
       cols: cols, rows: rows, totals: totalsRows,
       narrationLabel: 'Notes', narration: h.notes || h.narration,
-      sigLabels: isInv ? ['Received by', 'Authorised by'] : ['Prepared by', 'Approved by'],
+      sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
       footerRight: cfg.title + ' · ' + h[cfg.numField]
     });
     showPrintDoc(html, h[cfg.numField] + '.pdf');
@@ -2834,6 +2843,9 @@
   async function printTransfer() {
     var t = transferEditing, h = t.header;
     var company = await firmForPrint(null);
+    var sigLabels = ['Issued by', 'Received by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
     var fromW = state.warehouses.filter(function (w) { return w.id === h.from_warehouse; })[0];
     var toW = state.warehouses.filter(function (w) { return w.id === h.to_warehouse; })[0];
     var rows = t.lines.filter(function (l) { return l.item_id; }).map(function (l) {
@@ -2849,7 +2861,7 @@
       cols: [{ label: 'Item' }, { label: 'Qty', cls: 'num' }],
       rows: rows, totals: null,
       narrationLabel: 'Narration', narration: h.narration,
-      sigLabels: ['Issued by', 'Received by'],
+      sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
       footerRight: 'Stock Transfer · ' + h.tno
     });
     showPrintDoc(html, h.tno + '.pdf');
@@ -2877,7 +2889,7 @@
   async function firmForPrint(companyId) {
     var key = companyId || '_default';
     if (firmCache[key]) return firmCache[key];
-    var q = sb.from('companies').select('id,name,city,phone,ntn,logo,is_default').is('deleted_at', null);
+    var q = sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null);
     q = companyId ? q.eq('id', companyId) : q.order('is_default', { ascending: false }).limit(1);
     var res = await q.maybeSingle().catch(function () { return { data: null }; });
     var row = (res && res.data) || state.companies.filter(function (c) { return c.id === companyId; })[0] ||
@@ -2895,6 +2907,72 @@
   function printStamp() {
     var d = new Date();
     return d.toISOString().slice(0, 10) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  // Builds the "<div>Label</div>" signature-line row shared by every print
+  // document. The company's own uploaded signature/stamp images (§25) are
+  // only ever drawn on the one line the user chose in askPrintOptions() —
+  // never on every line, and never without an explicit choice.
+  function pdSigHtml(labels, sigIndex, sigImg, stampImg) {
+    return '<div class="pd-sig">' + labels.map(function (s, i) {
+      var extra = '';
+      if (i === sigIndex && (sigImg || stampImg)) {
+        extra = '<span class="sig-wrap">' +
+          (sigImg ? '<img class="sig-img" src="' + esc(sigImg) + '">' : '') +
+          (stampImg ? '<img class="stamp-img" src="' + esc(stampImg) + '">' : '') +
+          '</span>';
+      }
+      return '<div>' + extra + esc(s) + '</div>';
+    }).join('') + '</div>';
+  }
+
+  // Asks, right before printing, which signature line (if any) gets the
+  // company's real uploaded signature and whether to include its stamp —
+  // skipped entirely when the company has neither, so printing stays a
+  // single click for anyone who never uploaded them. Resolves to null if
+  // the user cancels (caller must not print in that case).
+  function askPrintOptions(company, sigLabels) {
+    var hasSig = !!(company && company.signature);
+    var hasStamp = !!(company && company.stamp);
+    if (!hasSig && !hasStamp) return Promise.resolve({ sigIndex: -1, stampOn: false });
+    return new Promise(function (resolve) {
+      var scrim = document.getElementById('confirmScrim');
+      var defaultIdx = sigLabels.length - 1;
+      var radios = hasSig ? '<div class="po-lbl">Place the signature on</div><div class="po-opt">' +
+        sigLabels.map(function (s, i) {
+          return '<label class="po-radio"><input type="radio" name="poSig" value="' + i + '"' + (i === defaultIdx ? ' checked' : '') + '> ' + esc(s) + '</label>';
+        }).join('') +
+        '<label class="po-radio"><input type="radio" name="poSig" value="-1"> None</label></div>' : '';
+      var stampRow = hasStamp ? '<label class="po-check"><input type="checkbox" id="poStamp" checked> Include company stamp</label>' : '';
+      scrim.innerHTML =
+        '<div class="confirm-card po-card" role="dialog" aria-modal="true">' +
+          '<h4>Print options</h4>' + radios + stampRow +
+          '<div class="acts">' +
+            '<button type="button" class="btn" data-a="0">Cancel</button>' +
+            '<button type="button" class="btn pri" data-a="1">Print</button>' +
+          '</div>' +
+        '</div>';
+      scrim.classList.add('on');
+      var done = false;
+      function finish(result) {
+        if (done) return;
+        done = true;
+        scrim.classList.remove('on'); scrim.innerHTML = '';
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+      function onKey(ev) { if (ev.key === 'Escape') finish(null); }
+      scrim.querySelector('[data-a="0"]').addEventListener('click', function () { finish(null); });
+      scrim.querySelector('[data-a="1"]').addEventListener('click', function () {
+        var sel = scrim.querySelector('input[name="poSig"]:checked');
+        finish({
+          sigIndex: hasSig && sel ? Number(sel.value) : -1,
+          stampOn: hasStamp && !!scrim.querySelector('#poStamp').checked
+        });
+      });
+      scrim.addEventListener('click', function (ev) { if (ev.target === scrim) finish(null); });
+      document.addEventListener('keydown', onKey);
+    });
   }
 
   // Puts the built .pd HTML on screen, flips on the print stylesheet, and
@@ -2925,7 +3003,8 @@
   //           parties: [{label,name,sub}] | null,
   //           cols:[{label,cls}], rows:[[tdHtml,...]],
   //           totals: [{label,value,cls}] | null,
-  //           narrationLabel, narration, sigLabels:[...], footerRight }
+  //           narrationLabel, narration, sigLabels:[...], footerRight,
+  //           sigIndex, sigImg, stampImg (from askPrintOptions(), §25) }
   function buildPdDoc(opts) {
     var html = '<div class="pd">' +
       '<div class="pd-lh">' +
@@ -2965,7 +3044,7 @@
     }
 
     html += '<div class="pd-spacer"></div>' +
-      '<div class="pd-foot"><div class="pd-sig">' + opts.sigLabels.map(function (s) { return '<div>' + esc(s) + '</div>'; }).join('') + '</div>' +
+      '<div class="pd-foot">' + pdSigHtml(opts.sigLabels, opts.sigIndex != null ? opts.sigIndex : -1, opts.sigImg, opts.stampImg) +
         '<div class="pd-fl"><span>Powered by "OHT Solutions"</span><span>' + esc(opts.footerRight || '') + '</span></div></div>' +
       '</div>';
     return html;
@@ -2976,6 +3055,9 @@
     var h = e.header;
     var totals = computeTotals();
     var company = await firmForPrint(h.company_id);
+    var sigLabels = ['Received by', 'Authorised by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var isSale = state.vtype === 'sale';
     var docTitle = (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' \u00B7 Sales Tax' : '');
@@ -3028,7 +3110,7 @@
       '<div class="totals"><table>' + totalRows + '</table></div>' +
       (h.narration ? '<div class="narr"><b>Narration</b>' + esc(h.narration) + '</div>' : '') +
       '<div class="pd-spacer"></div>' +
-      '<div class="pd-foot"><div class="pd-sig"><div>Received by</div><div>Authorised by</div></div>' +
+      '<div class="pd-foot">' + pdSigHtml(sigLabels, po.sigIndex, company.signature, po.stampOn ? company.stamp : null) +
         '<div class="pd-fl"><span>Powered by "OHT Solutions"</span><span>' + esc(docTitle + ' \u00B7 ' + (h.vno || 'Preview')) + '</span></div></div>' +
       '</div>';
 

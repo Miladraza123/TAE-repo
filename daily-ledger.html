@@ -415,6 +415,8 @@
   </div>
 </div>
 
+<div class="confirm-scrim" id="printOptScrim"></div>
+
 <div id="printArea"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -2108,7 +2110,7 @@
     var rows = [];
     if (navigator.onLine) {
       try {
-        var res = await sb.from('companies').select('name,city,phone,ntn,logo,is_default').is('deleted_at', null).order('is_default', { ascending: false });
+        var res = await sb.from('companies').select('name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('is_default', { ascending: false });
         rows = (res && res.data) || [];
       } catch (e) { rows = []; }
     }
@@ -2129,6 +2131,65 @@
     return d.toISOString().slice(0, 10) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
 
+  // Same signature-line row and print-options dialog as billing.html /
+  // reports.html (§25) — the firm's real uploaded signature/stamp only
+  // ever appear on the one line the user chooses, asked once per print.
+  function pdSigHtml(labels, sigIndex, sigImg, stampImg) {
+    return '<div class="pd-sig">' + labels.map(function (s, i) {
+      var extra = '';
+      if (i === sigIndex && (sigImg || stampImg)) {
+        extra = '<span class="sig-wrap">' +
+          (sigImg ? '<img class="sig-img" src="' + esc(sigImg) + '">' : '') +
+          (stampImg ? '<img class="stamp-img" src="' + esc(stampImg) + '">' : '') +
+          '</span>';
+      }
+      return '<div>' + extra + esc(s) + '</div>';
+    }).join('') + '</div>';
+  }
+  function askPrintOptions(company, sigLabels) {
+    var hasSig = !!(company && company.signature);
+    var hasStamp = !!(company && company.stamp);
+    if (!hasSig && !hasStamp) return Promise.resolve({ sigIndex: -1, stampOn: false });
+    return new Promise(function (resolve) {
+      var scrim = document.getElementById('printOptScrim');
+      var defaultIdx = sigLabels.length - 1;
+      var radios = hasSig ? '<div class="po-lbl">Place the signature on</div><div class="po-opt">' +
+        sigLabels.map(function (s, i) {
+          return '<label class="po-radio"><input type="radio" name="poSig" value="' + i + '"' + (i === defaultIdx ? ' checked' : '') + '> ' + esc(s) + '</label>';
+        }).join('') +
+        '<label class="po-radio"><input type="radio" name="poSig" value="-1"> None</label></div>' : '';
+      var stampRow = hasStamp ? '<label class="po-check"><input type="checkbox" id="poStamp" checked> Include company stamp</label>' : '';
+      scrim.innerHTML =
+        '<div class="confirm-card po-card" role="dialog" aria-modal="true">' +
+          '<h4>Print options</h4>' + radios + stampRow +
+          '<div class="acts">' +
+            '<button type="button" class="btn" data-a="0">Cancel</button>' +
+            '<button type="button" class="btn pri" data-a="1">Print</button>' +
+          '</div>' +
+        '</div>';
+      scrim.classList.add('on');
+      var done = false;
+      function finish(result) {
+        if (done) return;
+        done = true;
+        scrim.classList.remove('on'); scrim.innerHTML = '';
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      }
+      function onKey(ev) { if (ev.key === 'Escape') finish(null); }
+      scrim.querySelector('[data-a="0"]').addEventListener('click', function () { finish(null); });
+      scrim.querySelector('[data-a="1"]').addEventListener('click', function () {
+        var sel = scrim.querySelector('input[name="poSig"]:checked');
+        finish({
+          sigIndex: hasSig && sel ? Number(sel.value) : -1,
+          stampOn: hasStamp && !!scrim.querySelector('#poStamp').checked
+        });
+      });
+      scrim.addEventListener('click', function (ev) { if (ev.target === scrim) finish(null); });
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
   // Print (§9/§25) — classic A4 document (theme.css §17 .pd-*): letterhead
   // with logo + meta box, summary cells, the numbered register, signatures
   // and the "Powered by" footer. Same figures as the screen, nothing more.
@@ -2137,6 +2198,9 @@
     var s = state.sheet;
     if (!s) return;
     var firmRow = await firmForPrint(s.firm);
+    var sigLabels = ['Prepared by', 'Checked by', 'Approved by'];
+    var po = await askPrintOptions(firmRow, sigLabels);
+    if (!po) return;
     var running = s.side === 'dr' ? s.opening : -s.opening;
     var opening = running;
     var totD = 0, totC = 0, body = '', n = 0;
@@ -2189,7 +2253,7 @@
         '<tr><td></td><td colspan="6">Closing balance carried forward</td><td class="num">' + fmtBal(running) + '</td></tr>' +
       '</tfoot></table>' +
       '<div class="pd-spacer"></div>' +
-      '<div class="pd-foot"><div class="pd-sig"><div>Prepared by</div><div>Checked by</div><div>Approved by</div></div>' +
+      '<div class="pd-foot">' + pdSigHtml(sigLabels, po.sigIndex, firmRow.signature, po.stampOn ? firmRow.stamp : null) +
         '<div class="pd-fl"><span>Powered by "OHT Solutions"</span><span>Daily Cash Book \u00B7 ' + esc(longDate(state.date)) + '</span></div></div>' +
       '</div>';
 
