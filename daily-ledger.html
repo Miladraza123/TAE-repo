@@ -36,14 +36,26 @@
   .net { font-size:11.5px; color:var(--mute); white-space:nowrap; }
   .net.off { color:var(--debit); font-weight:600; }
 
+  /* Auto-save indicator (§5). Lives next to the online/offline pill so the
+     two "is my work safe?" signals read as one group. Collapses to nothing
+     when idle rather than showing a permanent empty slot. */
+  .save-state { font-size:11.5px; color:var(--mute); white-space:nowrap; }
+  .save-state.ok { color:var(--credit); font-weight:600; }
+  .save-state.warn { color:var(--debit); font-weight:600; }
+
   /* Collapses to zero height while there is no message, so it never shows
      as an empty strip under the toolbar. #ledgerErr keeps its id: saveSheet()
      writes every save/merge/offline message straight into it, unchanged. */
   .statusbar { flex:none; background:var(--paper); padding:0 14px; }
   .statusbar .err:not(:empty) {
     display:block; padding:8px 0 9px; color:var(--debit); font-size:12.5px;
-    font-weight:600; line-height:1.5; border-bottom:1px solid var(--line);
+    font-weight:600; line-height:1.5;
   }
+  /* The only sanctioned way to replace what is on screen with the server's
+     copy after a conflict (§5) — shown only while a conflict is standing. */
+  .statusbar .reload-btn { margin:0 0 10px; padding:5px 10px; font-size:12px; }
+  .statusbar .reload-btn[hidden] { display:none; }
+  .statusbar.on { border-bottom:1px solid var(--line); }
 
   /* ---------- sidebar extras ---------- */
   .sidebar .grp-lbl.sheets-lbl { padding-top:2px; }
@@ -56,8 +68,25 @@
   .letterhead .lh-meta { text-align:right; flex:none; }
   .letterhead .lh-date { font-family:'IBM Plex Mono',monospace; font-size:13px; font-weight:600; }
   .letterhead .lh-page { font-size:11px; color:var(--mute); margin-top:2px; }
+  /* Firm name is a real field now (§2) but must still read as letterhead
+     text, not as a form control — so it is a borderless input that only
+     shows its edges once you are actually in it. */
+  .letterhead input.firm-name {
+    background:transparent; border:none; padding:0; margin:0; width:100%;
+    font:inherit; color:inherit; border-bottom:1px solid transparent;
+  }
+  .letterhead input.firm-name::placeholder { color:var(--mute); opacity:.75; }
+  .letterhead input.firm-name:hover { border-bottom-color:var(--line); }
+  .letterhead input.firm-name:focus { outline:none; border-bottom-color:var(--accent); }
 
-  table.reg { width:100%; border-collapse:collapse; margin-top:7mm; table-layout:fixed; }
+  /* Opening balance (§1): out of the table, sitting in the letterhead area
+     directly above the register. */
+  .opening-block { display:flex; align-items:center; gap:8px; margin-top:6mm; }
+  .opening-block .ob-lbl { font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.6px; color:#4A4336; }
+  .opening-block input { width:104px; padding:5px 7px; border:1px solid var(--line); border-radius:5px; background:#fff; text-align:right; font-family:'IBM Plex Mono',monospace; font-weight:600; font-size:12.5px; color:#1F1B15; }
+  .opening-block select { padding:5px 6px; border:1px solid var(--line); border-radius:5px; background:#fff; font-size:12.5px; color:#1F1B15; }
+
+  table.reg { width:100%; border-collapse:collapse; margin-top:3mm; table-layout:fixed; }
   table.reg th, table.reg td { border:1px solid #6B6355; padding:0; }
   table.reg thead th {
     background:#F1ECE0; font-size:9.5px; letter-spacing:.7px; text-transform:uppercase;
@@ -93,21 +122,6 @@
     border-radius:5px; line-height:1;
   }
   table.reg td.act .rmRow:hover { background:var(--debit-wash); color:var(--debit); }
-  table.reg tr.open-row td { background:#F5F1E6; }
-  table.reg td.open-lbl {
-    text-align:right; padding:7px 9px; font-size:11.5px; font-weight:700;
-    text-transform:uppercase; letter-spacing:.6px; color:#4A4336;
-  }
-  table.reg td.open-in { padding:5px 7px; }
-  table.reg td.open-in input {
-    width:104px; padding:5px 7px; border:1px solid var(--line); border-radius:5px;
-    background:#fff; text-align:right; font-family:'IBM Plex Mono',monospace; font-weight:600;
-    font-size:12.5px;
-  }
-  table.reg td.open-in select {
-    padding:5px 6px; border:1px solid var(--line); border-radius:5px; background:#fff;
-    font-size:12.5px; margin-left:5px;
-  }
   table.reg tfoot td {
     background:#F1ECE0; font-weight:700; font-size:12px; padding:7px;
     border-top:2px solid #6B6355;
@@ -128,6 +142,32 @@
     margin-top:5mm; font-size:11px; color:var(--mute); display:flex;
     justify-content:space-between; gap:12px;
   }
+
+  /* ---------- cash summary (§3) — per-day only, never carried forward ----
+     Deliberately tinted away from the warm paper so it reads as a derived
+     summary of the ticked lines rather than another register column. */
+  .cash-sum {
+    margin-top:6mm; border:1px solid #B9CBDC; border-radius:7px;
+    background:#EEF4FA; padding:8px 11px 10px;
+  }
+  .cash-sum .cs-ttl {
+    font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.8px;
+    color:#33506E; margin-bottom:7px;
+  }
+  .cash-sum .cs-ttl span { font-weight:600; text-transform:none; letter-spacing:0; color:#6C87A4; }
+  .cash-sum .cs-items { display:flex; gap:10px; flex-wrap:wrap; }
+  .cash-sum .cs-i {
+    flex:1; min-width:120px; display:flex; justify-content:space-between; align-items:baseline;
+    gap:10px; background:#fff; border:1px solid #CBDAE7; border-radius:6px; padding:6px 9px;
+  }
+  .cash-sum .cs-i .k { font-size:10.5px; text-transform:uppercase; letter-spacing:.5px; color:#4E6480; }
+  .cash-sum .cs-i .v {
+    font-family:'IBM Plex Mono',monospace; font-variant-numeric:tabular-nums;
+    font-size:13px; font-weight:700; color:#1F1B15;
+  }
+  .cash-sum .cs-i.hand { background:#DCE9F5; border-color:#9FBCD6; }
+  .cash-sum .cs-i.hand .v { font-size:14px; color:#25405C; }
+  .cash-sum .cs-i.neg .v { color:var(--debit); }
   .sign-row {
     margin-top:14mm; display:flex; justify-content:space-between; gap:20mm;
     font-size:10.5px; color:var(--mute);
@@ -143,7 +183,33 @@
   }
   .partylist div { padding:8px 11px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--hair); }
   .partylist div:last-child { border-bottom:none; }
-  .partylist div:hover { background:#EFE7D8; }
+  .partylist div:hover,
+  .partylist div.on { background:#EFE7D8; }
+  .partylist div.on { box-shadow:inset 3px 0 0 var(--accent); }
+
+  /* ---------- per-row conflict resolution modal (§7) ----------
+     Same scrim/card primitives confirmDialog() uses (theme.css), only wider
+     and with a decision block per conflicting line. */
+  .conf-card { max-width:620px; }
+  .conf-card .conf-list { max-height:48vh; overflow:auto; margin:0 0 16px; }
+  .conf-item { border:1px solid var(--line); border-radius:var(--radius-md); padding:10px 12px; margin-bottom:10px; }
+  .conf-item:last-child { margin-bottom:0; }
+  .conf-item .conf-ttl {
+    font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.7px;
+    color:var(--slate); margin-bottom:7px;
+  }
+  .conf-vers { display:flex; gap:9px; flex-wrap:wrap; margin-bottom:9px; }
+  .conf-ver { flex:1; min-width:210px; border:1px solid var(--hair); border-radius:7px; padding:7px 9px; background:var(--panel); }
+  .conf-ver .tag {
+    display:inline-block; font-size:9.5px; font-weight:700; text-transform:uppercase;
+    letter-spacing:.7px; padding:1px 6px; border-radius:4px; margin-bottom:4px;
+  }
+  .conf-ver.mine .tag { background:var(--cash); color:#fff; }
+  .conf-ver.theirs .tag { background:var(--accent); color:#fff; }
+  .conf-ver .txt { font-size:12.5px; color:var(--ink); line-height:1.5; word-break:break-word; }
+  .conf-btns { display:flex; gap:7px; flex-wrap:wrap; }
+  .conf-btns .btn { padding:5px 11px; font-size:12px; }
+  .conf-btns .btn.on { background:var(--ink); border-color:var(--ink); color:#fff; }
 
   /* ---------- print (§9/§25 — same A4 + "Powered by" pattern as billing/reports) ---------- */
   #printArea { display:none; }
@@ -254,11 +320,15 @@
       </div>
 
       <span class="grow"></span>
+      <span class="save-state" id="saveStatus"></span>
       <span class="net" id="netStatus"></span>
       <button class="btn pri" id="saveBtn">Save day</button>
     </div>
 
-    <div class="statusbar"><span class="err" id="ledgerErr"></span></div>
+    <div class="statusbar" id="statusBar">
+      <span class="err" id="ledgerErr"></span>
+      <button class="btn reload-btn" id="reloadBtn" hidden>Reload this day from the server</button>
+    </div>
 
     <div class="paper-desk zoomable" id="paperDesk">
       <div class="scaler" id="scaler">
@@ -305,9 +375,45 @@
     d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
   });
 
-  var state = { date: new Date().toISOString().slice(0, 10), sheet: null, originalSheet: null, parties: [], dirty: false, prevClosing: 0 };
+  // originalRows (§7) is the row-level twin of originalSheet: the snapshot
+  // smart_merge_lines diffs against, captured at exactly the same moments.
+  // autosavePaused (§5) is what stops a standing conflict from being
+  // re-surfaced every couple of seconds while the user keeps typing.
+  var state = {
+    date: new Date().toISOString().slice(0, 10),
+    sheet: null, originalSheet: null, originalRows: [],
+    parties: [], dirty: false, prevClosing: 0,
+    autosavePaused: false, saving: false, editSeq: 0
+  };
+
+  // Every edit bumps editSeq. A save compares it before and after its round
+  // trip: if it moved, the user typed WHILE the save was in flight, and the
+  // copy the server just handed back is older than those keystrokes.
+  function markDirty() { state.dirty = true; state.editSeq++; }
 
   var LOCAL_KEY_PREFIX = 'oht:sheet:';
+  // Marks "a first save for this day is already sitting in the offline
+  // queue". Kept in localStorage, not just in memory, so a reload while
+  // still offline does not queue the same new day a second time.
+  var NEWSHEET_FLAG_PREFIX = 'oht:sheetQueued:';
+  function newSheetQueued(d) {
+    try { return localStorage.getItem(NEWSHEET_FLAG_PREFIX + d) === '1'; } catch (e) { return false; }
+  }
+  function setNewSheetQueued(d, on) {
+    try {
+      if (on) localStorage.setItem(NEWSHEET_FLAG_PREFIX + d, '1');
+      else localStorage.removeItem(NEWSHEET_FLAG_PREFIX + d);
+    } catch (e) {}
+  }
+
+  // sheet_rows columns this client owns. sheet_id/created_at/line_no are
+  // deliberately NOT in here: apply_merged_lines() supplies the fk itself
+  // (passing it again in the row object would duplicate the column in its
+  // generated INSERT) and re-numbers line_no from the array position, which
+  // is what keeps the persisted order equal to the order on screen.
+  var ROW_COLS = ['d_amt', 'd_rem', 'd_tick', 'd_party', 'c_amt', 'c_rem', 'c_tick', 'c_party'];
+  // Left-to-right keyboard order of the editable cells in one register row (§4).
+  var FIELD_ORDER = ['d_amt', 'd_rem', 'd_tick', 'c_amt', 'c_rem', 'c_tick'];
 
   function todayStr() { return new Date().toISOString().slice(0, 10); }
 
@@ -334,9 +440,54 @@
   // through the merge path below instead of staying stuck re-queuing blind
   // upserts — but never if the user typed more since queueing (state.dirty),
   // or that unsaved typing would be silently overwritten by the reload.
-  function onQueueDrained(op, res) {
+  async function onQueueDrained(op, res) {
     var d = sheetDateOfOp(op);
-    if (!d || d !== state.date || state.dirty) return;
+    if (!d) return;
+
+    // A brand-new day saved while offline goes up as the sheets header
+    // alone — sheet_rows needs the header's id, which only exists once the
+    // insert lands. So the rows are pushed here, read from the local cache
+    // at THIS moment so they are the latest ones typed offline rather than
+    // a copy frozen when the op was queued.
+    if (op.ohtNewSheet) {
+      setNewSheetQueued(d, false);
+      if (res && res.error) {
+        // A duplicate key here means the date was taken while this device
+        // was offline. If we already hold a real id for the day it was our
+        // own earlier queued op that created it, which is not a conflict.
+        var ours = state.sheet && state.sheet.sheet_date === d && state.sheet.id;
+        if (res.error.code === '23505' && d === state.date && !ours) {
+          showConflict('Jab aap offline the, is din ki sheet kisi aur ne bana di. Aap ki yahan likhi entries mehfooz hain ' +
+            'lekin sync nahi ho sakin — "Reload this day from the server" dabakar taaza sheet dekhein.');
+        }
+        return;
+      }
+      var hdr = await sb.from('sheets').select('id').eq('sheet_date', d).is('deleted_at', null).maybeSingle();
+      var cached = null;
+      try { cached = JSON.parse(localStorage.getItem(LOCAL_KEY_PREFIX + d) || 'null'); } catch (e) {}
+      if (hdr.data && cached) {
+        // The header went up with whatever was typed when the op was first
+        // queued; bring it in line with the last offline edit. Safe to write
+        // flat: this row was created a moment ago by this very op, so there
+        // is no second editor's version of it to merge against yet.
+        await sb.from('sheets').update({
+          opening: cached.opening, side: cached.side,
+          firm: cached.firm || null, page: cached.page || null
+        }).eq('id', hdr.data.id);
+      }
+      var pend = ((cached && cached.rows) || []).map(normRow).filter(function (r) { return !r.id; });
+      if (hdr.data && pend.length) {
+        await sb.from('sheet_rows').insert(pend.map(function (r, i) {
+          var o = sanitizeForApply(r);
+          delete o.id;
+          o.sheet_id = hdr.data.id;
+          o.line_no = i + 1;
+          return o;
+        }));
+      }
+    }
+
+    if (d !== state.date || state.dirty) return;
     if (res && res.error && res.error.code !== '23505') return; // genuine failure — leave local state as-is
     loadSheet(state.date);
   }
@@ -438,43 +589,155 @@
     state.parties = data || [];
   }
 
-  function emptyRow() { return [0, '', 0, '', false, false, null, null]; }
+  // ---------------------------------------------------------------
+  // Row shape. sheets.rows (a JSONB array-of-arrays) is gone — every line
+  // is a sheet_rows record now, so rows are named objects carrying their
+  // real sheet_rows.id once persisted (and no id while still in memory,
+  // which is exactly how smart_merge_lines tells "new" from "edited").
+  // ---------------------------------------------------------------
+  function emptyRow() {
+    return { id: null, d_amt: 0, d_rem: '', d_tick: false, d_party: null,
+             c_amt: 0, c_rem: '', c_tick: false, c_party: null };
+  }
+
+  function normRow(r) {
+    r = r || {};
+    return {
+      id: r.id || null,
+      d_amt: Number(r.d_amt) || 0, d_rem: r.d_rem == null ? '' : String(r.d_rem),
+      d_tick: !!r.d_tick, d_party: r.d_party || null,
+      c_amt: Number(r.c_amt) || 0, c_rem: r.c_rem == null ? '' : String(r.c_rem),
+      c_tick: !!r.c_tick, c_party: r.c_party || null
+    };
+  }
+
+  // The one place a row is turned into what the merge RPCs see. BOTH sides
+  // of the 3-way diff (originalRows and the live rows) go through it, so a
+  // purely cosmetic difference — '' in memory vs NULL in the column — can
+  // never be mistaken for an edit and reported as a conflict.
+  function toLinePayload(r) {
+    var o = {
+      d_amt: Number(r.d_amt) || 0, d_rem: r.d_rem ? String(r.d_rem) : null,
+      d_tick: !!r.d_tick, d_party: r.d_party || null,
+      c_amt: Number(r.c_amt) || 0, c_rem: r.c_rem ? String(r.c_rem) : null,
+      c_tick: !!r.c_tick, c_party: r.c_party || null
+    };
+    if (r.id) o.id = r.id;
+    return o;
+  }
+
+  // What apply_merged_lines() may be handed: id (when the row already
+  // exists) plus the eight data columns, and nothing else — see ROW_COLS.
+  function sanitizeForApply(r) {
+    var o = {};
+    if (r && r.id) o.id = r.id;
+    ROW_COLS.forEach(function (k) { if (r && k in r) o[k] = r[k]; });
+    return o;
+  }
+
+  function snapshotRows(rows) {
+    return (rows || []).map(function (r) { return Object.assign({}, r); });
+  }
+
+  function rowsOrEmpty(rows) { return (rows && rows.length) ? rows : [emptyRow()]; }
+
+  function byLineNo(a, b) { return (Number(a.line_no) || 0) - (Number(b.line_no) || 0); }
+
+  async function fetchRows(sheetId) {
+    var res = await sb.from('sheet_rows').select('*').eq('sheet_id', sheetId).order('line_no');
+    if (res.error) throw res.error;
+    return (res.data || []).map(normRow);
+  }
 
   async function loadSheet(date) {
+    // An explicit (re)load is the ONLY thing allowed to replace what is on
+    // screen (§5), so it is also the point where a standing conflict is
+    // considered dealt with and auto-save is re-armed.
+    resumeAutosave();
+
     // Optimistic local-first read (§14): show cached copy immediately, then reconcile.
     var cached = null;
     try { cached = JSON.parse(localStorage.getItem(LOCAL_KEY_PREFIX + date) || 'null'); } catch (e) {}
-    if (cached) { state.sheet = cached; render(); }
+    if (cached) {
+      cached.rows = rowsOrEmpty((cached.rows || []).map(normRow));
+      state.sheet = cached;
+      render();
+    }
 
     var { data } = await sb.from('sheets').select('*').eq('sheet_date', date).is('deleted_at', null).maybeSingle();
     if (data) {
       // The server's row is the merge baseline (§27) for this browser's
       // NEXT save — captured fresh here so a second user's changes made
       // before this load are never mistaken for this session's own edits.
+      var rows = [];
+      try { rows = await fetchRows(data.id); } catch (e) { rows = cached && cached.id === data.id ? cached.rows : []; }
+      data.rows = rowsOrEmpty(rows);
       state.sheet = data;
       state.originalSheet = JSON.parse(JSON.stringify(data));
+      state.originalRows = snapshotRows(data.rows);
     } else if (!cached) {
       state.sheet = { sheet_date: date, opening: 0, side: 'dr', firm: '', page: '', rows: [emptyRow()] };
       state.originalSheet = null; // never persisted yet — first save bootstraps the row
+      state.originalRows = [];
+      // Firm name carries forward silently (§2). Unlike the opening
+      // balance it is not a figure that needs verifying every morning, so
+      // re-typing it on every new day is pure friction.
+      state.sheet.firm = await latestFirmBefore(date);
     } else {
       // Offline (or the fetch failed) with only a locally-cached copy —
       // use it as the merge baseline only if it was ever actually saved.
       state.originalSheet = cached.id ? JSON.parse(JSON.stringify(cached)) : null;
+      state.originalRows = cached.id ? snapshotRows(state.sheet.rows) : [];
     }
-    try { localStorage.setItem(LOCAL_KEY_PREFIX + date, JSON.stringify(state.sheet)); } catch (e) {}
+    cacheLocal(state.sheet);
 
     // Previous day's closing, for display continuity.
     var prevDate = new Date(date); prevDate.setDate(prevDate.getDate() - 1);
     var { data: prevSheet } = await sb.from('sheets').select('*').eq('sheet_date', prevDate.toISOString().slice(0, 10)).is('deleted_at', null).maybeSingle();
-    state.prevClosing = prevSheet ? computeClosing(prevSheet) : 0;
+    if (prevSheet) {
+      var pr = await sb.from('sheet_rows').select('d_amt,c_amt').eq('sheet_id', prevSheet.id);
+      prevSheet.rows = (pr.data || []).map(normRow);
+      state.prevClosing = computeClosing(prevSheet);
+    } else {
+      state.prevClosing = 0;
+    }
 
     render();
   }
 
+  // Most recent non-empty firm on any earlier day (§2).
+  async function latestFirmBefore(date) {
+    if (!navigator.onLine) return '';
+    var res = await sb.from('sheets').select('firm')
+      .lt('sheet_date', date).is('deleted_at', null)
+      .not('firm', 'is', null).neq('firm', '')
+      .order('sheet_date', { ascending: false }).limit(1);
+    if (res.error || !res.data || !res.data.length) return '';
+    return res.data[0].firm || '';
+  }
+
+  function cacheLocal(sheet) {
+    try { localStorage.setItem(LOCAL_KEY_PREFIX + (sheet.sheet_date || state.date), JSON.stringify(sheet)); } catch (e) {}
+  }
+
+  // Unchanged math (§: still only the two amount columns; the cash ticks
+  // and party links never touch the running balance) — only the accessors
+  // moved from array slots to the sheet_rows column names.
   function computeClosing(sheet) {
     var bal = sheet.side === 'dr' ? sheet.opening : -sheet.opening;
-    (sheet.rows || []).forEach(function (r) { bal += (Number(r[0]) || 0) - (Number(r[2]) || 0); });
+    (sheet.rows || []).forEach(function (r) { bal += (Number(r.d_amt) || 0) - (Number(r.c_amt) || 0); });
     return bal;
+  }
+
+  // Cash summary (§3): this sheet only. No carry-forward, by design — the
+  // approved replacement for the dropped sheets.cash_opening idea.
+  function computeCash(sheet) {
+    var received = 0, paid = 0;
+    (sheet.rows || []).forEach(function (r) {
+      if (r.d_tick) received += Number(r.d_amt) || 0;
+      if (r.c_tick) paid += Number(r.c_amt) || 0;
+    });
+    return { received: received, paid: paid, inHand: received - paid };
   }
 
   function partyName(id) {
@@ -493,6 +756,13 @@
     if (!s) { area.innerHTML = '<p class="loading">Loading…</p>'; return; }
     document.getElementById('dateInput').value = state.date;
 
+    // Auto-save fires while the user is still typing, and a save that
+    // brings rows back from the server re-renders the whole register — so
+    // every render puts the caret back where it was, or the page would
+    // yank focus out of the cell being filled in every couple of seconds.
+    var focusKey = captureFocus();
+    suppressBlurSave = true;
+
     var running = s.side === 'dr' ? s.opening : -s.opening;
     var totD = 0, totC = 0;
 
@@ -500,7 +770,7 @@
       '<div class="letterhead">' +
         '<div class="mark2">O</div>' +
         '<div style="flex:1;min-width:0">' +
-          '<div class="firm-name">' + esc(s.firm || 'OHT Accounting System') + '</div>' +
+          '<input class="firm-name" id="f_firm" value="' + esc(s.firm || '') + '" placeholder="OHT Accounting System" aria-label="Firm name">' +
           '<div class="firm-addr">Daily Cash Book — receipts and payments of the day</div>' +
         '</div>' +
         '<div class="lh-meta">' +
@@ -508,6 +778,15 @@
           '<div class="lh-page">Page ' + esc(s.page || '—') + '</div>' +
         '</div>' +
       '</div>';
+
+    html += '<div class="opening-block">' +
+      '<span class="ob-lbl">Opening balance</span>' +
+      '<input type="number" step="0.01" id="f_opening" value="' + s.opening + '">' +
+      '<select id="f_side">' +
+        '<option value="dr"' + (s.side === 'dr' ? ' selected' : '') + '>Dr</option>' +
+        '<option value="cr"' + (s.side === 'cr' ? ' selected' : '') + '>Cr</option>' +
+      '</select>' +
+    '</div>';
 
     html += '<table class="reg">' +
       '<colgroup>' +
@@ -526,32 +805,21 @@
           '<th>Amount</th><th>Particulars</th><th>&#10003;</th>' +
           '<th>Amount</th><th>Particulars</th><th>&#10003;</th>' +
         '</tr>' +
-      '</thead><tbody>';
-
-    html += '<tr class="open-row">' +
-      '<td class="open-lbl" colspan="4">Opening balance</td>' +
-      '<td class="open-in" colspan="3">' +
-        '<input type="number" step="0.01" id="f_opening" value="' + s.opening + '">' +
-        '<select id="f_side">' +
-          '<option value="dr"' + (s.side === 'dr' ? ' selected' : '') + '>Dr</option>' +
-          '<option value="cr"' + (s.side === 'cr' ? ' selected' : '') + '>Cr</option>' +
-        '</select>' +
-      '</td>' +
-      '<td class="act"></td></tr>';
+      '</thead><tbody id="regBody">';
 
     (s.rows || []).forEach(function (r, idx) {
-      var d = Number(r[0]) || 0, c = Number(r[2]) || 0;
+      var d = Number(r.d_amt) || 0, c = Number(r.c_amt) || 0;
       totD += d; totC += c;
       running += d - c;
-      var dLinked = r[7] ? '<span class="party-chip">&#128279; ' + esc(partyName(r[7])) + '</span>' : '';
-      var cLinked = r[6] ? '<span class="party-chip">&#128279; ' + esc(partyName(r[6])) + '</span>' : '';
+      var dLinked = r.d_party ? '<span class="party-chip">&#128279; ' + esc(partyName(r.d_party)) + '</span>' : '';
+      var cLinked = r.c_party ? '<span class="party-chip">&#128279; ' + esc(partyName(r.c_party)) + '</span>' : '';
       html += '<tr data-idx="' + idx + '">' +
-        '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="0" value="' + (d ? r[0] : '') + '"></td>' +
-        '<td class="cell-in">' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="1" data-partyslot="7" value="' + esc(r[1]) + '"></td>' +
-        '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="4"' + (r[4] ? ' checked' : '') + '></td>' +
-        '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="2" value="' + (c ? r[2] : '') + '"></td>' +
-        '<td class="cell-in">' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="3" data-partyslot="6" value="' + esc(r[3]) + '"></td>' +
-        '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="5"' + (r[5] ? ' checked' : '') + '></td>' +
+        '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="d_amt" value="' + (d ? esc(r.d_amt) : '') + '" aria-label="Debit amount line ' + (idx + 1) + '"></td>' +
+        '<td class="cell-in">' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="d_rem" data-partyslot="d_party" value="' + esc(r.d_rem) + '" aria-label="Debit particulars line ' + (idx + 1) + '"></td>' +
+        '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="d_tick"' + (r.d_tick ? ' checked' : '') + ' aria-label="Debit was cash, line ' + (idx + 1) + '"></td>' +
+        '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="c_amt" value="' + (c ? esc(r.c_amt) : '') + '" aria-label="Credit amount line ' + (idx + 1) + '"></td>' +
+        '<td class="cell-in">' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="c_rem" data-partyslot="c_party" value="' + esc(r.c_rem) + '" aria-label="Credit particulars line ' + (idx + 1) + '"></td>' +
+        '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="c_tick"' + (r.c_tick ? ' checked' : '') + ' aria-label="Credit was cash, line ' + (idx + 1) + '"></td>' +
         '<td class="bal">' + fmtBal(running) + '</td>' +
         '<td class="act"><button type="button" class="rmRow" data-idx="' + idx + '" title="Remove row" aria-label="Remove row">&#10005;</button></td>' +
         '</tr>';
@@ -559,19 +827,29 @@
 
     html += '</tbody><tfoot>' +
       '<tr>' +
-        '<td class="m">' + fmtNum(totD) + '</td><td class="lbl-cell" colspan="2">Total received</td>' +
-        '<td class="m">' + fmtNum(totC) + '</td><td class="lbl-cell" colspan="2">Total paid</td>' +
-        '<td class="m">' + fmtNum(totD - totC) + '</td><td style="border:none;background:none"></td>' +
+        '<td class="m" id="ftTotD">' + fmtNum(totD) + '</td><td class="lbl-cell" colspan="2">Total received</td>' +
+        '<td class="m" id="ftTotC">' + fmtNum(totC) + '</td><td class="lbl-cell" colspan="2">Total paid</td>' +
+        '<td class="m" id="ftNet">' + fmtNum(totD - totC) + '</td><td style="border:none;background:none"></td>' +
       '</tr>' +
       '<tr class="closing">' +
         '<td class="lbl-cell" colspan="6">Closing balance carried forward</td>' +
-        '<td class="m">' + fmtBal(running) + '</td><td style="border:none;background:none"></td>' +
+        '<td class="m" id="ftClose">' + fmtBal(running) + '</td><td style="border:none;background:none"></td>' +
       '</tr>' +
       '</tfoot></table>';
 
     html += '<div class="prev-note">' +
       '<span>Brought forward from ' + esc(longDate(prevDateStr(state.date))) + ': ' + fmtBal(state.prevClosing) + '</span>' +
-      '<span>' + ((s.rows || []).length) + ' line(s)</span>' +
+      '<span id="lineCount">' + ((s.rows || []).length) + ' line(s)</span>' +
+      '</div>';
+
+    var cash = computeCash(s);
+    html += '<div class="cash-sum">' +
+      '<div class="cs-ttl">Cash summary <span>— this day only, not carried forward</span></div>' +
+      '<div class="cs-items">' +
+        '<div class="cs-i"><span class="k">Cash received</span><span class="v" id="csRec">' + fmtNum(cash.received) + '</span></div>' +
+        '<div class="cs-i"><span class="k">Cash paid</span><span class="v" id="csPaid">' + fmtNum(cash.paid) + '</span></div>' +
+        '<div class="cs-i hand' + (cash.inHand < 0 ? ' neg' : '') + '" id="csHandBox"><span class="k">Cash in hand</span><span class="v" id="csHand">' + fmtNum(cash.inHand) + '</span></div>' +
+      '</div>' +
       '</div>';
 
     html += '<div class="sign-row"><div>Prepared by</div><div>Checked by</div><div>Approved by</div></div>';
@@ -579,6 +857,88 @@
     area.innerHTML = html;
     wireEvents();
     sizeScaler();
+    restoreFocus(focusKey);
+    setTimeout(function () { suppressBlurSave = false; }, 0);
+  }
+
+  // ---------------------------------------------------------------
+  // In-place refresh of everything the register DERIVES from the entries:
+  // the running-balance column, the footer totals, the closing balance and
+  // the cash summary. Nothing else is touched.
+  //
+  // This exists because a full render() rebuilds every <input>, and Chrome
+  // flatly refuses to read or restore a caret position inside an
+  // <input type="number"> — so re-rendering on each keystroke (which is
+  // what the amount cells used to do, to keep the balance column right)
+  // dropped the caret back to position 0 after every digit and turned
+  // "12500" into "521". Derived figures are recomputed here instead; a full
+  // render is now only for changes that actually alter the page's structure.
+  // ---------------------------------------------------------------
+  function refreshDerived() {
+    var s = state.sheet;
+    if (!s || !document.getElementById('regBody')) return;
+    var running = s.side === 'dr' ? s.opening : -s.opening;
+    var totD = 0, totC = 0;
+    var bals = document.querySelectorAll('#regBody td.bal');
+    (s.rows || []).forEach(function (r, i) {
+      var d = Number(r.d_amt) || 0, c = Number(r.c_amt) || 0;
+      totD += d; totC += c; running += d - c;
+      if (bals[i]) bals[i].textContent = fmtBal(running);
+    });
+
+    function put(id, txt) { var el = document.getElementById(id); if (el) el.textContent = txt; }
+    put('ftTotD', fmtNum(totD));
+    put('ftTotC', fmtNum(totC));
+    put('ftNet', fmtNum(totD - totC));
+    put('ftClose', fmtBal(running));
+    put('lineCount', (s.rows || []).length + ' line(s)');
+
+    var cash = computeCash(s);
+    put('csRec', fmtNum(cash.received));
+    put('csPaid', fmtNum(cash.paid));
+    put('csHand', fmtNum(cash.inHand));
+    var hand = document.getElementById('csHandBox');
+    if (hand) hand.classList.toggle('neg', cash.inHand < 0);
+  }
+
+  // Used where a re-render is wanted but the page's structure has not
+  // changed: if the user is mid-entry in a field, leave the inputs exactly
+  // as they are (see refreshDerived) and only bring the figures up to date.
+  function renderSafely() {
+    var area = document.getElementById('ledgerArea');
+    var el = document.activeElement;
+    var want = (state.sheet && state.sheet.rows) ? state.sheet.rows.length : -1;
+    if (area && el && el.tagName === 'INPUT' && area.contains(el) &&
+        document.querySelectorAll('#regBody tr').length === want) {
+      refreshDerived();
+      return;
+    }
+    render();
+  }
+
+  // ---------------------------------------------------------------
+  // Focus preservation across a re-render.
+  // ---------------------------------------------------------------
+  function captureFocus() {
+    var el = document.activeElement;
+    var area = document.getElementById('ledgerArea');
+    if (!el || !area || !area.contains(el)) return null;
+    var key = null;
+    if (el.id === 'f_opening' || el.id === 'f_side' || el.id === 'f_firm') key = { id: el.id };
+    else if (el.dataset && el.dataset.idx != null && el.dataset.f) key = { idx: el.dataset.idx, f: el.dataset.f };
+    if (!key) return null;
+    try { key.selStart = el.selectionStart; key.selEnd = el.selectionEnd; } catch (e) {}
+    return key;
+  }
+
+  function restoreFocus(key) {
+    if (!key) return;
+    var el = key.id
+      ? document.getElementById(key.id)
+      : document.querySelector('#ledgerArea [data-idx="' + key.idx + '"][data-f="' + key.f + '"]');
+    if (!el) return;
+    el.focus();
+    if (key.selStart != null) { try { el.setSelectionRange(key.selStart, key.selEnd); } catch (e) {} }
   }
 
   function prevDateStr(date) {
@@ -588,88 +948,223 @@
 
   function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 
+  var suppressBlurSave = false;
+
   function wireEvents() {
+    document.getElementById('f_firm').addEventListener('input', function () {
+      state.sheet.firm = this.value; markDirty(); scheduleAutosave();
+    });
+    document.getElementById('f_firm').addEventListener('blur', autosaveOnBlur);
+
     document.getElementById('f_opening').addEventListener('input', function () {
-      state.sheet.opening = Number(this.value) || 0; state.dirty = true; render();
+      state.sheet.opening = Number(this.value) || 0; markDirty(); scheduleAutosave(); refreshDerived();
     });
+    document.getElementById('f_opening').addEventListener('blur', autosaveOnBlur);
     document.getElementById('f_side').addEventListener('change', function () {
-      state.sheet.side = this.value; state.dirty = true; render();
+      state.sheet.side = this.value; markDirty(); refreshDerived(); autosaveNow();
     });
+
     Array.prototype.forEach.call(document.querySelectorAll('.rmRow'), function (btn) {
       btn.addEventListener('click', function () {
-        state.sheet.rows.splice(Number(btn.dataset.idx), 1); state.dirty = true; render();
+        state.sheet.rows.splice(Number(btn.dataset.idx), 1);
+        if (!state.sheet.rows.length) state.sheet.rows.push(emptyRow());
+        markDirty(); render(); autosaveNow();
       });
     });
+
     Array.prototype.forEach.call(document.querySelectorAll('.cell'), function (el) {
       el.addEventListener('input', function () {
-        var idx = Number(el.dataset.idx), f = Number(el.dataset.f);
+        var idx = Number(el.dataset.idx), f = el.dataset.f;
         var row = state.sheet.rows[idx];
-        row[f] = (f === 0 || f === 2) ? Number(el.value) || 0 : el.value;
+        if (!row) return;
+        row[f] = (f === 'd_amt' || f === 'c_amt') ? (Number(el.value) || 0) : el.value;
         // Re-derive party link: keep it only if the remarks text still starts with the linked party's name.
         if (el.dataset.partyslot) {
-          var slot = Number(el.dataset.partyslot);
+          var slot = el.dataset.partyslot;
           var linkedName = partyName(row[slot]);
-          if (linkedName && row[f].toLowerCase().indexOf(linkedName.toLowerCase()) !== 0) {
+          if (linkedName && String(row[f]).toLowerCase().indexOf(linkedName.toLowerCase()) !== 0) {
             row[slot] = null;
           }
+          showPartyPicker(el); // keep the suggestions in step with what is typed
         }
-        state.dirty = true;
-        if (f === 0 || f === 2) renderKeepingFocus(el); // running balance changed
+        markDirty();
+        scheduleAutosave();
+        if (f === 'd_amt' || f === 'c_amt') refreshDerived(); // running balance changed
       });
+      el.addEventListener('blur', autosaveOnBlur);
       if (el.dataset.partyslot) {
         el.addEventListener('focus', function () { showPartyPicker(el); });
-        el.addEventListener('blur', function () { setTimeout(hidePartyPicker, 150); });
+        // Only tear down the picker that belongs to THIS input: after a
+        // pick the register re-renders and a fresh input (with its own
+        // picker) may already have taken focus by the time this fires.
+        el.addEventListener('blur', function () {
+          setTimeout(function () { if (pickerInput === el) hidePartyPicker(); }, 150);
+        });
       }
     });
+
     Array.prototype.forEach.call(document.querySelectorAll('.cellchk'), function (el) {
       el.addEventListener('change', function () {
-        var idx = Number(el.dataset.idx), f = Number(el.dataset.f);
-        state.sheet.rows[idx][f] = el.checked; state.dirty = true;
+        var idx = Number(el.dataset.idx), f = el.dataset.f;
+        if (!state.sheet.rows[idx]) return;
+        state.sheet.rows[idx][f] = el.checked;
+        markDirty();
+        refreshDerived();  // the cash summary depends on these ticks (§3)
+        autosaveNow();
       });
     });
+
+    var body = document.getElementById('regBody');
+    if (body) body.addEventListener('keydown', onRegKeydown);
   }
 
-  // An amount edit re-renders the whole register (the running balance
-  // column changes from that row down). The original code called render()
-  // directly, which dropped the caret out of the cell being typed into —
-  // harmless in the old plain table, very noticeable on the paper replica.
-  // Same render, focus and caret simply put back afterwards.
-  function renderKeepingFocus(el) {
-    var idx = el.dataset.idx, f = el.dataset.f;
-    var selStart = null, selEnd = null;
-    try { selStart = el.selectionStart; selEnd = el.selectionEnd; } catch (e) {}
+  // ---------------------------------------------------------------
+  // Keyboard navigation (§4). Additive — nothing here changes what the
+  // mouse/touch already does.
+  //
+  //   Up / Down    same column, previous / next row.
+  //   Left / Right previous / next editable cell in the row, but only once
+  //                the caret is already at the edge of the text, so normal
+  //                within-field editing keeps working. Chrome refuses to
+  //                report a caret position for <input type=number>, so an
+  //                amount cell hands over on Left/Right only when it is
+  //                empty; checkboxes always hand over.
+  //   Enter        next field in the same row, wrapping to the first field
+  //                of the next row — and on the very last row it appends a
+  //                fresh row first, so a whole day can be entered without
+  //                ever reaching for the mouse.
+  // ---------------------------------------------------------------
+  function focusCell(idx, f, caret) {
+    var el = document.querySelector('#regBody [data-idx="' + idx + '"][data-f="' + f + '"]');
+    if (!el) return false;
+    el.focus();
+    if (el.type !== 'checkbox') {
+      try {
+        var len = String(el.value == null ? '' : el.value).length;
+        var p = caret === 'start' ? 0 : len;
+        el.setSelectionRange(p, p);
+      } catch (e) {}
+    }
+    return true;
+  }
+
+  function atEdge(el, which) {
+    if (el.type === 'checkbox') return true;
+    var val = String(el.value == null ? '' : el.value);
+    var s = null, e2 = null;
+    try { s = el.selectionStart; e2 = el.selectionEnd; } catch (ex) { return val === ''; }
+    if (s == null) return val === '';           // number inputs in some browsers
+    if (s !== e2) return false;                 // a selection is in play — leave it alone
+    return which === 'start' ? s === 0 : s === val.length;
+  }
+
+  function onRegKeydown(e) {
+    var el = e.target;
+    if (!el || !el.dataset || el.dataset.idx == null || !el.dataset.f) return;
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    var key = e.key;
+
+    // The party picker owns the arrow keys / Enter / Escape while it is open.
+    if (pickerEl && pickerInput === el) {
+      if (key === 'ArrowDown') { e.preventDefault(); pickerHighlight(pickerIdx + 1); return; }
+      if (key === 'ArrowUp') { e.preventDefault(); pickerHighlight(pickerIdx - 1); return; }
+      if (key === 'Enter' && pickerIdx >= 0 && pickerMatches[pickerIdx]) {
+        e.preventDefault(); choosePartyOption(el, pickerMatches[pickerIdx]); return;
+      }
+      if (key === 'Escape') {
+        // Close without selecting; focus stays exactly where it was.
+        e.preventDefault(); e.stopPropagation(); hidePartyPicker(); return;
+      }
+    }
+
+    var idx = Number(el.dataset.idx), f = el.dataset.f;
+    var pos = FIELD_ORDER.indexOf(f);
+    if (pos < 0) return;
+    var last = (state.sheet && state.sheet.rows ? state.sheet.rows.length : 0) - 1;
+
+    if (key === 'ArrowDown') { e.preventDefault(); if (idx < last) focusCell(idx + 1, f); return; }
+    if (key === 'ArrowUp') { e.preventDefault(); if (idx > 0) focusCell(idx - 1, f); return; }
+    if (key === 'ArrowLeft' && pos > 0 && atEdge(el, 'start')) {
+      e.preventDefault(); focusCell(idx, FIELD_ORDER[pos - 1], 'end'); return;
+    }
+    if (key === 'ArrowRight' && pos < FIELD_ORDER.length - 1 && atEdge(el, 'end')) {
+      e.preventDefault(); focusCell(idx, FIELD_ORDER[pos + 1], 'start'); return;
+    }
+    if (key === 'Enter') {
+      e.preventDefault();
+      hidePartyPicker();
+      if (pos < FIELD_ORDER.length - 1) { focusCell(idx, FIELD_ORDER[pos + 1], 'end'); return; }
+      if (idx < last) { focusCell(idx + 1, FIELD_ORDER[0], 'end'); return; }
+      addRow(true);
+    }
+  }
+
+  function addRow(focusIt) {
+    if (!state.sheet) return;
+    state.sheet.rows.push(emptyRow());
+    markDirty();
     render();
-    var again = document.querySelector('.cell[data-idx="' + idx + '"][data-f="' + f + '"]');
-    if (!again) return;
-    again.focus();
-    if (selStart != null) { try { again.setSelectionRange(selStart, selEnd); } catch (e) {} }
+    if (focusIt) focusCell(state.sheet.rows.length - 1, FIELD_ORDER[0], 'start');
   }
 
-  var pickerEl = null;
-  function hidePartyPicker() { if (pickerEl) { pickerEl.remove(); pickerEl = null; } }
+  // ---------------------------------------------------------------
+  // Party picker — mouse as before, plus full keyboard operation (§4).
+  // ---------------------------------------------------------------
+  var pickerEl = null, pickerInput = null, pickerMatches = [], pickerIdx = -1, pickerTerm = '';
+  var suppressPicker = false;
+
+  function hidePartyPicker() {
+    if (pickerEl) pickerEl.remove();
+    pickerEl = null; pickerInput = null; pickerMatches = []; pickerIdx = -1; pickerTerm = '';
+  }
+
+  function pickerHighlight(n) {
+    if (!pickerEl || !pickerMatches.length) return;
+    pickerIdx = (n + pickerMatches.length) % pickerMatches.length;
+    Array.prototype.forEach.call(pickerEl.children, function (d, i) { d.classList.toggle('on', i === pickerIdx); });
+    var cur = pickerEl.children[pickerIdx];
+    if (cur && cur.scrollIntoView) { try { cur.scrollIntoView({ block: 'nearest' }); } catch (e) {} }
+  }
+
+  function choosePartyOption(inputEl, p) {
+    var idx = Number(inputEl.dataset.idx), f = inputEl.dataset.f, slot = inputEl.dataset.partyslot;
+    var row = state.sheet.rows[idx];
+    if (!row) { hidePartyPicker(); return; }
+    var term = pickerTerm;
+    var cur = String(row[f] == null ? '' : row[f]);
+    var rest = term ? cur.replace(new RegExp('^' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').trim() : cur.trim();
+    row[f] = p.name + (rest ? ' ' + rest : ' ');
+    row[slot] = p.id;
+    markDirty();
+    hidePartyPicker();
+    // Don't re-open the picker for the name we just committed.
+    suppressPicker = true;
+    render();
+    focusCell(idx, f, 'end');
+    setTimeout(function () { suppressPicker = false; }, 0);
+    scheduleAutosave();
+  }
+
   function showPartyPicker(inputEl) {
     hidePartyPicker();
-    var term = inputEl.value.toLowerCase();
+    if (suppressPicker) return;
+    var term = String(inputEl.value == null ? '' : inputEl.value).toLowerCase();
     var matches = state.parties.filter(function (p) { return p.name.toLowerCase().indexOf(term) >= 0; }).slice(0, 8);
     if (!matches.length) return;
     pickerEl = document.createElement('div');
     pickerEl.className = 'partylist';
+    pickerInput = inputEl;
+    pickerMatches = matches;
+    pickerIdx = -1;
+    pickerTerm = term;
     var rect = inputEl.getBoundingClientRect();
     pickerEl.style.left = (rect.left + window.scrollX) + 'px';
     pickerEl.style.top = (rect.bottom + window.scrollY) + 'px';
-    matches.forEach(function (p) {
+    matches.forEach(function (p, i) {
       var opt = document.createElement('div');
       opt.textContent = p.name;
-      opt.addEventListener('mousedown', function () {
-        var idx = Number(inputEl.dataset.idx), f = Number(inputEl.dataset.f), slot = Number(inputEl.dataset.partyslot);
-        var row = state.sheet.rows[idx];
-        var rest = row[f].replace(new RegExp('^' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').trim();
-        row[f] = p.name + (rest ? ' ' + rest : ' ');
-        row[slot] = p.id;
-        state.dirty = true;
-        hidePartyPicker();
-        render();
-      });
+      opt.addEventListener('mouseenter', function () { pickerHighlight(i); });
+      opt.addEventListener('mousedown', function (ev) { ev.preventDefault(); choosePartyOption(inputEl, p); });
       pickerEl.appendChild(opt);
     });
     document.body.appendChild(pickerEl);
@@ -682,97 +1177,565 @@
   // against pre-first-save data and see its own earlier save as a phantom
   // conflict (server current would differ from the stale original on every
   // field this session itself already changed).
-  function afterSaveSuccess(newState) {
-    state.sheet = Object.assign({}, state.sheet, newState);
+  function finishSave(newHeader) {
+    state.sheet = Object.assign({}, state.sheet, newHeader || {});
     state.originalSheet = JSON.parse(JSON.stringify(state.sheet));
-    try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(state.sheet)); } catch (e) {}
+    cacheLocal(state.sheet);
+    resumeAutosave();
+    renderSafely();
   }
 
-  async function saveSheet() {
-    var errEl = document.getElementById('ledgerErr');
-    errEl.textContent = '';
-    var payload = {
+  // Full replace of the rows on screen with the server's set. Only used
+  // where nothing can have been typed in between — the offline-queue paths
+  // (which never went to the server at all) and the conflict path (where a
+  // modal had the keyboard the whole time).
+  function afterSaveSuccess(newHeader, newRows) {
+    if (newRows) state.sheet.rows = rowsOrEmpty(newRows);
+    state.originalRows = snapshotRows(state.sheet.rows);
+    finishSave(newHeader);
+  }
+
+  // The normal path. A save takes a snapshot of the rows, sends it, and
+  // comes back a few hundred milliseconds later — long enough for a quick
+  // typist to have filled in the next cell. Replacing the rows with the
+  // server's copy would silently swallow exactly those keystrokes, so
+  // instead the rows on screen stay put and only the ids the server just
+  // handed out are grafted onto them. The new merge baseline is what was
+  // actually SUBMITTED, so anything typed in the meantime is correctly seen
+  // as a still-unsaved change by the next save rather than disappearing.
+  //
+  // finalRows is the array handed to apply_merged_lines, and
+  // apply_merged_lines numbers line_no by position in it — so the applied
+  // set, sorted by line_no, lines up with finalRows index for index.
+  function commitRows(submittedObjs, submittedPayload, finalRows, appliedRows) {
+    var applied = (appliedRows || []).slice().sort(byLineNo);
+
+    var newObjs = [];
+    submittedObjs.forEach(function (o, i) { if (!submittedPayload[i].id) newObjs.push(o); });
+    var ptr = 0;
+    (finalRows || []).forEach(function (fr, i) {
+      var ap = applied[i];
+      if (!ap || fr.id) return;
+      var owner = newObjs[ptr++];
+      if (owner && !owner.id) owner.id = ap.id;
+    });
+
+    var have = {};
+    state.sheet.rows.forEach(function (r) { if (r.id) have[r.id] = true; });
+    var appended = [];
+    applied.forEach(function (ap) {
+      if (!ap.id || have[ap.id]) return;
+      var nr = normRow(ap);          // a row somebody else added concurrently
+      state.sheet.rows.push(nr);
+      appended.push(nr);
+    });
+
+    // Baseline = exactly what the server now holds. Rows the user deleted
+    // mid-flight stay in it on purpose, so the NEXT merge still knows to
+    // delete them instead of treating them as somebody else's new lines.
+    var baseline = [];
+    submittedObjs.forEach(function (o, i) {
+      if (!o.id) return;
+      baseline.push(normRow(Object.assign({}, submittedPayload[i], { id: o.id })));
+    });
+    appended.forEach(function (r) { baseline.push(Object.assign({}, r)); });
+    state.originalRows = baseline;
+  }
+
+  // Called at the end of the two paths that can race the user's typing.
+  function settleDirty(seqAtStart) {
+    if (state.editSeq === seqAtStart) { state.dirty = false; return; }
+    state.dirty = true;       // typed during the round trip — save again
+    scheduleAutosave();
+  }
+
+  // ---------------------------------------------------------------
+  // Auto-save (§5). Debounced while typing, immediate on blur, and it
+  // stops dead the moment a conflict is standing so the same conflict is
+  // never re-surfaced every two seconds while the user keeps working.
+  // "Save day" in the drawer stays clickable throughout — pressing it just
+  // re-shows the same conflict, harmlessly, until it is resolved.
+  // ---------------------------------------------------------------
+  var AUTOSAVE_MS = 1700;
+  var autosaveTimer = null, savedClearTimer = null;
+
+  function setSaveStatus(txt, cls) {
+    var el = document.getElementById('saveStatus');
+    if (!el) return;
+    if (savedClearTimer) { clearTimeout(savedClearTimer); savedClearTimer = null; }
+    el.textContent = txt || '';
+    el.className = 'save-state' + (cls ? ' ' + cls : '');
+    if (cls === 'ok') savedClearTimer = setTimeout(function () { setSaveStatus('', ''); }, 2000);
+  }
+
+  function showConflict(msg) {
+    // Never touches state.sheet / state.sheet.rows (§5) — what is on screen
+    // is the user's typing and stays untouched until THEY ask for a reload.
+    state.autosavePaused = true;
+    if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
+    document.getElementById('ledgerErr').textContent = msg;
+    document.getElementById('statusBar').classList.add('on');
+    document.getElementById('reloadBtn').hidden = false;
+    setSaveStatus('Not saved', 'warn');
+  }
+
+  function resumeAutosave() {
+    state.autosavePaused = false;
+    var btn = document.getElementById('reloadBtn');
+    if (btn) btn.hidden = true;
+    var bar = document.getElementById('statusBar');
+    if (bar) bar.classList.remove('on');
+  }
+
+  function clearStatusLine() {
+    document.getElementById('ledgerErr').textContent = '';
+    // Keep the bar's rule while the reload escape-hatch is still offered.
+    if (document.getElementById('reloadBtn').hidden) {
+      document.getElementById('statusBar').classList.remove('on');
+    }
+  }
+
+  function noteStatus(msg) {
+    document.getElementById('ledgerErr').textContent = msg;
+    document.getElementById('statusBar').classList.add('on');
+  }
+
+  function scheduleAutosave() {
+    if (state.autosavePaused) return;
+    if (autosaveTimer) clearTimeout(autosaveTimer);
+    autosaveTimer = setTimeout(function () { autosaveTimer = null; runAutosave(); }, AUTOSAVE_MS);
+  }
+
+  function autosaveNow() {
+    if (state.autosavePaused) return;
+    if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
+    runAutosave();
+  }
+
+  function autosaveOnBlur() {
+    // A re-render pulls the focused input out of the DOM, which some
+    // browsers report as a blur — that is not the user tabbing away and
+    // must not turn every keystroke into a save.
+    if (suppressBlurSave) return;
+    // Deferred by a tick on purpose. During a blur, document.activeElement
+    // is still nowhere, so a save that re-renders synchronously (the
+    // offline-queue paths do) would rebuild the register before the click
+    // or Tab has landed — and the field the user was moving into would be
+    // replaced under them. One tick later focus has settled.
+    setTimeout(autosaveNow, 0);
+  }
+
+  function runAutosave() {
+    if (state.autosavePaused || state.saving || !state.dirty || !state.sheet) return;
+    saveSheet().then(function () { loadRecentSheets(); }, function (e) {
+      setSaveStatus('', '');
+      noteStatus((e && e.message) || String(e));
+    });
+  }
+
+  // ---------------------------------------------------------------
+  // Save. One save at a time — the guard also holds for as long as the
+  // per-row conflict modal is open, so nothing is applied behind the
+  // user's back while they are deciding.
+  // ---------------------------------------------------------------
+  var inflightSave = null;
+
+  function saveSheet() {
+    if (!state.sheet) return Promise.resolve();
+    // Blur-save and a "Save day" click land back-to-back all the time
+    // (clicking the button blurs the cell first). Handing back the very
+    // same promise means the button's "Saved." toast waits for the save
+    // that is actually running instead of firing against a no-op.
+    if (inflightSave) return inflightSave;
+    state.saving = true;
+    inflightSave = doSave().then(function (v) {
+      state.saving = false; inflightSave = null; return v;
+    }, function (e) {
+      state.saving = false; inflightSave = null; throw e;
+    });
+    return inflightSave;
+  }
+
+  async function doSave() {
+    clearStatusLine();
+    var seq = state.editSeq;
+    var header = {
       sheet_date: state.sheet.sheet_date || state.date,
       opening: state.sheet.opening,
       side: state.sheet.side,
       firm: state.sheet.firm || null,
-      page: state.sheet.page || null,
-      rows: state.sheet.rows
+      page: state.sheet.page || null
     };
-    try { localStorage.setItem(LOCAL_KEY_PREFIX + state.date, JSON.stringify(Object.assign({}, state.sheet, payload))); } catch (e) {}
+    cacheLocal(Object.assign({}, state.sheet, header));
+    if (!state.sheet.id) return await firstSave(header, seq);
+    return await mergeSave(header, seq);
+  }
 
-    if (!state.sheet.id) {
-      // This day's sheet has never been persisted — bootstrap it with a
-      // plain upsert. Racing another user's very first save for the same
-      // day is a narrow edge case; from the second save onward (once this
-      // row has a real id) every save goes through the merge path below.
-      if (!navigator.onLine) {
-        OfflineQueue.enqueue({ kind: 'upsert', table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
-        afterSaveSuccess(payload);
-        errEl.textContent = 'No internet — saved locally, will sync automatically.';
-        state.dirty = false;
-        return;
+  // §6 — the very first save of a never-saved day. The old .upsert(…,
+  // {onConflict:'sheet_date'}) silently overwrote whatever a second person
+  // had just created for the same date; a plain insert turns that race
+  // into a 23505 we can surface instead of a data loss nobody notices.
+  async function firstSave(header, seq) {
+    var submittedObjs = state.sheet.rows.slice();   // references, not copies
+    var rowsPayload = submittedObjs.map(toLinePayload);
+
+    function queueNewSheet() {
+      // At most ONE queued op per new day. Everything it needs — the header
+      // fields and the rows — is read back out of the local cache when it
+      // actually drains, so it is always the latest offline state and never
+      // a copy frozen at queue time. A second op would add nothing except a
+      // duplicate-key error that looks like somebody else's conflict.
+      if (!newSheetQueued(header.sheet_date)) {
+        OfflineQueue.enqueue({
+          kind: 'insert', table: 'sheets', payload: header, ohtNewSheet: true
+        });
+        setNewSheetQueued(header.sheet_date, true);
       }
-      var { data, error } = await sb.from('sheets').upsert(payload, { onConflict: 'sheet_date' }).select().single();
-      if (error) {
-        if (OfflineQueue.isNetworkError(error)) {
-          OfflineQueue.enqueue({ kind: 'upsert', table: 'sheets', payload: payload, conflictCol: 'sheet_date' });
-          afterSaveSuccess(payload);
-          errEl.textContent = 'No internet — saved locally, will sync automatically.';
-          state.dirty = false;
-        } else {
-          errEl.textContent = error.message;
-        }
-        return;
-      }
-      afterSaveSuccess(data);
+      afterSaveSuccess(header, state.sheet.rows);
+      setSaveStatus('Offline — will sync', 'warn');
+      noteStatus('No internet — saved locally, will sync automatically.');
       state.dirty = false;
+    }
+
+    if (!navigator.onLine) { queueNewSheet(); return; }
+    setSaveStatus('Saving…', '');
+
+    var { data, error } = await sb.from('sheets').insert(header).select().single();
+    if (error) {
+      if (error.code === '23505') {
+        showConflict('Is din ki sheet abhi abhi kisi aur ne bana di. Aap ki yahan likhi entries mehfooz hain — ' +
+          '"Reload this day from the server" dabakar taaza sheet dekhein, phir apni entries dobara daalein.');
+        return;
+      }
+      if (OfflineQueue.isNetworkError(error)) { queueNewSheet(); return; }
+      setSaveStatus('', '');
+      noteStatus(error.message);
       return;
     }
 
-    // Existing sheet (§27): 3-way merge against the snapshot captured the
-    // last time this browser confirmed the server's true state, so a
-    // second user editing the SAME day concurrently is caught as a
-    // conflict instead of one save silently overwriting the other's entries.
+    setNewSheetQueued(header.sheet_date, false);
+
+    // Brand-new sheet: every row is genuinely new, so there is nothing to
+    // merge against yet — a plain multi-row insert is the whole job.
+    var rows = [];
+    if (rowsPayload.length) {
+      var ins = await sb.from('sheet_rows').insert(rowsPayload.map(function (r, i) {
+        var o = sanitizeForApply(r);
+        delete o.id;
+        o.sheet_id = data.id;
+        o.line_no = i + 1;
+        return o;
+      }));
+      if (ins.error) {
+        setSaveStatus('', '');
+        noteStatus(ins.error.message);
+        // Header did land — re-baseline it so the next save takes the merge
+        // path against a real id instead of trying to insert the day again.
+        afterSaveSuccess(data, null);
+        return;
+      }
+      try {
+        rows = await fetchRows(data.id);
+      } catch (e) {
+        // The lines ARE on the server; we just could not read them back, so
+        // their ids cannot be grafted on. Saving again from here would
+        // insert the same lines a second time — stop and make the user
+        // reload instead.
+        finishSave(data);
+        showConflict('Sheet ban gayi, lekin uski lines wapas parhi nahi ja sakin. ' +
+          '"Reload this day from the server" dabakar taaza sheet dekhein.');
+        return;
+      }
+    }
+    // rowsPayload doubles as "the array that was applied": the rows went in
+    // in exactly that order, with line_no 1..n, so the fetched set lines up.
+    commitRows(submittedObjs, rowsPayload, rowsPayload, rows);
+    finishSave(data);
+    settleDirty(seq);
+    setSaveStatus('Saved', 'ok');
+  }
+
+  // §7 — an existing sheet: header merge, then a per-row merge, and only a
+  // genuinely same-row clash ever reaches the user.
+  async function mergeSave(header, seq) {
     var mergeOriginal = state.originalSheet;
     var headerId = state.sheet.id;
+    var submittedObjs = state.sheet.rows.slice();   // references, not copies
+    var myLines = submittedObjs.map(toLinePayload);
+    var origLines = (state.originalRows || []).map(toLinePayload);
 
     function queueSheetEdit() {
-      OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'sheets', headerId: headerId, headerOriginal: mergeOriginal, headerNew: payload });
-      afterSaveSuccess(payload);
-      errEl.textContent = 'No internet — saved locally and will sync when back online.';
+      OfflineQueue.enqueue({
+        kind: 'doc_edit_merge', headerTable: 'sheets', headerId: headerId,
+        headerOriginal: mergeOriginal, headerNew: header,
+        lineTable: 'sheet_rows', lineFkCol: 'sheet_id',
+        lineOriginal: origLines, lineNew: myLines
+      });
+      afterSaveSuccess(header, state.sheet.rows);
+      setSaveStatus('Offline — will sync', 'warn');
+      noteStatus('No internet — saved locally and will sync when back online.');
       state.dirty = false;
     }
 
     if (!navigator.onLine) { queueSheetEdit(); return; }
+    setSaveStatus('Saving…', '');
 
+    // 1. Header (opening / side / firm / page). rows and cash_opening are
+    //    no longer columns on sheets, so they are simply not in the payload.
     var { data: mergeRes, error: mergeErr } = await sb.rpc('smart_merge_update', {
-      p_table: 'sheets', p_id: headerId, p_original: mergeOriginal, p_new: payload
+      p_table: 'sheets', p_id: headerId, p_original: mergeOriginal, p_new: header
     });
     if (mergeErr) {
       if (OfflineQueue.isNetworkError(mergeErr)) { queueSheetEdit(); return; }
-      errEl.textContent = mergeErr.message;
+      setSaveStatus('', '');
+      noteStatus(mergeErr.message);
       return;
     }
-    if (mergeRes.status === 'deleted') { errEl.textContent = 'This day\'s sheet was deleted by someone else.'; return; }
+    if (mergeRes.status === 'deleted') {
+      showConflict('Is din ki sheet kisi aur ne delete kar di. Aap ki entries yahin mehfooz hain — ' +
+        'reload karke dekhein ke ab sheet kya hai.');
+      return;
+    }
     if (mergeRes.status === 'conflict') {
       // NOT auto-retried: retrying with the current row as the new
       // "original" but the SAME unchanged payload would make the merge see
       // "nobody changed it since [now]" and silently overwrite whatever
       // the other person just saved — the opposite of what this whole
       // feature is for. Surface it instead (§14/§27).
-      errEl.textContent = 'Kisi aur ne isi waqt is din ki sheet mein "' + mergeRes.conflicts.join(', ') + '" badal diya — reload karke dobara try karein.';
+      showConflict('Kisi aur ne isi waqt is din ki sheet mein "' + mergeRes.conflicts.join(', ') +
+        '" badal diya — reload karke dobara try karein.');
       return;
     }
-    afterSaveSuccess(mergeRes.current);
-    state.dirty = false;
+
+    // 2. Rows. Different rows touched by two people merge silently; only
+    //    the SAME row changed two different ways comes back as a conflict.
+    var { data: lineRes, error: lineErr } = await sb.rpc('smart_merge_lines', {
+      p_line_table: 'sheet_rows', p_fk_col: 'sheet_id', p_fk_id: headerId,
+      p_original_lines: origLines, p_new_lines: myLines,
+      p_ignore: ['id', 'created_at', 'sheet_id', 'line_no']
+    });
+    if (lineErr) {
+      if (OfflineQueue.isNetworkError(lineErr)) { queueSheetEdit(); return; }
+      setSaveStatus('', '');
+      noteStatus(lineErr.message);
+      return;
+    }
+
+    var finalRows, resolved = false;
+    if (lineRes.status === 'ok') {
+      finalRows = lineRes.lines || [];
+    } else {
+      resolved = true;
+      // Partial result (migration 0026): everything that merged cleanly is
+      // already done and is reused as-is — the user is only ever asked
+      // about the row(s) that genuinely clash.
+      var current = lineRes.current || [];
+      var ids = conflictRowIds(lineRes.conflicts, myLines, current);
+      if (!ids.length) {
+        showConflict('Kisi aur ne isi waqt yehi lines badlin — reload karke dobara try karein.');
+        return;
+      }
+      setSaveStatus('Not saved', 'warn');
+      // Auto-save stays paused for as long as the modal is up, and the
+      // rows on screen are not touched until the user has decided (§5/§7).
+      state.autosavePaused = true;
+      if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
+      var decisions = await resolveRowConflicts(ids, myLines, current);
+      if (!decisions) {
+        showConflict('Ye save abhi rok diya gaya kyunke kuch lines par faisla nahi hua. Aap ki entries yahin mehfooz hain — ' +
+          'dobara "Save day" dabakar faisla karein, ya reload karke taaza sheet lein.');
+        return;
+      }
+      setSaveStatus('Saving…', '');
+      finalRows = buildFinalRows(myLines, lineRes.merged_lines || [], current, decisions);
+    }
+
+    // 3. Persist the decided set. Conflict-free by construction: either
+    //    smart_merge_lines said so, or this IS the user's final decision.
+    var { data: applied, error: applyErr } = await sb.rpc('apply_merged_lines', {
+      p_line_table: 'sheet_rows', p_fk_col: 'sheet_id', p_fk_id: headerId,
+      p_result_lines: finalRows.map(sanitizeForApply)
+    });
+    if (applyErr) {
+      setSaveStatus('', '');
+      noteStatus(applyErr.message);
+      return;
+    }
+
+    if (resolved) {
+      // The resolution modal held the keyboard for the whole round trip, so
+      // nothing can have been typed into the register meanwhile — take the
+      // server's set wholesale, which is also what makes "Keep theirs" show
+      // up on screen instead of leaving a phantom unsaved change.
+      afterSaveSuccess(mergeRes.current, (applied || []).slice().sort(byLineNo).map(normRow));
+      state.dirty = false;
+    } else {
+      commitRows(submittedObjs, myLines, finalRows, applied);
+      finishSave(mergeRes.current);
+      settleDirty(seq);
+    }
+    setSaveStatus('Saved', 'ok');
+  }
+
+  // smart_merge_lines reports conflicts as "<line table>.item_id or the row
+  // id" — sheet_rows has no item_id, so these are always row ids. Keep only
+  // the ones we can actually show both sides of.
+  function conflictRowIds(conflicts, myLines, current) {
+    var mine = {}, theirs = {};
+    myLines.forEach(function (l) { if (l.id) mine[l.id] = l; });
+    (current || []).forEach(function (l) { if (l && l.id) theirs[l.id] = l; });
+    return (conflicts || []).filter(function (id) { return mine[id] && theirs[id]; });
+  }
+
+  // Build the exact row set to persist, in the order it is on screen:
+  // my rows first (each either as merged, or as the user just decided),
+  // then any row somebody else added concurrently.
+  function buildFinalRows(myLines, mergedLines, currentLines, decisions) {
+    var mergedById = {}, mergedNew = [], currentById = {}, mine = {};
+    mergedLines.forEach(function (l) {
+      if (l && l.id) mergedById[l.id] = l; else if (l) mergedNew.push(l);
+    });
+    (currentLines || []).forEach(function (l) { if (l && l.id) currentById[l.id] = l; });
+
+    var out = [], newPtr = 0;
+    myLines.forEach(function (my) {
+      if (!my.id) { out.push(mergedNew[newPtr] || my); newPtr++; return; }
+      mine[my.id] = true;
+      var dec = decisions[my.id];
+      if (dec) {
+        var their = currentById[my.id];
+        if (dec === 'mine') { out.push(my); return; }
+        if (dec === 'theirs') { if (their) out.push(their); return; }
+        // "Keep both": my row stays at its id (updated in place) and their
+        // version comes back as a brand-new row — id stripped so
+        // apply_merged_lines inserts it rather than overwriting mine.
+        out.push(my);
+        if (their) { var clone = sanitizeForApply(their); delete clone.id; out.push(clone); }
+        return;
+      }
+      if (mergedById[my.id]) out.push(mergedById[my.id]);
+      // else: deleted by someone else while we typed — smart_merge_lines
+      // already dropped it, and so do we.
+    });
+
+    // Rows added concurrently by someone else survive untouched.
+    mergedLines.forEach(function (l) { if (l && l.id && !mine[l.id]) out.push(l); });
+    return out;
+  }
+
+  function describeRowVersion(r) {
+    var parts = [];
+    var d = Number(r.d_amt) || 0, c = Number(r.c_amt) || 0;
+    if (d || r.d_rem) parts.push('Debit ' + (d ? fmtNum(d) : '—') + (r.d_rem ? ' · ' + r.d_rem : '') + (r.d_tick ? ' · cash' : ''));
+    if (c || r.c_rem) parts.push('Credit ' + (c ? fmtNum(c) : '—') + (r.c_rem ? ' · ' + r.c_rem : '') + (r.c_tick ? ' · cash' : ''));
+    return parts.length ? parts.join('\n') : '(blank line)';
+  }
+
+  // Per-row resolution modal (§7). Built from the same scrim/card
+  // primitives confirmDialog() uses. Resolves to a {rowId: 'both'|'mine'|
+  // 'theirs'} map, or null if the user backed out (nothing is saved then,
+  // and nothing on screen is touched).
+  function resolveRowConflicts(ids, myLines, currentLines) {
+    return new Promise(function (resolve) {
+      var mine = {}, theirs = {}, lineNo = {};
+      myLines.forEach(function (l, i) { if (l.id) { mine[l.id] = l; lineNo[l.id] = i + 1; } });
+      (currentLines || []).forEach(function (l) { if (l && l.id) theirs[l.id] = l; });
+
+      var decisions = {};
+      ids.forEach(function (id) { decisions[id] = 'both'; }); // recommended default
+
+      var scrim = document.createElement('div');
+      scrim.className = 'confirm-scrim on';
+      var card = document.createElement('div');
+      card.className = 'confirm-card conf-card';
+
+      var h = document.createElement('h4');
+      h.textContent = ids.length === 1 ? 'Someone else changed the same line' : 'Someone else changed the same lines';
+      var p = document.createElement('p');
+      p.textContent = 'Nothing has been saved yet, and nothing on your page has been changed. ' +
+        'Everything else you both typed has already merged cleanly — only ' +
+        (ids.length === 1 ? 'this line was' : 'these ' + ids.length + ' lines were') +
+        ' edited by both of you. Choose what to keep.';
+
+      var list = document.createElement('div');
+      list.className = 'conf-list';
+
+      ids.forEach(function (id) {
+        var item = document.createElement('div');
+        item.className = 'conf-item';
+
+        var ttl = document.createElement('div');
+        ttl.className = 'conf-ttl';
+        ttl.textContent = 'Line ' + (lineNo[id] || '?');
+        item.appendChild(ttl);
+
+        var vers = document.createElement('div');
+        vers.className = 'conf-vers';
+        [['mine', 'Yours (on this screen)', mine[id]], ['theirs', 'Theirs (already saved)', theirs[id]]].forEach(function (v) {
+          var box = document.createElement('div');
+          box.className = 'conf-ver ' + v[0];
+          var tag = document.createElement('span');
+          tag.className = 'tag';
+          tag.textContent = v[1];
+          var txt = document.createElement('div');
+          txt.className = 'txt';
+          txt.style.whiteSpace = 'pre-line';
+          txt.textContent = describeRowVersion(v[2] || {});
+          box.appendChild(tag); box.appendChild(txt);
+          vers.appendChild(box);
+        });
+        item.appendChild(vers);
+
+        var btns = document.createElement('div');
+        btns.className = 'conf-btns';
+        [['both', 'Keep both'], ['mine', 'Keep mine'], ['theirs', 'Keep theirs']].forEach(function (b) {
+          var btn = document.createElement('button');
+          btn.type = 'button';
+          btn.className = 'btn' + (b[0] === 'both' ? ' pri on' : '');
+          btn.textContent = b[1];
+          btn.addEventListener('click', function () {
+            decisions[id] = b[0];
+            Array.prototype.forEach.call(btns.children, function (x) { x.classList.remove('on'); });
+            btn.classList.add('on');
+          });
+          btns.appendChild(btn);
+        });
+        item.appendChild(btns);
+        list.appendChild(item);
+      });
+
+      var acts = document.createElement('div');
+      acts.className = 'acts';
+      var cancel = document.createElement('button');
+      cancel.type = 'button'; cancel.className = 'btn'; cancel.textContent = 'Not now';
+      var ok = document.createElement('button');
+      ok.type = 'button'; ok.className = 'btn pri'; ok.textContent = 'Save with these choices';
+      acts.appendChild(cancel); acts.appendChild(ok);
+
+      card.appendChild(h); card.appendChild(p); card.appendChild(list); card.appendChild(acts);
+      scrim.appendChild(card);
+      document.body.appendChild(scrim);
+
+      function done(v) {
+        document.removeEventListener('keydown', onKey);
+        scrim.remove();
+        resolve(v);
+      }
+      function onKey(e) { if (e.key === 'Escape') { e.preventDefault(); done(null); } }
+      cancel.addEventListener('click', function () { done(null); });
+      ok.addEventListener('click', function () { done(decisions); });
+      scrim.addEventListener('mousedown', function (e) { if (e.target === scrim) done(null); });
+      document.addEventListener('keydown', onKey);
+      ok.focus();
+    });
   }
 
   async function gotoDate(d) {
     if (state.dirty) {
       var ok = await confirmDialog(
         'Unsaved changes',
-        'This day\'s sheet has changes that have not been saved yet. Switching to another day will discard them.',
+        'This day\'s sheet has entries that have not been saved yet. Switching to another day discards them — ' +
+        'they are not kept anywhere and cannot be recovered.',
         'Discard and switch', true
       );
       if (!ok) return;
@@ -781,6 +1744,25 @@
     state.dirty = false;
     await loadSheet(d);
     renderSheetsList();
+  }
+
+  // The one explicit, user-initiated way to replace what is on screen with
+  // the server's copy (§5) — offered only while a conflict is standing.
+  async function reloadFromServer() {
+    var ok = await confirmDialog(
+      'Reload this day?',
+      'The latest saved version of ' + longDate(state.date) + ' will be loaded from the server. ' +
+      'Anything you have typed on this page that has not been saved will be REPLACED by it and cannot be recovered. ' +
+      'Copy down anything you still need before continuing.',
+      'Reload and replace', true
+    );
+    if (!ok) return;
+    state.dirty = false;
+    clearStatusLine();
+    setSaveStatus('', '');
+    await loadSheet(state.date);
+    renderSheetsList();
+    loadRecentSheets();
   }
 
   // ---------------------------------------------------------------
@@ -792,12 +1774,22 @@
   async function loadRecentSheets() {
     if (!navigator.onLine) { renderSheetsList(); return; }
     var { data, error } = await sb.from('sheets')
-      .select('id,sheet_date,opening,side,rows')
+      .select('id,sheet_date,opening,side')
       .is('deleted_at', null)
       .order('sheet_date', { ascending: false })
       .limit(20);
     if (error) { renderSheetsList(); return; }
-    recentSheets = data || [];
+    var sheets = data || [];
+    // The closing balance each row shows is computed with the very same
+    // computeClosing() the page uses — which now needs the child rows.
+    var ids = sheets.map(function (s) { return s.id; });
+    var byId = {};
+    sheets.forEach(function (s) { s.rows = []; byId[s.id] = s; });
+    if (ids.length) {
+      var lr = await sb.from('sheet_rows').select('sheet_id,d_amt,c_amt').in('sheet_id', ids);
+      (lr.data || []).forEach(function (r) { if (byId[r.sheet_id]) byId[r.sheet_id].rows.push(normRow(r)); });
+    }
+    recentSheets = sheets;
     renderSheetsList();
   }
 
@@ -852,7 +1844,7 @@
       return;
     }
     var lines = (state.sheet.rows || []).filter(function (r) {
-      return (Number(r[0]) || 0) || (Number(r[2]) || 0) || r[1] || r[3];
+      return (Number(r.d_amt) || 0) || (Number(r.c_amt) || 0) || r.d_rem || r.c_rem;
     }).length;
     var ok = await confirmDialog(
       'Delete this sheet?',
@@ -874,6 +1866,7 @@
     state.dirty = false;
     state.sheet = null;
     state.originalSheet = null;
+    state.originalRows = [];
     toast('Sheet for ' + longDate(state.date) + ' moved to the Recycle Bin.');
     window.parent.postMessage({ oht: 'refresh', kind: 'sheets' }, '*');
     await loadSheet(state.date);
@@ -892,7 +1885,7 @@
     );
     if (!ok) return;
     state.sheet.rows = [emptyRow()];
-    state.dirty = true;
+    markDirty();
     render();
     toast('Sheet cleared — press "Save day" to keep it.');
   }
@@ -912,16 +1905,17 @@
     var running = s.side === 'dr' ? s.opening : -s.opening;
     var totD = 0, totC = 0, body = '';
     (s.rows || []).forEach(function (r) {
-      var d = Number(r[0]) || 0, c = Number(r[2]) || 0;
-      if (!d && !c && !r[1] && !r[3]) return; // blank filler rows don't belong on paper
+      var d = Number(r.d_amt) || 0, c = Number(r.c_amt) || 0;
+      if (!d && !c && !r.d_rem && !r.c_rem) return; // blank filler rows don't belong on paper
       totD += d; totC += c; running += d - c;
       body += '<tr>' +
         '<td class="m">' + (d ? fmtNum(d) : '') + '</td>' +
-        '<td>' + esc(r[1]) + (r[4] ? ' &#10003;' : '') + '</td>' +
+        '<td>' + esc(r.d_rem) + (r.d_tick ? ' &#10003;' : '') + '</td>' +
         '<td class="m">' + (c ? fmtNum(c) : '') + '</td>' +
-        '<td>' + esc(r[3]) + (r[5] ? ' &#10003;' : '') + '</td>' +
+        '<td>' + esc(r.c_rem) + (r.c_tick ? ' &#10003;' : '') + '</td>' +
         '<td class="m">' + fmtBal(running) + '</td></tr>';
     });
+    var pcash = computeCash(s);
 
     var css = 'font-family:Arial,Helvetica,sans-serif;color:#000;';
     var html = '<div style="' + css + '">' +
@@ -958,6 +1952,14 @@
       '</table>' +
       '<div style="font-size:10px;color:#555;margin-top:8px">Brought forward from ' +
         esc(longDate(prevDateStr(state.date))) + ': ' + fmtBal(state.prevClosing) + '</div>' +
+      '<table border="1" cellspacing="0" cellpadding="4" style="width:100%;margin-top:10px;border-collapse:collapse;font-size:11px">' +
+        '<tr><td colspan="3" style="background:#EEE;font-weight:700">Cash summary (this day only)</td></tr>' +
+        '<tr>' +
+          '<td>Cash received<br><strong>' + fmtNum(pcash.received) + '</strong></td>' +
+          '<td>Cash paid<br><strong>' + fmtNum(pcash.paid) + '</strong></td>' +
+          '<td>Cash in hand<br><strong>' + fmtNum(pcash.inHand) + '</strong></td>' +
+        '</tr>' +
+      '</table>' +
       '<div style="display:flex;gap:30px;margin-top:40px;font-size:10px;color:#555">' +
         '<div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center">Prepared by</div>' +
         '<div style="flex:1;border-top:1px solid #000;padding-top:4px;text-align:center">Checked by</div>' +
@@ -1040,13 +2042,13 @@
   // Same handler the in-table "+ Add row" button used to carry, just
   // triggered from the drawer now.
   document.getElementById('addRowBtn').addEventListener('click', function () {
-    if (!state.sheet) return;
-    state.sheet.rows.push(emptyRow());
-    state.dirty = true;
-    render();
+    addRow(true);
     closeDrawer();
   });
 
+  // The manual fallback stays available at all times, including while
+  // auto-save is paused on a standing conflict (§5) — pressing it then
+  // simply re-runs the same save and re-shows the same conflict.
   document.getElementById('saveBtn').addEventListener('click', function () {
     var btn = this;
     btn.disabled = true;
@@ -1056,9 +2058,12 @@
       loadRecentSheets();
     }, function (e) {
       btn.disabled = false;
-      document.getElementById('ledgerErr').textContent = (e && e.message) || String(e);
+      setSaveStatus('', '');
+      noteStatus((e && e.message) || String(e));
     });
   });
+
+  document.getElementById('reloadBtn').addEventListener('click', reloadFromServer);
 
   document.getElementById('printBtn').addEventListener('click', printSheet);
   document.getElementById('deleteSheetBtn').addEventListener('click', deleteSheet);
