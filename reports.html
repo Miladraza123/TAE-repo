@@ -8,11 +8,19 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="theme.css">
+<script>
+  // Hosted inside the shell's iframe (index.html) almost always — the shell's
+  // own sidebar lists all 8 reports directly, so this module's own tab strip
+  // (still fully functional when this file is opened on its own) would just
+  // be duplicate navigation. Set before first paint to avoid a flash of it.
+  if (window.self !== window.top) document.documentElement.className += ' embedded';
+</script>
 <style>
   /* Everything visual now comes from theme.css. What stays here is the page
      skeleton and — untouched — the print rules. */
   html,body{height:100%;}
   body{display:flex;flex-direction:column;}
+  .embedded .tabs, .embedded .toolbar.tabs-wrap h1{display:none !important;}
   main{flex:1;overflow-y:auto;padding:16px 14px 28px;}
   .toolbar h1{font-size:16px;margin:0 8px 0 0;font-weight:700;}
   main > .toolbar.filters{max-width:980px; margin:0 auto 4px; padding-left:0; padding-right:0;}

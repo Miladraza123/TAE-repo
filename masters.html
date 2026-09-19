@@ -8,10 +8,19 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="theme.css">
+<script>
+  // Hosted inside the shell's iframe (index.html) almost always — the shell's
+  // own categorized sidebar is then the primary nav, so this module's own
+  // sidebar/appbar (still fully functional when this file is opened on its
+  // own) would just be duplicate navigation. Set before first paint to avoid
+  // a flash of the sidebar before it hides.
+  if (window.self !== window.top) document.documentElement.className += ' embedded';
+</script>
 <style>
   /* Page skeleton only — every component/token comes from theme.css. */
   html,body{height:100%;}
   main{flex:1; overflow-y:auto;}
+  .embedded .sidebar, .embedded .appbar{display:none !important;}
   .page{max-width:900px; margin:0 auto; padding-bottom:28px;}
   .page > .doc-sheet{max-width:640px; margin:14px auto;}
   .panel{background:var(--paper); border-bottom:1px solid var(--hair);}

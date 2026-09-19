@@ -25,11 +25,39 @@
   html,body{height:100%;}
   body{display:flex; flex-direction:column;}
 
-  #frames{flex:1; position:relative; background:var(--desk); display:none;}
+  #appShell{flex:1; min-height:0; height:auto; display:none;}
+  #appShell.on{display:flex;}
+  #frames{flex:1; position:relative; background:var(--desk);}
   #frames iframe{
     position:absolute; inset:0; width:100%; height:100%; border:0; display:none; background:var(--desk);
   }
   #frames iframe.active{display:block;}
+
+  /* ---- shell sidebar: categories that expand/collapse, mirroring the
+     .subgrp/caret pattern daily-ledger.html's own sidebar already uses,
+     just on the shell's dark sidebar instead of its light variant. ---- */
+  #sidebar .cat{
+    display:flex; align-items:center; gap:10px; width:100%; text-align:left;
+    padding:9px 10px; border-radius:7px; border:none; background:none;
+    color:#D8D0C2; font-size:13px; font-weight:700; margin-bottom:1px;
+  }
+  #sidebar .cat:hover{background:var(--abtn-bg); color:#fff;}
+  #sidebar .cat .caret{margin-left:auto; color:#8C8577; font-size:11px; transition:transform .16s;}
+  #sidebar .cat[aria-expanded="true"] .caret{transform:rotate(90deg);}
+  #sidebar .subgrp .navitem{font-size:12.8px; padding:7px 10px 7px 30px;}
+
+  /* ---- shell header: replaces the old horizontal .topbar tabstrip ---- */
+  .shellbar{
+    display:flex; align-items:center; gap:10px; height:50px; padding:0 16px;
+    background:var(--paper); border-bottom:1px solid var(--hair); flex:none;
+  }
+  .shellbar h1{font-size:15px; margin:0; font-weight:700; color:var(--ink);}
+  .shellbar .grow{flex:1;}
+  .shellbar .status{font-size:11.5px; color:var(--mute); white-space:nowrap;}
+  .shellbar .status.offline{color:var(--debit);}
+  .appbar .title{flex:1;}
+  .appbar .status{font-size:11px; color:#B8AF9E; white-space:nowrap;}
+  .appbar .status.offline{color:#D19A80;}
 
   /* ---- sign-in screen: untouched original design (scoped palette) ---- */
   #authScreen, #loading{
@@ -109,18 +137,60 @@
   </div>
 </div>
 
-<div class="topbar" id="topbar" style="display:none">
-  <span class="mark">OHT</span>
-  <span class="brand">OHT Accounting System</span>
-  <div class="tabstrip" id="tabs"></div>
-  <div class="spacer"></div>
-  <span class="status offline" id="failedStatus" style="display:none"></span>
-  <span class="status" id="netStatus"></span>
-  <button class="abtn" id="reloadBtn" title="Load the newest version of the app">⟳</button>
-  <button class="abtn" id="installBtn" style="display:none">⭳ Install</button>
-  <button class="abtn" id="signOutBtn">Sign out</button>
+<div class="app-shell" id="appShell">
+
+  <nav class="sidebar" id="sidebar">
+    <div class="head">
+      <span class="mark">OHT</span>
+      <span class="title">OHT Accounting System</span>
+      <button class="close" id="navClose" type="button" aria-label="Close menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+      </button>
+    </div>
+
+    <div class="grp" id="navPrimary"></div>
+
+    <hr class="sep">
+    <div class="grp">
+      <div class="grp-lbl">Tools</div>
+      <div id="navTools"></div>
+    </div>
+
+    <hr class="sep">
+    <div class="grp">
+      <div class="grp-lbl">Account</div>
+      <div id="navAccount"></div>
+      <button type="button" class="navitem dgr" id="signOutBtn">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+        <span>Sign out</span>
+      </button>
+    </div>
+  </nav>
+
+  <div class="scrim" id="navScrim"></div>
+
+  <div class="main">
+    <div class="appbar">
+      <button class="hamburger" id="navOpen" type="button" aria-label="Open menu">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="20" height="20"><path d="M3 6h18M3 12h18M3 18h18"/></svg>
+      </button>
+      <span class="title" id="appbarTitle">OHT Accounting System</span>
+      <span class="status offline" id="failedStatusM" style="display:none"></span>
+      <span class="status" id="netStatusM"></span>
+    </div>
+
+    <div class="shellbar">
+      <h1 id="shellTitle">OHT Accounting System</h1>
+      <div class="grow"></div>
+      <span class="status offline" id="failedStatus" style="display:none"></span>
+      <span class="status" id="netStatus"></span>
+      <button class="abtn" id="reloadBtn" title="Load the newest version of the app">⟳</button>
+      <button class="abtn" id="installBtn" style="display:none">⭳ Install</button>
+    </div>
+
+    <div id="frames"></div>
+  </div>
 </div>
-<div id="frames"></div>
 
 <div class="confirm-scrim" id="installStepsModal">
   <div class="confirm-card">
@@ -210,22 +280,79 @@
   }
 
   // Modules hosted in persistent iframes. Add an entry here once its .html file exists.
-  // `hidden: true` keeps a module loadable/addressable (via the oht:'open'
-  // cross-frame message) without giving it a top-level tab of its own —
-  // Reports is reached from Masters' sidebar report links instead.
   var MODULES = [
     { key: 'masters', label: 'Masters', src: 'masters.html' },
     { key: 'billing', label: 'Billing', src: 'billing.html' },
     { key: 'ledger', label: 'Daily Ledger', src: 'daily-ledger.html' },
-    { key: 'reports', label: 'Reports', src: 'reports.html', hidden: true }
+    { key: 'reports', label: 'Reports', src: 'reports.html' }
   ];
+
+  // The sidebar's full nav tree — every leaf deep-links into a module via
+  // the existing oht:'open'/'goto' postMessage relay (openModule below).
+  // `arg` values are each module's own view/tab keys, verified against that
+  // module's own file (masters.html's VIEWS, billing.html's ALL_TABS,
+  // reports.html's TABS).
+  var NAV = [
+    { group: 'Masters', items: [
+      { app: 'masters', arg: 'parties', label: 'Parties' },
+      { app: 'masters', arg: 'items', label: 'Items' },
+      { app: 'masters', arg: 'services', label: 'Services' },
+      { app: 'masters', arg: 'companies', label: 'Firms' },
+      { app: 'masters', arg: 'warehouses', label: 'Warehouses' },
+      { app: 'masters', arg: 'partykinds', label: 'Party Kinds' }
+    ] },
+    { group: 'Sales & Billing', items: [
+      { app: 'billing', arg: 'sale', label: 'Sale' },
+      { app: 'billing', arg: 'purchase', label: 'Purchase' },
+      { app: 'billing', arg: 'quotation', label: 'Quotation' },
+      { app: 'billing', arg: 'po', label: 'Purchase order' },
+      { app: 'billing', arg: 'sinvoice', label: 'Service invoice' },
+      { app: 'billing', arg: 'squote', label: 'Service quotation' },
+      { app: 'billing', arg: 'return', label: 'Sales return' },
+      { app: 'billing', arg: 'transfer', label: 'Stock transfer' }
+    ] },
+    { single: { app: 'ledger', label: 'Daily Ledger' } },
+    { group: 'Reports', items: [
+      { app: 'reports', arg: 'trial', label: 'Trial Balance' },
+      { app: 'reports', arg: 'aging', label: 'Receivable Aging' },
+      { app: 'reports', arg: 'pl', label: 'Profit & Loss' },
+      { app: 'reports', arg: 'statement', label: 'Statement of Account' },
+      { app: 'reports', arg: 'stockledger', label: 'Item Stock Ledger' },
+      { app: 'reports', arg: 'matcons', label: 'Material Consumption' },
+      { app: 'reports', arg: 'matprofit', label: 'Material Cost & Profit' },
+      { app: 'reports', arg: 'mataudit', label: 'Consumption Audit' }
+    ] }
+  ];
+  var NAV_TOOLS = [
+    { app: 'masters', arg: 'backup', label: 'Backup / Restore' },
+    { app: 'masters', arg: 'recyclebin', label: 'Recycle Bin' },
+    { app: 'masters', arg: 'periodlock', label: 'Period Lock' }
+  ];
+  var NAV_ACCOUNT = [
+    { app: 'masters', arg: 'users', label: 'Manage Users' },
+    { app: 'masters', arg: 'changepw', label: 'Change Password' }
+  ];
+
+  function svgIco(path) {
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+  }
+  var GROUP_ICON = {
+    'Masters': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
+    'Sales & Billing': '<path d="M4 2v20l2.5-2 2.5 2 2.5-2 2.5 2 2.5-2 2.5 2V2l-2.5 2L14 2l-2.5 2L9 2 6.5 4z"/><path d="M8 8h8"/><path d="M8 12h6"/>',
+    'Reports': '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/>',
+    'Daily Ledger': '<path d="M6 3h12a1 1 0 0 1 1 1v16l-3.5-2-3.5 2-3.5-2-3.5 2V4a1 1 0 0 1 1-1z"/><path d="M9 8h6M9 12h6M9 16h3"/>'
+  };
+
+  function esc(s) { return (s == null ? '' : String(s)).replace(/[&<>"']/g, function (c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  }); }
 
   var loadingEl = document.getElementById('loading');
   var authEl = document.getElementById('authScreen');
-  var topbarEl = document.getElementById('topbar');
-  var tabsEl = document.getElementById('tabs');
+  var appShellEl = document.getElementById('appShell');
   var framesEl = document.getElementById('frames');
   var netStatusEl = document.getElementById('netStatus');
+  var netStatusMEl = document.getElementById('netStatusM');
 
   var activeKey = null;
   var frames = {};
@@ -239,6 +366,8 @@
     // (offline, a failed sync, a save in progress) earns space in this bar.
     netStatusEl.textContent = online ? '' : 'Offline — changes will sync later';
     netStatusEl.className = 'status' + (online ? '' : ' offline');
+    netStatusMEl.textContent = netStatusEl.textContent;
+    netStatusMEl.className = netStatusEl.className;
     if (online !== wasOnline) {
       wasOnline = online;
       toast(online ? 'Back online — queued changes will sync.'
@@ -253,38 +382,105 @@
   // permanently failed to sync (§14) without the module that queued it
   // needing to still be open.
   var failedStatusEl = document.getElementById('failedStatus');
+  var failedStatusMEl = document.getElementById('failedStatusM');
   var lastFailedCount = 0;
   function checkFailedQueue() {
     var failed;
     try { failed = JSON.parse(localStorage.getItem('oht:offlineQueueFailed') || '[]'); } catch (e) { failed = []; }
-    if (failed.length) {
-      failedStatusEl.style.display = '';
-      failedStatusEl.textContent = failed.length + ' change(s) could not sync — contact admin';
-      failedStatusEl.title = 'These edits could not be saved even after coming back online. They are kept in this browser only — do not clear site data before resolving.';
-      if (failed.length > lastFailedCount) {
-        toast(failed.length + ' change(s) could not sync — contact your admin before clearing site data.', true);
+    [failedStatusEl, failedStatusMEl].forEach(function (el) {
+      if (failed.length) {
+        el.style.display = '';
+        el.textContent = failed.length + ' change(s) could not sync — contact admin';
+        el.title = 'These edits could not be saved even after coming back online. They are kept in this browser only — do not clear site data before resolving.';
+      } else {
+        el.style.display = 'none';
       }
-    } else {
-      failedStatusEl.style.display = 'none';
+    });
+    if (failed.length > lastFailedCount) {
+      toast(failed.length + ' change(s) could not sync — contact your admin before clearing site data.', true);
     }
     lastFailedCount = failed.length;
   }
   checkFailedQueue();
   setInterval(checkFailedQueue, 15000);
 
-  function buildTabs() {
-    tabsEl.innerHTML = '';
-    MODULES.forEach(function (m) {
-      if (m.hidden) return;
-      var t = document.createElement('button');
-      t.type = 'button';
-      t.className = 'tab';
-      t.textContent = m.label;
-      t.dataset.key = m.key;
-      t.addEventListener('click', function () { activate(m.key); });
-      tabsEl.appendChild(t);
+  function navItemHtml(it) {
+    return '<button type="button" class="navitem" data-app="' + it.app + '"' + (it.arg ? ' data-arg="' + it.arg + '"' : '') + '>' +
+      '<span>' + esc(it.label) + '</span></button>';
+  }
+
+  function buildSidebar() {
+    var primaryHtml = '';
+    NAV.forEach(function (entry, gi) {
+      if (entry.single) {
+        primaryHtml += '<button type="button" class="navitem" data-app="' + entry.single.app + '">' +
+          svgIco(GROUP_ICON[entry.single.label] || '') + '<span>' + esc(entry.single.label) + '</span></button>';
+        return;
+      }
+      primaryHtml += '<button type="button" class="cat" data-gi="' + gi + '" aria-expanded="false">' +
+        svgIco(GROUP_ICON[entry.group] || '') + '<span>' + esc(entry.group) + '</span><span class="caret">&#8250;</span></button>' +
+        '<div class="subgrp" data-gi="' + gi + '">' + entry.items.map(navItemHtml).join('') + '</div>';
+    });
+    document.getElementById('navPrimary').innerHTML = primaryHtml;
+    document.getElementById('navTools').innerHTML = NAV_TOOLS.map(navItemHtml).join('');
+    document.getElementById('navAccount').innerHTML = NAV_ACCOUNT.map(navItemHtml).join('');
+
+    document.getElementById('sidebar').addEventListener('click', function (e) {
+      var cat = e.target.closest('.cat');
+      if (cat) {
+        var open = cat.getAttribute('aria-expanded') === 'true';
+        cat.setAttribute('aria-expanded', open ? 'false' : 'true');
+        var sub = cat.nextElementSibling;
+        if (sub) sub.classList.toggle('on', !open);
+        return;
+      }
+      var item = e.target.closest('.navitem[data-app]');
+      if (item) {
+        setDrawer(false);
+        openModule(item.dataset.app, item.dataset.arg || null);
+      }
     });
   }
+
+  function navLabelFor(app, arg) {
+    for (var i = 0; i < NAV.length; i++) {
+      var entry = NAV[i];
+      if (entry.single && entry.single.app === app && !arg) return entry.single.label;
+      if (entry.items) {
+        for (var j = 0; j < entry.items.length; j++) {
+          if (entry.items[j].app === app && entry.items[j].arg === arg) return entry.items[j].label;
+        }
+      }
+    }
+    var flat = NAV_TOOLS.concat(NAV_ACCOUNT).filter(function (x) { return x.app === app && x.arg === arg; })[0];
+    if (flat) return flat.label;
+    var m = MODULES.filter(function (x) { return x.key === app; })[0];
+    return m ? m.label : 'OHT Accounting System';
+  }
+
+  function updateSidebarActive(app, arg) {
+    Array.prototype.forEach.call(document.querySelectorAll('#sidebar .navitem[data-app]'), function (b) {
+      var on = b.dataset.app === app && (b.dataset.arg || null) === (arg || null);
+      b.classList.toggle('on', on);
+      if (on) {
+        var sub = b.closest('.subgrp');
+        if (sub) {
+          sub.classList.add('on');
+          var cat = sub.previousElementSibling;
+          if (cat && cat.classList.contains('cat')) cat.setAttribute('aria-expanded', 'true');
+        }
+      }
+    });
+  }
+
+  // ---- off-canvas drawer (≤860px; theme.css owns the transform/backdrop) ----
+  function setDrawer(open) {
+    document.getElementById('sidebar').classList.toggle('open', !!open);
+    document.getElementById('navScrim').classList.toggle('on', !!open);
+  }
+  document.getElementById('navOpen').addEventListener('click', function () { setDrawer(true); });
+  document.getElementById('navClose').addEventListener('click', function () { setDrawer(false); });
+  document.getElementById('navScrim').addEventListener('click', function () { setDrawer(false); });
 
   function ensureFrame(key) {
     if (frames[key]) return frames[key];
@@ -332,9 +528,6 @@
     Object.keys(frames).forEach(function (k) {
       frames[k].classList.toggle('active', k === key);
     });
-    Array.prototype.forEach.call(tabsEl.children, function (t) {
-      t.classList.toggle('on', t.dataset.key === key);
-    });
     // Only the foreground module is allowed to auto-refresh the shared auth
     // token, so multiple open modules never race each other on refresh.
     Object.keys(frames).forEach(function (k) {
@@ -342,17 +535,25 @@
         { oht: 'active', active: k === key }, '*'
       );
     });
-    try { localStorage.setItem('oht:lastTab', key); } catch (e) {}
   }
 
   // Deep-link into a module: open/switch to it, then hand it the argument as
   // an oht:'goto' message. If its iframe is being created right now, the goto
   // is held until the document has loaded (see ensureFrame's load handler).
+  // Also the single path that keeps the sidebar's highlighted leaf/expanded
+  // group and the header title in sync — called both by sidebar clicks and
+  // by a module's own { oht:'open', ... } deep-link (e.g. Masters' report
+  // links), so either origin ends up in the same, consistent state.
   function openModule(app, arg) {
     var m = MODULES.filter(function (x) { return x.key === app; })[0];
     if (!m) return;
     var existed = !!frames[app];
     activate(app);
+    updateSidebarActive(app, arg || null);
+    var label = navLabelFor(app, arg || null);
+    document.getElementById('shellTitle').textContent = label;
+    document.getElementById('appbarTitle').textContent = label;
+    try { localStorage.setItem('oht:lastNav', JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
     if (arg === undefined || arg === null) return;
     var msg = { oht: 'goto', app: app, arg: arg };
     if (existed && frameReady[app]) {
@@ -384,7 +585,7 @@
 
   function showAuth(err) {
     loadingEl.style.display = 'none';
-    topbarEl.style.display = 'none';
+    appShellEl.classList.remove('on');
     authEl.style.display = 'flex';
     document.getElementById('authErr').textContent = err || '';
   }
@@ -392,12 +593,14 @@
   function showApp() {
     authEl.style.display = 'none';
     loadingEl.style.display = 'none';
-    topbarEl.style.display = 'flex';
-    framesEl.style.display = 'block';
-    buildTabs();
-    var last = 'masters';
-    try { last = localStorage.getItem('oht:lastTab') || 'masters'; } catch (e) {}
-    activate(last);
+    appShellEl.classList.add('on');
+    buildSidebar();
+    var last = { app: 'masters', arg: 'parties' };
+    try {
+      var saved = JSON.parse(localStorage.getItem('oht:lastNav') || 'null');
+      if (saved && saved.app) last = saved;
+    } catch (e) {}
+    openModule(last.app, last.arg);
   }
 
   async function checkProfileAndEnter() {

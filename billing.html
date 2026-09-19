@@ -8,12 +8,21 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500;600&family=IBM+Plex+Serif:wght@600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="theme.css">
+<script>
+  // Hosted inside the shell's iframe (index.html) almost always — the shell's
+  // own categorized sidebar is then the primary nav, so this module's own
+  // sidebar/appbar (still fully functional when this file is opened on its
+  // own) would just be duplicate navigation. Set before first paint to avoid
+  // a flash of the sidebar before it hides.
+  if (window.self !== window.top) document.documentElement.className += ' embedded';
+</script>
 <style>
   /* Page-local CSS is deliberately limited to the print sheet — every screen
      component (shell, sidebar, toolbar, rows, sheet, combo, lines, toasts)
      comes from theme.css so all screens stay in step. */
   html,body{height:100%;}
   #printArea{display:none;}
+  .embedded .sidebar, .embedded .appbar{display:none !important;}
   @media print{
     @page{size:A4;}
     body *{visibility:hidden;}
@@ -141,9 +150,19 @@
   // ---- Foreground-tab auth refresh signaling (§3/§14) ----
   window.addEventListener('message', function (ev) {
     var d = ev.data;
-    if (!d || d.oht !== 'active') return;
-    sb.auth.startAutoRefresh ? (d.active ? sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh()) : null;
+    if (!d || !d.oht) return;
+    if (d.oht === 'active') {
+      sb.auth.startAutoRefresh ? (d.active ? sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh()) : null;
+      return;
+    }
+    // Deep-link from the shell's sidebar: { oht:'goto', app:'billing', arg:'<doc-type key>' }
+    if (d.oht === 'goto' && (!d.app || d.app === 'billing')) {
+      if (!d.arg || !ALL_TABS[d.arg]) return;
+      if (inited) switchTab(d.arg); else pendingTab = d.arg;
+    }
   });
+  var inited = false;
+  var pendingTab = null;
 
   var state = {
     vtype: 'sale',
@@ -2563,7 +2582,9 @@
     var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
     if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
     await loadMasters();
-    await loadList();
+    if (pendingTab && ALL_TABS[pendingTab]) { switchTab(pendingTab); pendingTab = null; }
+    else await loadList();
+    inited = true;
     OfflineQueue.startAutoFlush(sb);
   })();
 })();
