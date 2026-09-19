@@ -23,6 +23,25 @@
   html,body{height:100%;}
   #printArea{display:none;}
   .embedded .sidebar, .embedded .appbar{display:none !important;}
+  /* Page pattern (theme.css .pg-*): hero band with search/filters, KPI cards
+     from the list's own totals, one card holding the list. */
+  .main{min-height:0;}
+  .bl-scroll{flex:1; min-height:0; overflow-y:auto;}
+  .pg-hero.bl-hero > *{max-width:1100px; margin-left:auto; margin-right:auto;}
+  .pg-body.bl-body{max-width:1148px; margin-left:auto; margin-right:auto;}
+  .pg-search .clear{background:none; border:none; color:#B8AF9E; width:20px; height:20px; display:none; padding:0; flex:none;}
+  .pg-search.has-val .clear{display:block;}
+  .pg-search .clear svg{display:block; margin:auto;}
+  .pg-fld[hidden], .pg-chip[hidden]{display:none;}
+  .pg-card .list-area{flex:none; overflow:visible; min-height:0;}
+  .pg-card .list-group-hdr{padding:6px 14px; font-size:10.5px; letter-spacing:.6px; text-transform:uppercase; color:var(--mute); font-weight:700; background:var(--panel); border-bottom:1px solid var(--hair);}
+  .pg-lrow{cursor:pointer;}
+  .pg-lrow .amt .pg-pill{font-family:'IBM Plex Sans',sans-serif;}
+  .pg-lrow .av.sq{font-size:9.5px; letter-spacing:.3px;}
+  @media (max-width:640px){
+    /* Narrow rows: drop the Dr/Cr side tag so the number and status stay readable. */
+    .pg-lrow .amt > .pg-pill:first-child:not(:last-child){display:none;}
+  }
   @media print{
     @page{size:A4;}
     body *{visibility:hidden;}
@@ -100,18 +119,38 @@
       <div class="title" id="appTitle">Sales</div>
     </header>
 
-    <div class="toolbar">
-      <div class="search-wrap" id="searchWrap">
-        <svg class="icn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <input type="search" id="search" placeholder="Search by number, party…" autocomplete="off">
-        <button class="clear" id="searchClear" aria-label="Clear search">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
-        </button>
+    <div class="bl-scroll">
+      <div class="pg-hero bl-hero">
+        <div class="pg-crumb">Sales &amp; Billing</div>
+        <div class="pg-row">
+          <div style="min-width:0"><h2 id="blTitle">Sales</h2><div class="pg-sub" id="blSub"></div></div>
+          <div class="pg-sp"></div>
+          <div class="pg-acts"><button type="button" class="pg-hb pri" id="newBtn">+ New</button></div>
+        </div>
+        <div class="pg-ctl">
+          <label class="pg-search" id="searchWrap">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input type="search" id="search" placeholder="Search by number, party…" autocomplete="off">
+            <button type="button" class="clear" id="searchClear" aria-label="Clear search">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+            </button>
+          </label>
+          <span class="pg-sepv"></span>
+          <button type="button" class="pg-chip" id="blf_month">This month</button>
+          <button type="button" class="pg-chip" id="blf_unpaid">Unpaid</button>
+          <button type="button" class="pg-chip on" id="blf_all">All</button>
+          <span class="pg-fld" id="firmFld"><label for="firmFilter">Firm</label><select id="firmFilter"><option value="">All</option></select></span>
+          <span class="pg-fld" id="whFld" hidden><label for="whFilter">Warehouse</label><select id="whFilter"><option value="">All</option></select></span>
+        </div>
       </div>
-      <button class="btn pri" id="newBtn">+ New</button>
+      <div class="pg-body bl-body">
+        <div class="pg-kpis" id="blKpis" style="display:none"></div>
+        <div class="pg-card">
+          <div class="pg-ch"><span class="pg-title" id="blCardTitle">Invoices</span><span class="pg-cnt" id="blCnt"></span></div>
+          <div class="list-area" id="listArea"></div>
+        </div>
+      </div>
     </div>
-
-    <div class="list-area" id="listArea"></div>
   </div>
 </div>
 
@@ -457,28 +496,88 @@
       '<path d="M9 13h6"/><path d="M9 17h4"/></svg>';
   }
 
-  // row: { id, name, sub, badge, badgeCls, amount, tag, tagCls }
+  // row: { id, code, name, sub, badge, badgeCls, amount, tag, tagCls }
+  // badgeCls / tagCls keep the old b-ok / b-warn / b-neutral / dr / cr names
+  // the list renderers pass and are mapped onto the shared .pg-pill tones.
+  var PILL_TONE = { 'b-ok': 'g', 'b-warn': 'a', 'b-neutral': 'n', 'b-void': 'r', dr: 'dr', cr: 'cr' };
   function listRowHtml(row) {
-    var trail = '';
-    if (row.amount != null || row.tag) {
-      trail = '<div class="trail">' +
-        (row.amount != null ? '<div class="amt">' + esc(row.amount) + '</div>' : '') +
-        (row.tag ? '<span class="tag ' + (row.tagCls || '') + '">' + esc(row.tag) + '</span>' : '') +
-        '</div>';
+    var amt = '';
+    if (row.amount != null || row.tag || row.badge) {
+      amt = '<span class="amt">' +
+        (row.tag ? '<span class="pg-pill ' + (PILL_TONE[row.tagCls] || 'n') + '">' + esc(row.tag) + '</span>' : '') +
+        (row.amount != null ? esc(row.amount) : '') +
+        (row.badge ? '<span class="pg-pill ' + (PILL_TONE[row.badgeCls] || 'n') + '">' + esc(row.badge) + '</span>' : '') +
+        '</span>';
     }
-    return '<div class="list-row" role="button" tabindex="0" data-id="' + esc(row.id) + '">' +
-      '<div class="avatar">' + docIconSvg() + '</div>' +
-      '<div class="body">' +
-        '<div class="name">' + esc(row.name) + '</div>' +
-        '<div class="sub">' + esc(row.sub || '') +
-          (row.badge ? ' <span class="badge ' + (row.badgeCls || 'b-neutral') + '">' + esc(row.badge) + '</span>' : '') +
-        '</div>' +
-      '</div>' + trail + '<span class="chev"></span></div>';
+    return '<button type="button" class="pg-lrow" data-id="' + esc(row.id) + '">' +
+      '<span class="av sq">' + (row.code ? esc(row.code) : docIconSvg()) + '</span>' +
+      '<span class="txt"><span class="nm">' + esc(row.name) + '</span><span class="mt">' + esc(row.sub || '') + '</span></span>' +
+      amt + '</button>';
   }
 
   function emptyStateHtml(big, sub) {
-    return '<div class="empty-state"><div class="empty-big">' + esc(big) + '</div>' +
-      '<div class="empty-sub">' + esc(sub || '') + '</div></div>';
+    return '<div class="pg-empty"><div class="big">' + esc(big) + '</div>' + esc(sub || '') + '</div>';
+  }
+
+  // ---- hero filters + KPI cards (shared by every list) -------------------
+  // Quick range / Unpaid / Firm / Warehouse narrow what is on screen only;
+  // the queries and the rows they return are unchanged.
+  var lf = { range: 'all', unpaid: false, firm: '', wh: '' };
+  function firstOfMonthStr() { var d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-01'; }
+  function passesFilter(dateStr, companyId, balance) {
+    if (lf.range === 'month' && !(dateStr && dateStr >= firstOfMonthStr())) return false;
+    if (lf.unpaid && !(balance > 0.004)) return false;
+    if (lf.firm && companyId !== lf.firm) return false;
+    return true;
+  }
+  function syncFilterChips() {
+    document.getElementById('blf_month').classList.toggle('on', lf.range === 'month' && !lf.unpaid);
+    document.getElementById('blf_unpaid').classList.toggle('on', lf.unpaid);
+    document.getElementById('blf_all').classList.toggle('on', lf.range === 'all' && !lf.unpaid);
+  }
+  document.getElementById('blf_month').addEventListener('click', function () { lf.range = 'month'; lf.unpaid = false; syncFilterChips(); rerenderCurrentList(); });
+  document.getElementById('blf_unpaid').addEventListener('click', function () { lf.unpaid = !lf.unpaid; syncFilterChips(); rerenderCurrentList(); });
+  document.getElementById('blf_all').addEventListener('click', function () { lf.range = 'all'; lf.unpaid = false; syncFilterChips(); rerenderCurrentList(); });
+  document.getElementById('firmFilter').addEventListener('change', function () { lf.firm = this.value; rerenderCurrentList(); });
+  document.getElementById('whFilter').addEventListener('change', function () { lf.wh = this.value; rerenderCurrentList(); });
+  function fillFilterSelects() {
+    function fill(id, rows, cur) {
+      var el = document.getElementById(id);
+      el.innerHTML = '<option value="">All</option>' + rows.map(function (r) {
+        return '<option value="' + esc(r.id) + '"' + (r.id === cur ? ' selected' : '') + '>' + esc(r.name) + '</option>';
+      }).join('');
+      if (cur && !rows.some(function (r) { return r.id === cur; })) el.value = '';
+      return el.value;
+    }
+    lf.firm = fill('firmFilter', state.companies, lf.firm);
+    lf.wh = fill('whFilter', state.warehouses, lf.wh);
+  }
+  // Which controls make sense for the tab on screen.
+  function showFiltersFor(tab) {
+    var unpaidOk = tab === 'sale' || tab === 'purchase' || tab === 'sinvoice';
+    var firmOk = tab !== 'return' && tab !== 'transfer';
+    document.getElementById('blf_unpaid').hidden = !unpaidOk;
+    document.getElementById('firmFld').hidden = !firmOk;
+    document.getElementById('whFld').hidden = tab !== 'transfer';
+    if (!unpaidOk && lf.unpaid) { lf.unpaid = false; syncFilterChips(); }
+  }
+  function setListKpis(items) {
+    var el = document.getElementById('blKpis');
+    if (!items || !items.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    el.innerHTML = items.map(function (it) {
+      return '<div class="pg-kpi"><div><div class="k">' + esc(it.label) + '</div><div class="v ' + (it.cls || '') + '">' +
+        (it.text != null ? esc(it.text) : fmtMoney(it.val)) + '</div></div><div class="pg-ring ' + (it.cls || 'n') + '">' + esc(it.ring || '') + '</div></div>';
+    }).join('');
+  }
+  function setListCount(n, word) {
+    document.getElementById('blCnt').textContent = n == null ? '' : n + ' ' + (word || 'rows');
+  }
+  function setListSub(text) { document.getElementById('blSub').textContent = text || ''; }
+  function rangeLabel() { return lf.range === 'month' ? 'this month' : 'all dates'; }
+  function firmLabel() {
+    var c = state.companies.filter(function (x) { return x.id === lf.firm; })[0];
+    return c ? ' · ' + c.name : '';
   }
 
   function showListError(error) {
@@ -488,11 +587,8 @@
   }
 
   function wireListRows(onPick) {
-    Array.prototype.forEach.call(document.getElementById('listArea').querySelectorAll('.list-row'), function (row) {
+    Array.prototype.forEach.call(document.getElementById('listArea').querySelectorAll('.pg-lrow'), function (row) {
       row.addEventListener('click', function () { onPick(row.getAttribute('data-id')); });
-      row.addEventListener('keydown', function (ev) {
-        if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onPick(row.getAttribute('data-id')); }
-      });
     });
   }
 
@@ -501,7 +597,7 @@
   // ---------------------------------------------------------------
   async function loadList() {
     var q = sb.from('vouchers')
-      .select('id,vno,vdate,party_id,grand_total,paid,deleted_at')
+      .select('id,vno,vdate,party_id,company_id,grand_total,paid,deleted_at')
       .eq('vtype', state.vtype)
       .is('deleted_at', null)
       .order('vdate', { ascending: false })
@@ -521,13 +617,20 @@
   function renderList() {
     var term = (document.getElementById('search').value || '').toLowerCase();
     var rows = state.vouchers.filter(function (v) {
+      if (!passesFilter(v.vdate, v.company_id, v.grand_total - v.paid)) return false;
       if (!term) return true;
       return (v.vno || '').toLowerCase().indexOf(term) >= 0 ||
              partyName(v.party_id).toLowerCase().indexOf(term) >= 0;
     });
 
     var byDate = {};
-    rows.forEach(function (v) { (byDate[v.vdate] = byDate[v.vdate] || []).push(v); });
+    var total = 0, paid = 0, due = 0;
+    rows.forEach(function (v) {
+      (byDate[v.vdate] = byDate[v.vdate] || []).push(v);
+      total += Number(v.grand_total) || 0; paid += Number(v.paid) || 0;
+      var b = (Number(v.grand_total) || 0) - (Number(v.paid) || 0);
+      if (b > 0.004) due += b;
+    });
     var dates = Object.keys(byDate).sort().reverse();
 
     var html = '';
@@ -541,6 +644,7 @@
         var balance = v.grand_total - v.paid;
         html += listRowHtml({
           id: v.id,
+          code: state.vtype === 'sale' ? 'INV' : 'BILL',
           name: v.vno,
           sub: partyName(v.party_id),
           badge: balance > 0.004 ? 'Due ' + fmtMoney(balance) : 'Paid',
@@ -553,6 +657,14 @@
     });
     document.getElementById('listArea').innerHTML = html;
     wireListRows(function (id) { openEditor(id); });
+    var isSale = state.vtype === 'sale';
+    setListKpis([
+      { label: isSale ? 'Total sales' : 'Total purchases', val: total, cls: isSale ? 'dr' : 'cr', ring: 'Rs' },
+      { label: isSale ? 'Received' : 'Paid', val: paid, cls: isSale ? 'cr' : 'n', ring: '✓' },
+      { label: isSale ? 'Receivable' : 'Payable', val: due, cls: due > 0.004 ? 'wn' : 'n', ring: '!' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'document' : 'documents');
+    setListSub(rows.length + ' of ' + state.vouchers.length + ' · ' + rangeLabel() + (lf.unpaid ? ' · unpaid only' : '') + firmLabel());
   }
 
   // ---------------------------------------------------------------
@@ -600,9 +712,15 @@
   Object.keys(ALL_TABS).forEach(function (k) {
     document.getElementById(ALL_TABS[k]).addEventListener('click', function () { switchTab(k); });
   });
+  var CARD_TITLES = { sale: 'Sales invoices', purchase: 'Purchase bills', return: 'Sales returns', quotation: 'Quotations', po: 'Purchase orders', sinvoice: 'Service invoices', squote: 'Service quotations', transfer: 'Stock transfers' };
   function switchTab(vt) {
     Object.keys(ALL_TABS).forEach(function (k) { document.getElementById(ALL_TABS[k]).classList.toggle('on', k === vt); });
     document.getElementById('appTitle').textContent = TAB_TITLES[vt] || 'Billing';
+    document.getElementById('blTitle').textContent = TAB_TITLES[vt] || 'Billing';
+    document.getElementById('blCardTitle').textContent = CARD_TITLES[vt] || 'Documents';
+    setListSub(''); setListCount(null); setListKpis([]);
+    document.getElementById('listArea').innerHTML = '<div class="pg-empty">Loading…</div>';
+    showFiltersFor(vt);
     closeNav();
     if (vt === 'return') {
       state.mode = 'return';
@@ -1414,18 +1532,27 @@
   function renderReturnsList() {
     var term = (document.getElementById('search').value || '').toLowerCase();
     var rows = returnsState.returns.filter(function (r) {
+      if (!passesFilter(r.rdate, null, 0)) return false;
       return !term || (r.rno || '').toLowerCase().indexOf(term) >= 0 || partyName(r.party_id).toLowerCase().indexOf(term) >= 0;
     });
     var html = rows.length ? '' : emptyStateHtml('No sales returns yet',
-      term ? 'Nothing matches \u201C' + term + '\u201D.' : 'A return is always written against an existing sale.');
+      term ? 'Nothing matches “' + term + '”.' : 'A return is always written against an existing sale.');
+    var total = 0;
     rows.forEach(function (r) {
+      total += Number(r.grand_total) || 0;
       html += listRowHtml({
-        id: r.id, name: r.rno, sub: partyName(r.party_id) + ' · ' + r.rdate,
+        id: r.id, code: 'RET', name: r.rno, sub: partyName(r.party_id) + ' · ' + r.rdate,
         amount: fmtMoney(r.grand_total), tag: 'Cr', tagCls: 'cr'
       });
     });
     document.getElementById('listArea').innerHTML = html;
     wireListRows(function (id) { openReturnEditor(id); });
+    setListKpis([
+      { label: 'Total returned', val: total, cls: 'cr', ring: 'Rs' },
+      { label: 'Returns', text: String(rows.length), cls: 'n', ring: '#' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'return' : 'returns');
+    setListSub(rows.length + ' of ' + returnsState.returns.length + ' · ' + rangeLabel());
   }
 
   var returnEditing = null;
@@ -1686,19 +1813,30 @@
     var cfg = DOC_CONFIG[type];
     var term = (document.getElementById('search').value || '').toLowerCase();
     var rows = docsState.list.filter(function (d) {
+      if (!passesFilter(d[cfg.dateField], d.company_id, 0)) return false;
       return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0;
     });
     var html = rows.length ? '' : emptyStateHtml('No ' + cfg.title.toLowerCase() + 's yet',
-      term ? 'Nothing matches \u201C' + term + '\u201D.' : 'It is only a document until you convert it.');
+      term ? 'Nothing matches “' + term + '”.' : 'It is only a document until you convert it.');
+    var total = 0, open = 0, converted = 0;
     rows.forEach(function (d) {
+      total += Number(d.grand_total) || 0;
+      if (d.status === 'converted') converted++; else open++;
       html += listRowHtml({
-        id: d.id, name: d[cfg.numField], sub: partyName(d.party_id) + ' · ' + d[cfg.dateField],
+        id: d.id, code: type === 'po' ? 'PO' : 'QT', name: d[cfg.numField], sub: partyName(d.party_id) + ' · ' + d[cfg.dateField],
         badge: d.status, badgeCls: d.status === 'converted' ? 'b-ok' : 'b-neutral',
         amount: fmtMoney(d.grand_total)
       });
     });
     document.getElementById('listArea').innerHTML = html;
     wireListRows(function (id) { openDocEditor(type, id); });
+    setListKpis([
+      { label: 'Total value', val: total, cls: 'n', ring: 'Rs' },
+      { label: 'Open', text: String(open), cls: 'wn', ring: '○' },
+      { label: 'Converted', text: String(converted), cls: 'cr', ring: '✓' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'document' : 'documents');
+    setListSub(rows.length + ' of ' + docsState.list.length + ' · ' + rangeLabel() + firmLabel());
   }
 
   function blankDocHeader(type) {
@@ -2041,19 +2179,41 @@
   function renderServiceDocsList(type) {
     var cfg = SVC_CONFIG[type];
     var term = (document.getElementById('search').value || '').toLowerCase();
-    var rows = svcState.list.filter(function (d) { return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0; });
+    var isInv = type === 'sinvoice';
+    function balOf(d) { return isInv ? (Number(d.grand_total) || 0) - (Number(d.paid) || 0) : 0; }
+    var rows = svcState.list.filter(function (d) {
+      if (!passesFilter(d[cfg.dateField], d.company_id, balOf(d))) return false;
+      return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0;
+    });
     var html = rows.length ? '' : emptyStateHtml('No ' + cfg.title.toLowerCase() + 's yet',
-      term ? 'Nothing matches \u201C' + term + '\u201D.' : 'Tap + New to write the first one.');
+      term ? 'Nothing matches “' + term + '”.' : 'Tap + New to write the first one.');
+    var total = 0, due = 0, converted = 0;
     rows.forEach(function (d) {
+      total += Number(d.grand_total) || 0;
+      var bal = balOf(d);
+      if (bal > 0.004) due += bal;
+      if (d.status === 'converted') converted++;
       html += listRowHtml({
-        id: d.id, name: d[cfg.numField], sub: partyName(d.party_id) + ' · ' + d[cfg.dateField],
-        badge: d.status, badgeCls: d.status === 'converted' ? 'b-ok' : 'b-neutral',
+        id: d.id, code: isInv ? 'SI' : 'SQ', name: d[cfg.numField], sub: partyName(d.party_id) + ' · ' + d[cfg.dateField],
+        badge: isInv ? (bal > 0.004 ? 'Due ' + fmtMoney(bal) : 'Paid') : d.status,
+        badgeCls: isInv ? (bal > 0.004 ? 'b-warn' : 'b-ok') : (d.status === 'converted' ? 'b-ok' : 'b-neutral'),
         amount: fmtMoney(d.grand_total),
-        tag: type === 'sinvoice' ? 'Dr' : '', tagCls: 'dr'
+        tag: isInv ? 'Dr' : '', tagCls: 'dr'
       });
     });
     document.getElementById('listArea').innerHTML = html;
     wireListRows(function (id) { openServiceDocEditor(type, id); });
+    setListKpis(isInv ? [
+      { label: 'Total billed', val: total, cls: 'dr', ring: 'Rs' },
+      { label: 'Receivable', val: due, cls: due > 0.004 ? 'wn' : 'n', ring: '!' },
+      { label: 'Invoices', text: String(rows.length), cls: 'n', ring: '#' }
+    ] : [
+      { label: 'Total value', val: total, cls: 'n', ring: 'Rs' },
+      { label: 'Open', text: String(rows.length - converted), cls: 'wn', ring: '○' },
+      { label: 'Converted', text: String(converted), cls: 'cr', ring: '✓' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'document' : 'documents');
+    setListSub(rows.length + ' of ' + svcState.list.length + ' · ' + rangeLabel() + (lf.unpaid ? ' · unpaid only' : '') + firmLabel());
   }
 
   async function openServiceDocEditor(type, id) {
@@ -2340,17 +2500,30 @@
 
   function renderTransfersList() {
     var term = (document.getElementById('search').value || '').toLowerCase();
-    var rows = transferState.list.filter(function (t) { return !term || (t.tno || '').toLowerCase().indexOf(term) >= 0; });
+    var rows = transferState.list.filter(function (t) {
+      if (!passesFilter(t.tdate, null, 0)) return false;
+      if (lf.wh && t.from_warehouse !== lf.wh && t.to_warehouse !== lf.wh) return false;
+      return !term || (t.tno || '').toLowerCase().indexOf(term) >= 0;
+    });
     var html = rows.length ? '' : emptyStateHtml('No stock transfers yet',
-      term ? 'Nothing matches \u201C' + term + '\u201D.' : 'A transfer records intent only — it moves no stock value.');
+      term ? 'Nothing matches “' + term + '”.' : 'A transfer records intent only — it moves no stock value.');
+    var thisMonth = 0, fom = firstOfMonthStr();
     rows.forEach(function (t) {
+      if (t.tdate && t.tdate >= fom) thisMonth++;
       html += listRowHtml({
-        id: t.id, name: t.tno,
-        sub: warehouseName(t.from_warehouse) + ' \u2192 ' + warehouseName(t.to_warehouse) + ' · ' + t.tdate
+        id: t.id, code: 'TR', name: t.tno,
+        sub: warehouseName(t.from_warehouse) + ' → ' + warehouseName(t.to_warehouse) + ' · ' + t.tdate
       });
     });
     document.getElementById('listArea').innerHTML = html;
     wireListRows(function (id) { openTransferEditor(id); });
+    setListKpis([
+      { label: 'Transfers', text: String(rows.length), cls: 'n', ring: '#' },
+      { label: 'This month', text: String(thisMonth), cls: 'cash', ring: '30' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'transfer' : 'transfers');
+    var w = state.warehouses.filter(function (x) { return x.id === lf.wh; })[0];
+    setListSub(rows.length + ' of ' + transferState.list.length + ' · ' + rangeLabel() + (w ? ' · ' + w.name : ''));
   }
 
   async function openTransferEditor(id) {
@@ -2562,7 +2735,7 @@
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (d && d.oht === 'refresh' && ['parties', 'items', 'companies', 'warehouses'].indexOf(d.kind) >= 0) {
-      loadMasters();
+      loadMasters().then(fillFilterSelects);
     }
   });
 
@@ -2582,8 +2755,9 @@
     var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
     if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
     await loadMasters();
+    fillFilterSelects();
     if (pendingTab && ALL_TABS[pendingTab]) { switchTab(pendingTab); pendingTab = null; }
-    else await loadList();
+    else { showFiltersFor('sale'); await loadList(); }
     inited = true;
     OfflineQueue.startAutoFlush(sb);
   })();
