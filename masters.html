@@ -944,10 +944,68 @@
     });
   }
 
+  // Warehouse-wise stock breakdown for one item (§12) — no per-warehouse
+  // running balance is kept anywhere; this sums the same warehouse-tagged
+  // rows every purchase/sale/return/transfer already carries, the same way
+  // reports.html's Item Stock Ledger sums an item's whole history. Stock
+  // adjustments carry no warehouse of their own, so they aren't included —
+  // the total here can run slightly behind items.stock_qty if adjustments
+  // were used; it is a breakdown for visibility, not a second source of truth.
+  async function loadItemWarehouseStock(itemId, rec, warehouseOptions) {
+    var wrap = document.getElementById('whStockWrap');
+    if (!wrap) return;
+    wrap.innerHTML = '<div class="group-lbl">Warehouse stock</div><div class="hint">Loading…</div>';
+    var byWh = {};
+    function add(whId, qty) { if (!whId) return; byWh[whId] = (byWh[whId] || 0) + qty; }
+    if (rec.opening_warehouse_id) add(rec.opening_warehouse_id, Number(rec.opening_qty) || 0);
+
+    var [{ data: vlines }, { data: rlines }, { data: tlines }] = await Promise.all([
+      sb.from('voucher_lines').select('qty,warehouse_id,vouchers(vtype)').eq('item_id', itemId),
+      sb.from('sales_return_lines').select('qty,warehouse_id,sales_returns(id)').eq('item_id', itemId),
+      sb.from('stock_transfer_lines').select('qty,stock_transfers(from_warehouse,to_warehouse)').eq('item_id', itemId)
+    ]);
+    (vlines || []).forEach(function (l) {
+      if (!l.vouchers || !l.warehouse_id) return;
+      add(l.warehouse_id, l.vouchers.vtype === 'sale' ? -(Number(l.qty) || 0) : (Number(l.qty) || 0));
+    });
+    (rlines || []).forEach(function (l) {
+      if (!l.sales_returns || !l.warehouse_id) return;
+      add(l.warehouse_id, Number(l.qty) || 0);
+    });
+    (tlines || []).forEach(function (l) {
+      if (!l.stock_transfers) return;
+      var q = Number(l.qty) || 0;
+      add(l.stock_transfers.from_warehouse, -q);
+      add(l.stock_transfers.to_warehouse, q);
+    });
+
+    var whName = {};
+    warehouseOptions.forEach(function (w) { whName[w.id] = w.name; });
+    var rows = Object.keys(byWh).filter(function (id) { return Math.abs(byWh[id]) > 0.0005; })
+      .sort(function (a, b) { return (whName[a] || '').localeCompare(whName[b] || ''); });
+
+    var html = '<div class="group-lbl">Warehouse stock</div>';
+    if (!rows.length) {
+      html += '<div class="hint">No warehouse-tagged movements yet — this item\'s stock has not been assigned to a specific warehouse.</div>';
+    } else {
+      html += '<div class="lines" style="margin-top:8px">';
+      rows.forEach(function (whId) {
+        html += '<div class="ln"><div class="ln-top">' +
+          '<div style="flex:1;min-width:0">' + esc(whName[whId] || 'Unknown warehouse') + '</div>' +
+          '<div class="mono" style="font-weight:600">' + fmt(byWh[whId]) + (rec.unit ? ' ' + esc(rec.unit) : '') + '</div>' +
+          '</div></div>';
+      });
+      html += '</div>';
+    }
+    wrap.innerHTML = html;
+  }
+
   var itemsView = {
     async render() {
       var { data } = await sb.from('items').select('*').is('deleted_at', null).order('name');
       var all = data || [];
+      var { data: warehousesData } = await sb.from('warehouses').select('id,name').eq('active', true).is('deleted_at', null).order('name');
+      var warehouseOptions = warehousesData || [];
       var typeFilter = '';
       document.getElementById('content').innerHTML =
         toolbarHtml('Search items…', '+ Add Item',
@@ -1025,14 +1083,20 @@
             '<div class="field"><label for="f_opening_qty">Opening qty</label><input class="num" type="number" step="0.001" id="f_opening_qty" value="' + (rec.opening_qty || 0) + '"></div>' +
             '<div class="field"><label for="f_opening_rate">Opening rate</label><input class="num" type="number" step="0.01" id="f_opening_rate" value="' + (rec.opening_rate || 0) + '"></div>' +
           '</div>' +
+          '<div class="field"><label for="f_opening_warehouse_id">Opening warehouse <span style="font-weight:400;color:var(--mute)">(optional)</span></label><select id="f_opening_warehouse_id">' +
+            '<option value="">— Not specified —</option>' +
+            warehouseOptions.map(function (w) { return '<option value="' + w.id + '"' + (w.id === rec.opening_warehouse_id ? ' selected' : '') + '>' + esc(w.name) + '</option>'; }).join('') +
+          '</select><div class="hint">Which warehouse the opening quantity above sits in — never required.</div></div>' +
           '<div class="field"><label for="f_hs_code">HS code</label><input id="f_hs_code" value="' + esc(rec.hs_code) + '"><div class="hint">' +
             (id ? 'Live stock ' + rec.stock_qty + ' @ avg cost ' + rec.avg_cost + ' — computed by the costing engine, not editable directly.' : 'Stock and average cost are computed by the costing engine once this item starts trading.') +
           '</div></div>' +
           (id ? '<div id="unitsWrap"></div>' : '') +
+          (id ? '<div id="whStockWrap"></div>' : '') +
           '<div class="warn-txt" id="formErr"></div>';
 
         openSheet((id ? 'Edit ' : 'New ') + 'Item', body, editorFtr(!!id));
         if (id) loadItemUnits(id);
+        if (id) loadItemWarehouseStock(id, rec, warehouseOptions);
 
         document.getElementById('cancelBtn').addEventListener('click', closeSheet);
         document.getElementById('saveBtn').addEventListener('click', async function () {
@@ -1045,6 +1109,7 @@
             tax_pct: Number(document.getElementById('f_tax_pct').value) || 0,
             opening_qty: Number(document.getElementById('f_opening_qty').value) || 0,
             opening_rate: Number(document.getElementById('f_opening_rate').value) || 0,
+            opening_warehouse_id: document.getElementById('f_opening_warehouse_id').value || null,
             reorder_level: Number(document.getElementById('f_reorder_level').value) || 0,
             hs_code: document.getElementById('f_hs_code').value || null
           };
