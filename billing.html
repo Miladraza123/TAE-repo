@@ -230,7 +230,7 @@
     var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }] = await Promise.all([
       sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
       sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty,item_type').is('deleted_at', null).order('name'),
-      sb.from('companies').select('id,name,is_default').is('deleted_at', null).order('name'),
+      sb.from('companies').select('id,name,city,phone,ntn,logo,is_default').is('deleted_at', null).order('name'),
       sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
       sb.from('item_units').select('id,item_id,unit,factor').is('deleted_at', null)
     ]);
@@ -1630,9 +1630,11 @@
     linesHtml += '</div>';
     renderSheet('Sales Return — ' + r.header.rno, linesHtml,
       '<button type="button" class="btn dgr" id="rt_deleteBtn">Delete</button>' +
+      '<button type="button" class="btn" id="rt_printBtn">Print</button>' +
       '<button type="button" class="btn" id="cancelBtn">Cancel</button>');
     document.getElementById('cancelBtn').addEventListener('click', closeEditor);
     document.getElementById('rt_deleteBtn').addEventListener('click', deleteReturn);
+    document.getElementById('rt_printBtn').addEventListener('click', printReturn);
   }
 
   // Unchanged data flow — only lifted out of the old <select>'s change
@@ -1793,6 +1795,40 @@
     toast('Sales return saved');
     closeEditor();
     loadReturnsList();
+  }
+
+  // Print (§9/§25) — classic A4 credit note. sales_returns carries no
+  // company_id of its own (a return is always against one existing sale),
+  // so the firm printed is the original sale's.
+  async function printReturn() {
+    var r = returnEditing, h = r.header;
+    var saleRes = await sb.from('vouchers').select('vno,company_id').eq('id', h.sale_id).maybeSingle().catch(function () { return { data: null }; });
+    var saleInfo = (saleRes && saleRes.data) || {};
+    var company = await firmForPrint(saleInfo.company_id);
+    var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
+    var rows = r.picked.map(function (l) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      return ['<td>' + esc(item ? item.name : '') + '</td>',
+        '<td class="num">' + esc(l.qty) + '</td>', '<td class="num">' + fmtMoney(l.rate) + '</td>',
+        '<td class="num">' + fmtMoney(l.amount) + '</td>'];
+    });
+    var total = r.picked.reduce(function (s, l) { return s + (Number(l.amount) || 0); }, 0);
+    var html = buildPdDoc({
+      firm: company, tag: 'Sales return / credit note',
+      docTitle: 'Sales Return', sub: h.rno + ' · ' + h.rdate,
+      metaRows: [['Return no', h.rno], ['Date', h.rdate], ['Against sale', saleInfo.vno], ['Printed', printStamp()]],
+      parties: [
+        { label: 'Credited to', name: party ? party.name : null, sub: party ? party.city : '' },
+        { label: 'From', name: company.name, sub: firmAddrText(company) }
+      ],
+      cols: [{ label: 'Item' }, { label: 'Qty', cls: 'num' }, { label: 'Rate', cls: 'num' }, { label: 'Amount', cls: 'num' }],
+      rows: rows,
+      totals: [{ label: 'Total returned', value: fmtMoney(total), cls: 'grand' }],
+      narrationLabel: 'Narration', narration: h.narration,
+      sigLabels: ['Issued by', 'Approved by'],
+      footerRight: 'Sales Return · ' + h.rno
+    });
+    showPrintDoc(html, h.rno + '.pdf');
   }
 
   async function deleteReturn() {
@@ -1960,6 +1996,7 @@
       '</div>';
 
     var ftr = (!d.isNew ? '<button type="button" class="btn dgr" id="docDeleteBtn">Delete</button>' : '') +
+      (!d.isNew ? '<button type="button" class="btn" id="docPrintBtn">Print</button>' : '') +
       (!d.isNew && h.status === 'open' ? '<button type="button" class="btn" id="docConvertBtn">' + cfg.convertLabel + '</button>' : '') +
       '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
       '<button type="button" class="btn pri" id="docSaveBtn">Save</button>';
@@ -1982,6 +2019,7 @@
     document.getElementById('docAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0 }); renderDocLines(); });
     document.getElementById('docSaveBtn').addEventListener('click', saveDoc);
     var delBtn = document.getElementById('docDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteDoc);
+    var printBtnDoc = document.getElementById('docPrintBtn'); if (printBtnDoc) printBtnDoc.addEventListener('click', printDoc);
     var convBtn = document.getElementById('docConvertBtn'); if (convBtn) convBtn.addEventListener('click', convertDoc);
     wireCombos(document.getElementById('editorCard'));
   }
@@ -2141,6 +2179,50 @@
     } catch (ex) {
       errEl.textContent = ex.message || String(ex);
     }
+  }
+
+  // Print (§9/§25) — classic A4 quotation/PO. Never carries a paid/balance
+  // line: neither table has stock or ledger effect until converted.
+  async function printDoc() {
+    var d = docEditing, cfg = DOC_CONFIG[d.type], h = d.header;
+    var company = await firmForPrint(h.company_id);
+    var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
+    var totals = docTotals();
+    var showTax = !!h.tax_on;
+    var rows = d.lines.filter(function (l) { return l.item_id; }).map(function (l) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      var cells = ['<td>' + esc(item ? item.name : '') + '</td>',
+        '<td class="num">' + esc(l.qty) + '</td>', '<td class="num">' + fmtMoney(l.rate) + '</td>'];
+      if (showTax) cells.push('<td class="num">' + esc(Number(l.tax_pct) || 0) + '%</td>');
+      cells.push('<td class="num">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>');
+      return cells;
+    });
+    var cols = [{ label: 'Item' }, { label: 'Qty', cls: 'num' }, { label: 'Rate', cls: 'num' }];
+    if (showTax) cols.push({ label: 'Tax', cls: 'num' });
+    cols.push({ label: 'Amount', cls: 'num' });
+    var totalsRows = [{ label: 'Sub total', value: fmtMoney(totals.sub) }];
+    if (Number(h.discount)) totalsRows.push({ label: 'Discount', value: '− ' + fmtMoney(h.discount) });
+    if (showTax) totalsRows.push({ label: 'Sales tax', value: fmtMoney(totals.tax) });
+    if (cfg.hasCharges) {
+      if (h.loading_on) totalsRows.push({ label: 'Loading', value: fmtMoney(h.loading_amt) });
+      if (h.cartage_on) totalsRows.push({ label: 'Cartage', value: fmtMoney(h.cartage_amt) });
+      if (h.cutting_on) totalsRows.push({ label: 'Cutting', value: fmtMoney(h.cutting_amt) });
+    }
+    totalsRows.push({ label: 'Grand total', value: fmtMoney(totals.grand), cls: 'grand' });
+    var html = buildPdDoc({
+      firm: company, tag: cfg.title + ' document',
+      docTitle: cfg.title, sub: h[cfg.numField] + ' · ' + h[cfg.dateField],
+      metaRows: [[d.type === 'quotation' ? 'Quote no' : 'PO no', h[cfg.numField]], ['Date', h[cfg.dateField]], ['Status', h.status || 'open'], ['Printed', printStamp()]],
+      parties: [
+        { label: d.type === 'quotation' ? 'Quoted to' : 'Supplier', name: party ? party.name : null, sub: party ? party.city : '' },
+        { label: 'From', name: company.name, sub: firmAddrText(company) }
+      ],
+      cols: cols, rows: rows, totals: totalsRows,
+      narrationLabel: 'Note', narration: h.narration,
+      sigLabels: ['Prepared by', 'Approved by'],
+      footerRight: cfg.title + ' · ' + h[cfg.numField]
+    });
+    showPrintDoc(html, h[cfg.numField] + '.pdf');
   }
 
   async function deleteDoc() {
@@ -2322,6 +2404,7 @@
       '</div>';
 
     var ftr = (!d.isNew ? '<button type="button" class="btn dgr" id="svcDeleteBtn">Delete</button>' : '') +
+      (!d.isNew ? '<button type="button" class="btn" id="svcPrintBtn">Print</button>' : '') +
       (!d.isNew && d.type === 'squote' && h.status === 'open' ? '<button type="button" class="btn" id="svcConvertBtn">Convert to Service Invoice</button>' : '') +
       '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
       '<button type="button" class="btn pri" id="svcSaveBtn">Save</button>';
@@ -2339,6 +2422,7 @@
     document.getElementById('svcAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, service_id: null, description: '', qty: 1, rate: 0, tax_pct: 0 }); renderSvcLines(); });
     document.getElementById('svcSaveBtn').addEventListener('click', saveServiceDoc);
     var delBtn = document.getElementById('svcDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteServiceDoc);
+    var printBtnSvc = document.getElementById('svcPrintBtn'); if (printBtnSvc) printBtnSvc.addEventListener('click', printServiceDoc);
     var convBtn = document.getElementById('svcConvertBtn'); if (convBtn) convBtn.addEventListener('click', convertServiceDoc);
     wireCombos(document.getElementById('editorCard'));
   }
@@ -2478,6 +2562,55 @@
     }
   }
 
+  // Print (§9/§25) — classic A4 service invoice/quotation. Line names come
+  // from the description typed on the line, falling back to the service's
+  // own name — the same precedence renderSvcLines already shows on screen.
+  async function printServiceDoc() {
+    var d = svcEditing, cfg = SVC_CONFIG[d.type], h = d.header;
+    var company = await firmForPrint(h.company_id);
+    var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
+    var totals = svcDisplayTotals();
+    var showTax = !!h.tax_on;
+    var isInv = d.type === 'sinvoice';
+    var rows = d.lines.filter(function (l) { return l.service_id || l.description; }).map(function (l) {
+      var svc = svcState.services.filter(function (x) { return x.id === l.service_id; })[0];
+      var cells = ['<td>' + esc(l.description || (svc ? svc.name : '')) + '</td>',
+        '<td class="num">' + esc(l.qty) + '</td>', '<td class="num">' + fmtMoney(l.rate) + '</td>'];
+      if (showTax) cells.push('<td class="num">' + esc(Number(l.tax_pct) || 0) + '%</td>');
+      cells.push('<td class="num">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>');
+      return cells;
+    });
+    var cols = [{ label: 'Description' }, { label: 'Qty', cls: 'num' }, { label: 'Rate', cls: 'num' }];
+    if (showTax) cols.push({ label: 'Tax', cls: 'num' });
+    cols.push({ label: 'Amount', cls: 'num' });
+    var totalsRows = [{ label: 'Sub total', value: fmtMoney(totals.sub) }];
+    if (Number(h.discount)) totalsRows.push({ label: 'Discount', value: '− ' + fmtMoney(h.discount) });
+    if (showTax) totalsRows.push({ label: 'Tax', value: fmtMoney(totals.tax) });
+    totalsRows.push({ label: 'Grand total', value: fmtMoney(totals.grand), cls: 'grand' });
+    if (isInv) {
+      var bal = totals.grand - (Number(h.paid) || 0);
+      totalsRows.push({ label: 'Received', value: fmtMoney(h.paid) });
+      totalsRows.push({ label: 'Balance due', value: fmtMoney(bal), cls: 'bal' });
+    }
+    var metaRows = [[isInv ? 'Invoice no' : 'Quote no', h[cfg.numField]], ['Date', h[cfg.dateField]]];
+    if (!isInv && h.valid_till) metaRows.push(['Valid till', h.valid_till]);
+    metaRows.push(['Printed', printStamp()]);
+    var html = buildPdDoc({
+      firm: company, tag: isInv ? 'Service invoice' : 'Service quotation',
+      docTitle: cfg.title, sub: h[cfg.numField] + ' · ' + h[cfg.dateField],
+      metaRows: metaRows,
+      parties: [
+        { label: 'Bill to', name: party ? party.name : null, sub: party ? party.city : '' },
+        { label: 'From', name: company.name, sub: firmAddrText(company) }
+      ],
+      cols: cols, rows: rows, totals: totalsRows,
+      narrationLabel: 'Notes', narration: h.notes || h.narration,
+      sigLabels: isInv ? ['Received by', 'Authorised by'] : ['Prepared by', 'Approved by'],
+      footerRight: cfg.title + ' · ' + h[cfg.numField]
+    });
+    showPrintDoc(html, h[cfg.numField] + '.pdf');
+  }
+
   async function deleteServiceDoc() {
     var d = svcEditing, cfg = SVC_CONFIG[d.type];
     var ok = await confirmDialog('Delete ' + d.header[cfg.numField] + '?',
@@ -2581,6 +2714,7 @@
       '<div class="hint">A transfer is a record of intent — it does not move stock value or cost.</div></div>';
 
     var ftr = (!t.isNew ? '<button type="button" class="btn dgr" id="trDeleteBtn">Delete</button>' : '') +
+      (!t.isNew ? '<button type="button" class="btn" id="trPrintBtn">Print</button>' : '') +
       '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
       '<button type="button" class="btn pri" id="trSaveBtn">Save</button>';
 
@@ -2595,6 +2729,7 @@
     document.getElementById('trAddLineBtn').addEventListener('click', function () { t.lines.push({ id: null, item_id: null, qty: 0 }); renderTransferLines(); });
     document.getElementById('trSaveBtn').addEventListener('click', saveTransfer);
     var delBtn = document.getElementById('trDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteTransfer);
+    var printBtnTr = document.getElementById('trPrintBtn'); if (printBtnTr) printBtnTr.addEventListener('click', printTransfer);
   }
 
   function renderTransferLines() {
@@ -2694,6 +2829,32 @@
     closeEditor(); loadTransfersList();
   }
 
+  // Print (§9/§25) — classic A4 transfer note. No party, no rate/amount: a
+  // transfer moves no stock value or cost, only quantity between warehouses.
+  async function printTransfer() {
+    var t = transferEditing, h = t.header;
+    var company = await firmForPrint(null);
+    var fromW = state.warehouses.filter(function (w) { return w.id === h.from_warehouse; })[0];
+    var toW = state.warehouses.filter(function (w) { return w.id === h.to_warehouse; })[0];
+    var rows = t.lines.filter(function (l) { return l.item_id; }).map(function (l) {
+      var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      return ['<td>' + esc(item ? item.name : '') + '</td>',
+        '<td class="num">' + esc(l.qty) + (item && item.unit ? ' ' + esc(item.unit) : '') + '</td>'];
+    });
+    var html = buildPdDoc({
+      firm: company, tag: 'Stock transfer — record of intent only',
+      docTitle: 'Stock Transfer', sub: h.tno + ' · ' + h.tdate,
+      metaRows: [['Transfer no', h.tno], ['Date', h.tdate], ['From', fromW ? fromW.name : null], ['To', toW ? toW.name : null], ['Printed', printStamp()]],
+      parties: null,
+      cols: [{ label: 'Item' }, { label: 'Qty', cls: 'num' }],
+      rows: rows, totals: null,
+      narrationLabel: 'Narration', narration: h.narration,
+      sigLabels: ['Issued by', 'Received by'],
+      footerRight: 'Stock Transfer · ' + h.tno
+    });
+    showPrintDoc(html, h.tno + '.pdf');
+  }
+
   async function deleteTransfer() {
     var t = transferEditing;
     var ok = await confirmDialog('Delete transfer ' + t.header.tno + '?',
@@ -2734,6 +2895,80 @@
   function printStamp() {
     var d = new Date();
     return d.toISOString().slice(0, 10) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+
+  // Puts the built .pd HTML on screen, flips on the print stylesheet, and
+  // restores everything once the print dialog closes — the same sequence
+  // printVoucher() below uses inline, factored out for the four print
+  // functions this phase adds (Return / Quotation-PO / Service doc / Transfer).
+  function showPrintDoc(html, filename) {
+    document.getElementById('printArea').innerHTML = html;
+    document.body.classList.add('pd-on');
+    var oldTitle = document.title;
+    document.title = filename;
+    try { window.top.document.title = document.title; } catch (ex) {}
+    window.addEventListener('afterprint', function restore() {
+      document.title = oldTitle;
+      try { window.top.document.title = oldTitle; } catch (ex) {}
+      document.body.classList.remove('pd-on');
+      window.removeEventListener('afterprint', restore);
+    });
+    window.print();
+  }
+
+  // Builds one classic A4 document (theme.css §17 .pd-*): letterhead + meta
+  // box, title, an optional party block (1-2 parties), a numbered line
+  // table, an optional totals block, an optional narration, and the
+  // signature / "Powered by" footer. Every print function below is just
+  // "gather this document's own fields" + one call to this.
+  //   opts: { firm, tag, docTitle, sub, metaRows:[[label,value]],
+  //           parties: [{label,name,sub}] | null,
+  //           cols:[{label,cls}], rows:[[tdHtml,...]],
+  //           totals: [{label,value,cls}] | null,
+  //           narrationLabel, narration, sigLabels:[...], footerRight }
+  function buildPdDoc(opts) {
+    var html = '<div class="pd">' +
+      '<div class="pd-lh">' +
+        '<div class="mk">' + firmMarkHtml(opts.firm) + '</div>' +
+        '<div><div class="fn">' + esc((opts.firm && opts.firm.name) || 'OHT Accounting System') + '</div>' +
+          '<div class="fa">' + esc(firmAddrText(opts.firm)) + '</div><div class="tag">' + esc(opts.tag || '') + '</div></div>' +
+        '<div class="pd-meta">' +
+          opts.metaRows.map(function (r) { return '<div><b>' + esc(r[0]) + '</b><span class="mono">' + esc(r[1] == null ? '—' : r[1]) + '</span></div>'; }).join('') +
+        '</div>' +
+      '</div><div class="pd-rule"></div><div class="pd-rule2"></div>' +
+      '<div class="pd-ttl"><h1>' + esc(opts.docTitle) + '</h1><span class="sub">' + esc(opts.sub || '') + '</span><span class="basis">Amounts in PKR</span></div>';
+
+    if (opts.parties && opts.parties.length) {
+      html += '<div class="party">' + opts.parties.map(function (p) {
+        return '<div class="blk"><div class="k">' + esc(p.label) + '</div><div class="nm">' + esc(p.name || '—') + '</div>' +
+          (p.sub ? '<div class="ad">' + esc(p.sub) + '</div>' : '') + '</div>';
+      }).join('') + '</div>';
+    }
+
+    if (opts.cols) {
+      html += '<table><thead><tr><th class="idx">#</th>' +
+        opts.cols.map(function (c) { return '<th' + (c.cls ? ' class="' + c.cls + '"' : '') + '>' + esc(c.label) + '</th>'; }).join('') +
+        '</tr></thead><tbody>' +
+        (opts.rows.length ? opts.rows.map(function (r, i) { return '<tr><td class="idx mono">' + (i + 1) + '</td>' + r.join('') + '</tr>'; }).join('')
+          : '<tr><td colspan="' + (opts.cols.length + 1) + '" style="color:#6B6357">No lines</td></tr>') +
+        '</tbody></table>';
+    }
+
+    if (opts.totals && opts.totals.length) {
+      html += '<div class="totals"><table>' + opts.totals.map(function (t) {
+        return '<tr class="' + (t.cls || '') + '"><td>' + esc(t.label) + '</td><td class="num">' + esc(t.value) + '</td></tr>';
+      }).join('') + '</table></div>';
+    }
+
+    if (opts.narration) {
+      html += '<div class="narr"><b>' + esc(opts.narrationLabel || 'Narration') + '</b>' + esc(opts.narration) + '</div>';
+    }
+
+    html += '<div class="pd-spacer"></div>' +
+      '<div class="pd-foot"><div class="pd-sig">' + opts.sigLabels.map(function (s) { return '<div>' + esc(s) + '</div>'; }).join('') + '</div>' +
+        '<div class="pd-fl"><span>Powered by "OHT Solutions"</span><span>' + esc(opts.footerRight || '') + '</span></div></div>' +
+      '</div>';
+    return html;
   }
 
   async function printVoucher() {

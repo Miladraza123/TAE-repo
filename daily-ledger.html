@@ -115,14 +115,14 @@
   /* ---------- register card ---------- */
   .dl-reg .pg-ch { gap:10px; }
   .dl-reg .pg-ch .firm-wrap { min-width:160px; flex:1; }
-  .dl-reg .pg-ch input.firm-name {
+  .dl-reg .pg-ch .firm-name {
     background:transparent; border:none; padding:0; margin:0; width:100%;
     font-family:'IBM Plex Serif',serif; font-weight:600; font-size:14.5px; color:var(--ink);
-    border-bottom:1px solid transparent;
+    border-bottom:1px solid transparent; cursor:pointer;
   }
-  .dl-reg .pg-ch input.firm-name::placeholder { color:var(--mute); opacity:.75; }
-  .dl-reg .pg-ch input.firm-name:hover { border-bottom-color:var(--line); }
-  .dl-reg .pg-ch input.firm-name:focus { outline:none; border-bottom-color:var(--accent); }
+  .dl-reg .pg-ch .firm-name::placeholder { color:var(--mute); opacity:.75; }
+  .dl-reg .pg-ch .firm-name:hover { border-bottom-color:var(--line); }
+  .dl-reg .pg-ch .firm-name:focus { outline:none; border-bottom-color:var(--accent); }
   .dl-reg .pg-ch .mt { color:var(--mute); font-size:11.5px; font-weight:500; white-space:nowrap; }
   .dl-reg .pg-ch .sp { flex:1; }
   .dl-reg .pg-ch .fld {
@@ -442,7 +442,7 @@
   var state = {
     date: new Date().toISOString().slice(0, 10),
     sheet: null, originalSheet: null, originalRows: [],
-    parties: [], dirty: false, prevClosing: 0,
+    parties: [], companies: [], dirty: false, prevClosing: 0,
     autosavePaused: false, saving: false, editSeq: 0
   };
 
@@ -678,6 +678,27 @@
     state.parties = data || [];
   }
 
+  // Registered firms, for the Firm dropdown (§2) — a free-text field let a
+  // typo silently break the print letterhead's logo lookup in firmForPrint().
+  async function loadCompanies() {
+    var { data } = await sb.from('companies').select('name,is_default').is('deleted_at', null).order('is_default', { ascending: false }).order('name');
+    state.companies = data || [];
+  }
+
+  // Builds this dropdown's <option>s from state.companies, always keeping
+  // the sheet's current firm selected/visible even if it does not (or no
+  // longer) match a registered company — never silently changes saved data.
+  function firmOptionsHtml(current) {
+    var cur = (current || '').trim();
+    var have = state.companies.some(function (c) { return (c.name || '').trim().toLowerCase() === cur.toLowerCase(); });
+    var html = state.companies.map(function (c) {
+      var sel = cur && (c.name || '').trim().toLowerCase() === cur.toLowerCase();
+      return '<option value="' + esc(c.name) + '"' + (sel ? ' selected' : '') + '>' + esc(c.name) + '</option>';
+    }).join('');
+    if (cur && !have) html += '<option value="' + esc(cur) + '" selected>' + esc(cur) + '</option>';
+    return html;
+  }
+
   // ---------------------------------------------------------------
   // Row shape. sheets.rows (a JSONB array-of-arrays) is gone — every line
   // is a sheet_rows record now, so rows are named objects carrying their
@@ -859,7 +880,10 @@
     var html = '' +
       '<div class="pg-ch">' +
         '<span class="pg-lh"><span class="mk">' + esc((s.firm || 'O').trim().charAt(0).toUpperCase() || 'O') + '</span></span>' +
-        '<span class="firm-wrap"><input class="firm-name" id="f_firm" value="' + esc(s.firm || '') + '" placeholder="OHT Accounting System" aria-label="Firm name"></span>' +
+        '<span class="firm-wrap"><select class="firm-name" id="f_firm" aria-label="Firm name">' +
+          '<option value=""' + (!s.firm ? ' selected' : '') + '>Default firm</option>' +
+          firmOptionsHtml(s.firm) +
+        '</select></span>' +
         '<span class="mt">Daily Cash Book &middot; ' + esc(longDate(state.date)) + '</span>' +
         '<span class="sp"></span>' +
         '<span class="fld opening-block"><span class="ob-lbl">Opening</span>' +
@@ -1094,7 +1118,7 @@
   var suppressBlurSave = false;
 
   function wireEvents() {
-    document.getElementById('f_firm').addEventListener('input', function () {
+    document.getElementById('f_firm').addEventListener('change', function () {
       state.sheet.firm = this.value; markDirty(); scheduleAutosave();
     });
     document.getElementById('f_firm').addEventListener('blur', autosaveOnBlur);
@@ -2303,7 +2327,7 @@
       document.getElementById('ledgerArea').innerHTML = '<p class="loading">Please sign in from the main app.</p>';
       return;
     }
-    await loadParties();
+    await Promise.all([loadParties(), loadCompanies()]);
     await loadSheet(state.date);
     loadRecentSheets();
     syncNow();
