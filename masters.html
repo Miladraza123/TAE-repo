@@ -1441,11 +1441,15 @@
   // ===================================================================
   var changePwView = {
     async render() {
+      var whoami = me.username ? (me.username + (me.email ? ' (' + me.email + ')' : '')) : (me.email || 'unknown account');
       document.getElementById('content').innerHTML = pgShell({
         crumb: 'Account', title: 'Change Password',
         sub: 'Sets the password for the account you are signed in as',
         cardTitle: 'New password', body: '<div class="pad">' +
-        '<p class="page-sub">Sets the password for the account you are signed in as. You stay signed in on this device; other devices keep working until their session expires.</p>' +
+        '<div class="hint" style="background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:8px 12px;margin-bottom:14px">' +
+          'Signed in as <b style="color:var(--ink)">' + esc(whoami) + '</b> — this changes THIS account\'s password only.' +
+        '</div>' +
+        '<p class="page-sub">You stay signed in on this device; other devices keep working until their session expires.</p>' +
         '<div style="max-width:340px">' +
         '<div class="field" id="pw1wrap"><label for="pw_new">New password</label><input type="password" id="pw_new" autocomplete="new-password">' +
         '<div class="hint">At least 8 characters.</div></div>' +
@@ -1608,8 +1612,9 @@
       document.getElementById('content').innerHTML = pgShell({ title: 'Masters', body: emptyState('Not signed in', 'Please sign in from the main app.') });
       return;
     }
-    var { data: profile } = await sb.from('app_users').select('is_admin,perms').eq('id', userData.user.id).maybeSingle();
-    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; }
+    var { data: profile } = await sb.from('app_users').select('username,is_admin,perms').eq('id', userData.user.id).maybeSingle();
+    if (profile) { me.isAdmin = profile.is_admin; me.perms = profile.perms || {}; me.username = profile.username; }
+    me.email = userData.user.email;
     buildNav();
     render();
     refreshCounts();

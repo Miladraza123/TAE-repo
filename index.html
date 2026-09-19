@@ -561,7 +561,7 @@
     var label = navLabelFor(app, arg || null);
     document.getElementById('shellTitle').textContent = label;
     document.getElementById('appbarTitle').textContent = label;
-    try { localStorage.setItem('oht:lastNav', JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
+    try { if (currentUserId) localStorage.setItem('oht:lastNav:' + currentUserId, JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
     if (arg === undefined || arg === null) return;
     var msg = { oht: 'goto', app: app, arg: arg };
     if (existed && frameReady[app]) {
@@ -598,6 +598,12 @@
     document.getElementById('authErr').textContent = err || '';
   }
 
+  // §33: lastNav is scoped per signed-in account (currentUserId) — two
+  // different admin accounts used on the same device/browser must not
+  // silently inherit each other's last-open screen.
+  var currentUserId = null;
+  var currentUserEmail = null;
+
   function showApp() {
     authEl.style.display = 'none';
     loadingEl.style.display = 'none';
@@ -605,7 +611,7 @@
     buildSidebar();
     var last = { app: 'masters', arg: 'parties' };
     try {
-      var saved = JSON.parse(localStorage.getItem('oht:lastNav') || 'null');
+      var saved = JSON.parse(localStorage.getItem('oht:lastNav:' + currentUserId) || 'null');
       if (saved && saved.app) last = saved;
     } catch (e) {}
     openModule(last.app, last.arg);
@@ -617,7 +623,7 @@
     if (!user) { showAuth(); return; }
     var { data: profile, error } = await sb
       .from('app_users')
-      .select('id, is_active, is_admin')
+      .select('id, username, is_active, is_admin')
       .eq('id', user.id)
       .maybeSingle();
     if (error) { showAuth('Could not load your profile: ' + error.message); return; }
@@ -631,6 +637,8 @@
       showAuth('Your access has been disabled — contact your admin.');
       return;
     }
+    currentUserId = user.id;
+    currentUserEmail = user.email;
     showApp();
   }
 
@@ -658,6 +666,8 @@
     frameReady = {};
     pendingGoto = {};
     activeKey = null;
+    currentUserId = null;
+    currentUserEmail = null;
     showAuth();
   });
 
@@ -667,9 +677,42 @@
   }
   checkProfileAndEnter();
 
+  // §26: sw.js already calls skipWaiting()/clients.claim() unconditionally,
+  // so a new version activates itself in the background the moment it is
+  // installed — the only piece missing was ever telling the user, since
+  // this page's already-loaded JS/HTML keeps running the OLD version until
+  // an actual reload happens. A fresh install (no prior controller) is not
+  // an update and must not prompt.
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', function () {
-      navigator.serviceWorker.register('sw.js').catch(function () {});
+      navigator.serviceWorker.register('sw.js').then(function (reg) {
+        if (!reg) return;
+        // A worker could already be sitting in "waiting" from before this
+        // page load (e.g. it finished installing in a background tab).
+        if (reg.waiting && navigator.serviceWorker.controller) promptForUpdate();
+        reg.addEventListener('updatefound', function () {
+          var installing = reg.installing;
+          if (!installing) return;
+          installing.addEventListener('statechange', function () {
+            if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+              promptForUpdate();
+            }
+          });
+        });
+      }).catch(function () {});
+    });
+  }
+  var updatePromptShown = false;
+  function promptForUpdate() {
+    if (updatePromptShown) return;
+    updatePromptShown = true;
+    confirmDialog(
+      'New version available',
+      'An updated version of OHT Accounting System is ready. Refresh to start using it — anything still syncing in the background is not affected.',
+      'Refresh', false
+    ).then(function (ok) {
+      updatePromptShown = false;
+      if (ok) window.location.reload();
     });
   }
 
