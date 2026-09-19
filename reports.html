@@ -24,33 +24,21 @@
   main{flex:1;overflow-y:auto;padding:0;}
   .toolbar h1{font-size:16px;margin:0 8px 0 0;font-weight:700;}
   .embedded .toolbar.tabs-wrap{display:none !important;}
-  .poweredBy{display:none;}
 
   /* Page pattern (theme.css .pg-*) — hero is full-bleed, its content and the
      body below share one centred column so cards line up under the title. */
   .pg-hero > *{max-width:1100px; margin-left:auto; margin-right:auto;}
   .pg-body{max-width:1148px; margin-left:auto; margin-right:auto;}
   .pg-hero .pg-fld select{max-width:220px;}
-  .print-head{display:none;}
   .rpt-warn{padding:14px 16px; color:var(--debit); font-size:13px;}
   .rpt-note{padding:8px 14px; color:var(--mute); font-size:12px; border-bottom:1px solid var(--hair);}
   #content .doc-table{margin:0;}
 
+  /* Print = the classic statement document (#printDoc, theme.css §17 .pd-*),
+     built from the report on screen the moment printing starts. */
   @media print{
-    @page{size:A4;}
-    body{background:#fff;color:#000;}
-    main{padding:0;}
-    .toolbar,.tabs,button,input,select,.pg-hero,.pg-kpis,.pg-ch .pg-cnt,.pg-ch .pg-lh,.pg-ch .pg-title{display:none !important;}
-    .pg-body{margin:0 !important; max-width:none !important; padding:0 20px !important;}
-    .pg-card{border:none !important; border-radius:0 !important; box-shadow:none !important; background:#fff !important;}
-    .pg-card .pg-ch{border:none !important; padding:0 !important;}
-    .print-head{display:block;}
-    .pg-card table.doc-table tbody tr:nth-child(even){background:transparent;}
-    th,td{border-bottom:1px solid #999;}
-    .poweredBy{
-      display:block !important; position:fixed; left:20px; right:20px; bottom:8mm; font-size:10px; color:#666;
-      border-top:1.5px solid #A67C2E; padding-top:5px;
-    }
+    @page{size:A4; margin:14mm 14mm 18mm;}
+    body.pd-on main{display:none !important;}
   }
 </style>
 </head>
@@ -62,7 +50,7 @@
 </div>
 
 <main id="content"></main>
-<div class="poweredBy">Powered by "OHT Solutions"</div>
+<div class="pd" id="printDoc"></div>
 <div id="toastStack" class="toast-stack"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
@@ -204,16 +192,6 @@
     return '<div class="empty-state"><div class="empty-big">' + esc(big) + '</div>' +
       '<div class="empty-sub">' + esc(sub) + '</div></div>';
   }
-  // Every report body opens with this: letterhead + serif title + sub-line.
-  function docHead(title, sub) {
-    return '<div class="letterhead">' +
-        '<div class="mark2">' + firmMark() + '</div>' +
-        '<div><div class="firm-name">' + esc(firm ? firm.name : 'OHT Accounting System') + '</div>' +
-        '<div class="firm-addr">' + esc(firmAddr()) + '</div></div>' +
-      '</div>' +
-      '<h2 class="stmt-title">' + esc(title) + '</h2>' +
-      '<div class="stmt-sub">' + esc(sub || '') + '</div>';
-  }
   // ---- page pattern (theme.css .pg-*) -----------------------------------
   // Every report = hero band (title, sub-line, actions, filters/chips) +
   // body (KPI cards from the report's own already-computed numbers + one
@@ -239,7 +217,7 @@
   }
   function wirePrint(p) {
     var b = document.getElementById(p + '_print');
-    if (b) b.addEventListener('click', function () { window.print(); });
+    if (b) b.addEventListener('click', function () { buildPrintDoc(); window.print(); });
   }
   function setKpis(p, items) {
     var el = document.getElementById(p + '_kpis');
@@ -267,8 +245,67 @@
   function emptyCard(big, sub) {
     return '<div class="pg-empty"><div class="big">' + esc(big) + '</div>' + esc(sub || '') + '</div>';
   }
-  // Letterhead + title that only shows on paper (the hero is screen-only).
-  function printHead(title, sub) { return '<div class="print-head">' + docHead(title, sub) + '</div>'; }
+  // ---- print document (theme.css §17 .pd-*) ------------------------------
+  // Built from what is on screen when printing starts (Print button, Ctrl+P
+  // or the browser menu): letterhead + meta box, title, the KPI cards as
+  // summary cells, the report table (numbered when it is a list), and the
+  // signature / "Powered by" footer on every page.
+  function printStamp() {
+    var d = new Date();
+    return d.toISOString().slice(0, 10) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
+  }
+  function buildPrintDoc() {
+    var hero = document.querySelector('#content .pg-hero');
+    var body = document.querySelector('#content [id$="_body"]');
+    if (!hero || !body) return;
+    var title = (hero.querySelector('h2') || {}).textContent || 'Report';
+    var sub = (hero.querySelector('.pg-sub') || {}).textContent || '';
+    var crumb = ((hero.querySelector('.pg-crumb') || {}).textContent || 'Reports').replace(/^Reports\s*\/\s*/, '');
+    var kpis = Array.prototype.map.call(document.querySelectorAll('#content .pg-kpi'), function (k) {
+      var v = k.querySelector('.v');
+      return { label: k.querySelector('.k').textContent, val: v.textContent, cls: v.className.replace(/\bv\b/, '').trim() };
+    });
+    var clone = body.cloneNode(true);
+    Array.prototype.forEach.call(clone.querySelectorAll('button, input, select'), function (el) { el.remove(); });
+    Array.prototype.forEach.call(clone.querySelectorAll('.pg-pill'), function (el) { el.className = el.className.replace('pg-pill', 'pill'); });
+    // Number the rows of a list-type table (3+ columns); statements keep their own shape.
+    Array.prototype.forEach.call(clone.querySelectorAll('table'), function (t) {
+      var headRow = t.tHead && t.tHead.rows[0];
+      if (!headRow || headRow.cells.length < 3) return;
+      var th = document.createElement('th'); th.className = 'idx'; th.textContent = '#';
+      headRow.insertBefore(th, headRow.firstChild);
+      var n = 0;
+      Array.prototype.forEach.call(t.tBodies, function (tb) {
+        Array.prototype.forEach.call(tb.rows, function (r) {
+          var td = document.createElement('td'); td.className = 'idx mono';
+          td.textContent = r.cells.length >= headRow.cells.length - 1 ? String(++n) : '';
+          r.insertBefore(td, r.firstChild);
+        });
+      });
+      if (t.tFoot) Array.prototype.forEach.call(t.tFoot.rows, function (r) { r.insertBefore(document.createElement('td'), r.firstChild); });
+    });
+    var html = '<div class="pd-lh">' +
+        '<div class="mk">' + firmMark() + '</div>' +
+        '<div><div class="fn">' + esc(firm ? firm.name : 'OHT Accounting System') + '</div>' +
+          '<div class="fa">' + esc(firmAddr()) + '</div><div class="tag">' + esc(crumb) + ' report</div></div>' +
+        '<div class="pd-meta">' +
+          '<div><b>Report</b><span>' + esc(title) + '</span></div>' +
+          '<div><b>Basis</b><span>' + esc(sub) + '</span></div>' +
+          '<div><b>Printed</b><span class="mono">' + esc(printStamp()) + '</span></div>' +
+        '</div>' +
+      '</div><div class="pd-rule"></div><div class="pd-rule2"></div>' +
+      '<div class="pd-ttl"><h1>' + esc(title) + '</h1><span class="sub">' + esc(sub) + '</span><span class="basis">Amounts in PKR</span></div>' +
+      (kpis.length ? '<div class="pd-sum">' + kpis.map(function (k) {
+        return '<div class="c ' + esc(k.cls) + '"><div class="k">' + esc(k.label) + '</div><div class="v">' + esc(k.val) + '</div></div>';
+      }).join('') + '</div>' : '') +
+      clone.innerHTML +
+      '<div class="pd-spacer"></div>' +
+      '<div class="pd-foot"><div class="pd-sig"><div>Prepared by</div><div>Checked by</div><div>Approved by</div></div>' +
+        '<div class="pd-fl"><span>Powered by "OHT Solutions"</span><span>' + esc(title + ' \u00B7 ' + sub) + '</span></div></div>';
+    document.getElementById('printDoc').innerHTML = html;
+    document.body.classList.add('pd-on');
+  }
+  window.addEventListener('beforeprint', buildPrintDoc);
   function fldDate(id, label, value) {
     return '<span class="pg-fld"><label for="' + id + '">' + esc(label) + '</label><input type="date" id="' + id + '" value="' + esc(value) + '"></span>';
   }
@@ -350,7 +387,7 @@
         { cls: 'cr', label: 'Total Credit', val: totalCr, ring: 'CR' },
         { cls: 'wn', label: 'Difference', val: Math.abs(totalDr - totalCr), ring: '±' }
       ]);
-      var h = printHead('Trial Balance', 'As of ' + asOf) + '<div id="tb_recon"></div>';
+      var h = '<div id="tb_recon"></div>';
       if (!(data || []).length) { setBody('tb', h + emptyCard('No balances', 'No party has a balance as of this date.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Party</th><th class="num">Balance</th><th>Side</th></tr></thead><tbody>';
       (data || []).forEach(function (r) {
@@ -413,7 +450,7 @@
       var pillCls = { notdue: 'g', b0: 'n', b30: 'a', b60: 'a', b90: 'r', payable: 'b', advance: 'b' };
       setCount('ag', rows.length);
       setKpis('ag', bucketKeys.map(function (k) { return { cls: bucketCls[k], label: bucketLabels[k], val: buckets[k], ring: bucketRing[k] }; }));
-      var h = printHead('Receivable Aging', 'As of ' + asOf);
+      var h = '';
       if (!rows.length) { setBody('ag', h + emptyCard('Nothing outstanding', 'No open documents as of this date.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Party</th><th>Doc</th><th>Date</th><th>Due</th><th class="num">Original</th><th class="num">Outstanding</th><th class="num">Days</th><th>Bucket</th></tr></thead><tbody>';
       rows.forEach(function (r) {
@@ -534,7 +571,7 @@
         { cls: netProfit < 0 ? 'dr' : 'cr', label: 'Net Profit', val: netProfit, ring: 'NP' }
       ]);
       setCount('pl', null);
-      var h = printHead('Profit & Loss', fmtRange(from, to));
+      var h = '';
       h += '<table class="doc-table"><tbody>' +
         row('Gross Sales', grossSales) + row('Sales Returns', -salesReturnsInRange) + row('Discounts', -discounts) +
         row('Net Sales', netSales, true) + row('COGS', -cogs) + row('Gross Profit', grossProfit, true) +
@@ -590,7 +627,7 @@
         { cls: 'cr', label: 'Total Credit', val: totCr, ring: 'CR' },
         { cls: closing >= 0 ? 'dr' : 'cr', label: 'Closing Balance', text: fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr'), ring: '=' }
       ]);
-      var h = printHead('Statement of Account', partyName + ' · as of ' + todayStr());
+      var h = '';
       if (!events.length) { setBody('st', h + emptyCard('No entries', 'This party has no transactions yet.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Date</th><th>Description</th><th class="num">Dr</th><th class="num">Cr</th><th class="num">Balance</th></tr></thead><tbody>';
       events.forEach(function (e) {
@@ -716,7 +753,7 @@
         { cls: 'dr', label: 'Total Out', text: fmtQty(totalOut) + unit, ring: '−' },
         { cls: 'wn', label: 'Closing Stock', text: fmtQty(item.stock_qty) + unit, ring: '=' }
       ]);
-      var h = printHead('Item Stock Ledger', item.name + ' · as of ' + todayStr());
+      var h = '';
       if (!events.length) { setBody('sl', h + emptyCard('No movements', 'This item has no transactions yet.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Date</th><th>Event</th><th class="num">Qty ±</th><th class="num">Running</th></tr></thead><tbody>';
       events.forEach(function (e) {
@@ -767,7 +804,7 @@
       var from = document.getElementById('mc_from').value, to = document.getElementById('mc_to').value;
       var finalItem = document.getElementById('mc_final').value, rawItem = document.getElementById('mc_raw').value;
       var wh = document.getElementById('mc_wh').value, party = document.getElementById('mc_party').value;
-      var head = printHead('Material Consumption', fmtRange(from, to));
+      var head = '';
       setBody('mc', '<div class="pg-empty">Loading…</div>'); setSub('mc', fmtRange(from, to)); setKpis('mc', []); setCount('mc', null);
       Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) { c.classList.toggle('on', c.id === 'mc_' + rangeKey(from, to)); });
       var nothing = function () { setBody('mc', head + emptyCard('Nothing to show', 'No consumption rows match these filters.')); };
@@ -866,7 +903,7 @@
     async run() {
       var from = document.getElementById('mp_from').value, to = document.getElementById('mp_to').value;
       var groupBy = document.getElementById('mp_group').value, item = document.getElementById('mp_item').value;
-      var head = printHead('Material Cost & Profit', fmtRange(from, to) + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'));
+      var head = '';
       setBody('mp', '<div class="pg-empty">Computing…</div>'); setKpis('mp', []); setCount('mp', null);
       setSub('mp', fmtRange(from, to) + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'));
       Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) {
@@ -995,7 +1032,7 @@
     async run() {
       var from = document.getElementById('ma_from').value, to = document.getElementById('ma_to').value;
       var finalItem = document.getElementById('ma_final').value, rawItem = document.getElementById('ma_raw').value;
-      var head = printHead('Consumption Audit', fmtRange(from, to) + ' · cancelled invoices and returned material');
+      var head = '';
       setBody('ma', '<div class="pg-empty">Loading…</div>'); setKpis('ma', []); setCount('ma', null);
       setSub('ma', fmtRange(from, to) + ' · cancelled invoices and returned material');
       Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) { c.classList.toggle('on', c.id === 'ma_' + rangeKey(from, to)); });

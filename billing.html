@@ -42,16 +42,25 @@
     /* Narrow rows: drop the Dr/Cr side tag so the number and status stay readable. */
     .pg-lrow .amt > .pg-pill:first-child:not(:last-child){display:none;}
   }
+  /* Print = the classic document in #printArea (theme.css §17 .pd-*). */
   @media print{
-    @page{size:A4;}
-    body *{visibility:hidden;}
-    #printArea, #printArea *{visibility:visible;}
-    #printArea{display:block;position:absolute;left:0;top:0;width:100%;padding:20px;color:#000;background:#fff;}
-    #printArea .poweredBy{
-      position:fixed; left:20px; right:20px; bottom:8mm; font-size:10px; color:#666;
-      border-top:1.5px solid #A67C2E; padding-top:5px; visibility:visible;
-    }
+    @page{size:A4; margin:14mm 14mm 18mm;}
+    body.pd-on .app-shell{display:none !important;}
+    body.pd-on #printArea{display:block;}
   }
+  .pd .party{display:flex; gap:24px; margin:0 0 14px;}
+  .pd .party .blk{flex:1; border:1px solid #D8D0BF; border-radius:6px; padding:8px 12px; background:#FCFAF7;}
+  .pd .party .blk .k{font-size:9.5px; font-weight:700; letter-spacing:.7px; text-transform:uppercase; color:#6B6357;}
+  .pd .party .blk .nm{font-size:14px; font-weight:600; margin-top:3px; font-family:'IBM Plex Serif',serif;}
+  .pd .party .blk .ad{font-size:10.5px; color:#6B6357; margin-top:2px;}
+  .pd .totals{display:flex; justify-content:flex-end; margin-top:14px;}
+  .pd .totals table{width:auto; min-width:300px;}
+  .pd .totals td{padding:5px 10px; border-bottom:1px solid #E7E1D3; font-size:11.5px;}
+  .pd .totals td.num{font-family:'IBM Plex Mono',monospace; text-align:right; font-variant-numeric:tabular-nums;}
+  .pd .totals tr.grand td{font-weight:700; font-size:13px; border-top:2px solid #2A2620; border-bottom:3px double #2A2620; background:#F5F1E6;}
+  .pd .totals tr.bal td{font-weight:700; color:#A0532E;}
+  .pd .narr{margin-top:14px; font-size:11px; color:#6B6357;}
+  .pd .narr b{color:#2A2620; text-transform:uppercase; letter-spacing:.6px; font-size:9.5px; display:block; margin-bottom:2px;}
 </style>
 </head>
 <body>
@@ -2682,48 +2691,106 @@
   }
 
   // ---------------------------------------------------------------
-  // Print (§9/§25) — basic letterhead + line table + footer totals
+  // Print (§9/§25) — classic A4 document (theme.css §17 .pd-*): firm
+  // letterhead with logo + meta box, party block, numbered line table,
+  // totals block, narration, signatures and the "Powered by" footer.
   // ---------------------------------------------------------------
-  function poweredByFooterHtml() {
-    return '<div class="poweredBy">Powered by "OHT Solutions"</div>';
+  var firmCache = {};
+  // Letterhead details (city/phone/NTN/logo) are not in the editor's slim
+  // companies list, so they are fetched once per firm when printing.
+  async function firmForPrint(companyId) {
+    var key = companyId || '_default';
+    if (firmCache[key]) return firmCache[key];
+    var q = sb.from('companies').select('id,name,city,phone,ntn,logo,is_default').is('deleted_at', null);
+    q = companyId ? q.eq('id', companyId) : q.order('is_default', { ascending: false }).limit(1);
+    var res = await q.maybeSingle().catch(function () { return { data: null }; });
+    var row = (res && res.data) || state.companies.filter(function (c) { return c.id === companyId; })[0] ||
+      state.companies.filter(function (c) { return c.is_default; })[0] || { name: 'OHT Accounting System' };
+    firmCache[key] = row;
+    return row;
+  }
+  function firmMarkHtml(f) {
+    if (f && f.logo) return '<img src="' + esc(f.logo) + '" alt="">';
+    return esc(((f && f.name) || 'O').trim().charAt(0).toUpperCase() || 'O');
+  }
+  function firmAddrText(f) {
+    return f ? [f.city, f.phone, f.ntn ? 'NTN ' + f.ntn : ''].filter(Boolean).join(' \u00B7 ') : '';
+  }
+  function printStamp() {
+    var d = new Date();
+    return d.toISOString().slice(0, 10) + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   }
 
-  function printVoucher() {
+  async function printVoucher() {
     var e = state.editing;
     var h = e.header;
     var totals = computeTotals();
-    var company = state.companies.filter(function (c) { return c.id === h.company_id; })[0];
+    var company = await firmForPrint(h.company_id);
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var isSale = state.vtype === 'sale';
+    var docTitle = (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' \u00B7 Sales Tax' : '');
+    var showTax = !!h.tax_on;
 
     var rows = e.lines.filter(function (l) { return l.item_id; }).map(function (l, i) {
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
-      return '<tr><td>' + (i + 1) + '</td><td>' + (item ? item.name : '') + '</td><td>' + l.qty + '</td><td>' + l.rate + '</td><td>' + fmtMoney(l.qty * l.rate) + '</td></tr>';
+      var qty = l.sale_unit ? (l.sale_qty != null ? l.sale_qty : l.qty) : l.qty;
+      var unit = l.sale_unit || (item ? item.unit : '') || '';
+      return '<tr><td class="idx mono">' + (i + 1) + '</td><td>' + esc(item ? item.name : '') +
+        (l.sale_unit && item && item.unit && l.sale_unit !== item.unit ? '<div style="font-size:10px;color:#6B6357">= ' + esc(l.qty) + ' ' + esc(item.unit) + '</div>' : '') +
+        '</td><td class="num">' + esc(qty) + '</td><td>' + esc(unit) + '</td>' +
+        '<td class="num">' + fmtMoney(l.rate) + '</td>' +
+        (showTax ? '<td class="num">' + esc(Number(l.tax_pct) || 0) + '%</td>' : '') +
+        '<td class="num">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td></tr>';
     }).join('');
+    var balance = totals.grand - (Number(h.paid) || 0);
 
-    var html = '<div style="font-family:Arial,sans-serif">' +
-      '<h2>' + (company ? company.name : 'OHT Accounting System') + '</h2>' +
-      '<div>' + (company ? (company.address || '') + ' ' + (company.phone || '') : '') + '</div>' +
-      '<h3>' + (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' · Sales Tax' : '') + '</h3>' +
-      '<div>No: ' + (h.vno || 'PREVIEW') + ' | Date: ' + h.vdate + '</div>' +
-      '<div>' + (isSale ? 'Sold to' : 'Bought from') + ': ' + (party ? party.name : '') + '</div>' +
-      '<table border="1" cellspacing="0" cellpadding="4" style="width:100%;margin-top:10px;border-collapse:collapse">' +
-      '<tr><th>#</th><th>Item</th><th>Qty</th><th>Rate</th><th>Amount</th></tr>' + rows + '</table>' +
-      '<div style="margin-top:10px;text-align:right">' +
-      'Sub total: ' + fmtMoney(totals.sub) + '<br>' +
-      'Discount: ' + fmtMoney(h.discount) + '<br>' +
-      (h.tax_on ? 'Tax: ' + fmtMoney(totals.tax) + '<br>' : '') +
-      '<strong>Grand total: ' + fmtMoney(totals.grand) + '</strong><br>' +
-      'Paid: ' + fmtMoney(h.paid) + '<br>' +
-      'Balance: ' + fmtMoney(totals.grand - h.paid) +
-      '</div></div>' + poweredByFooterHtml();
+    var totalRows = '<tr><td>Sub total</td><td class="num">' + fmtMoney(totals.sub) + '</td></tr>' +
+      ((Number(h.discount) || 0) ? '<tr><td>Discount</td><td class="num">\u2212 ' + fmtMoney(h.discount) + '</td></tr>' : '') +
+      (showTax ? '<tr><td>Sales tax</td><td class="num">' + fmtMoney(totals.tax) + '</td></tr>' : '') +
+      (h.loading_on ? '<tr><td>Loading</td><td class="num">' + fmtMoney(h.loading_amt) + '</td></tr>' : '') +
+      (h.cartage_on ? '<tr><td>Cartage</td><td class="num">' + fmtMoney(h.cartage_amt) + '</td></tr>' : '') +
+      (h.cutting_on ? '<tr><td>Cutting</td><td class="num">' + fmtMoney(h.cutting_amt) + '</td></tr>' : '') +
+      '<tr class="grand"><td>Grand total</td><td class="num">' + fmtMoney(totals.grand) + '</td></tr>' +
+      '<tr><td>' + (isSale ? 'Received' : 'Paid') + '</td><td class="num">' + fmtMoney(h.paid) + '</td></tr>' +
+      '<tr class="bal"><td>Balance ' + (isSale ? 'due' : 'payable') + '</td><td class="num">' + fmtMoney(balance) + '</td></tr>';
+
+    var html = '<div class="pd">' +
+      '<div class="pd-lh">' +
+        '<div class="mk">' + firmMarkHtml(company) + '</div>' +
+        '<div><div class="fn">' + esc(company.name || 'OHT Accounting System') + '</div>' +
+          '<div class="fa">' + esc(firmAddrText(company)) + '</div><div class="tag">' + esc(isSale ? 'Sales document' : 'Purchase document') + '</div></div>' +
+        '<div class="pd-meta">' +
+          '<div><b>' + (isSale ? 'Invoice no' : 'Bill no') + '</b><span class="mono">' + esc(h.vno || 'PREVIEW') + '</span></div>' +
+          '<div><b>Date</b><span class="mono">' + esc(h.vdate) + '</span></div>' +
+          (h.due_date ? '<div><b>Due</b><span class="mono">' + esc(h.due_date) + '</span></div>' : '') +
+          '<div><b>Printed</b><span class="mono">' + esc(printStamp()) + '</span></div>' +
+        '</div>' +
+      '</div><div class="pd-rule"></div><div class="pd-rule2"></div>' +
+      '<div class="pd-ttl"><h1>' + esc(docTitle) + '</h1><span class="sub">' + esc(h.vno || 'Preview') + ' \u00B7 ' + esc(h.vdate) + '</span><span class="basis">Amounts in PKR</span></div>' +
+      '<div class="party" style="margin-top:12px">' +
+        '<div class="blk"><div class="k">' + (isSale ? 'Bill to' : 'Supplier') + '</div><div class="nm">' + esc(party ? party.name : '\u2014') + '</div>' +
+          '<div class="ad">' + esc(party ? [party.city].filter(Boolean).join(' \u00B7 ') : '') + '</div></div>' +
+        '<div class="blk"><div class="k">' + (isSale ? 'From' : 'Bought by') + '</div><div class="nm">' + esc(company.name || '') + '</div><div class="ad">' + esc(firmAddrText(company)) + '</div></div>' +
+      '</div>' +
+      '<table><thead><tr><th class="idx">#</th><th>Item</th><th class="num">Qty</th><th>Unit</th><th class="num">Rate</th>' +
+        (showTax ? '<th class="num">Tax</th>' : '') + '<th class="num">Amount</th></tr></thead>' +
+      '<tbody>' + (rows || '<tr><td colspan="7" style="color:#6B6357">No items</td></tr>') + '</tbody></table>' +
+      '<div class="totals"><table>' + totalRows + '</table></div>' +
+      (h.narration ? '<div class="narr"><b>Narration</b>' + esc(h.narration) + '</div>' : '') +
+      '<div class="pd-spacer"></div>' +
+      '<div class="pd-foot"><div class="pd-sig"><div>Received by</div><div>Authorised by</div></div>' +
+        '<div class="pd-fl"><span>Powered by "OHT Solutions"</span><span>' + esc(docTitle + ' \u00B7 ' + (h.vno || 'Preview')) + '</span></div></div>' +
+      '</div>';
 
     document.getElementById('printArea').innerHTML = html;
+    document.body.classList.add('pd-on');
     var oldTitle = document.title;
     document.title = (h.vno || 'invoice') + '.pdf';
-    window.top.document.title = document.title;
+    try { window.top.document.title = document.title; } catch (ex) {}
     window.addEventListener('afterprint', function restore() {
-      document.title = oldTitle; window.top.document.title = oldTitle;
+      document.title = oldTitle;
+      try { window.top.document.title = oldTitle; } catch (ex) {}
+      document.body.classList.remove('pd-on');
       window.removeEventListener('afterprint', restore);
     });
     window.print();
