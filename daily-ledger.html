@@ -1090,6 +1090,15 @@
     if (key === 'ArrowRight' && pos < FIELD_ORDER.length - 1 && atEdge(el, 'end')) {
       e.preventDefault(); focusCell(idx, FIELD_ORDER[pos + 1], 'start'); return;
     }
+    // A checkbox cell (d_tick/c_tick) toggles on Space (native) or Enter —
+    // Enter both ticks it AND advances, same as every other field's Enter.
+    if (el.type === 'checkbox' && (key === ' ' || key === 'Spacebar' || key === 'Enter')) {
+      e.preventDefault();
+      el.checked = !el.checked;
+      el.dispatchEvent(new Event('change', { bubbles: true }));
+      if (key !== 'Enter') return;
+    }
+
     if (key === 'Enter') {
       e.preventDefault();
       hidePartyPicker();
