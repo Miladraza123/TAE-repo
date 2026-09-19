@@ -702,6 +702,7 @@ button.list-row {
 .pg-card .pg-ch .pg-lh .mk { width:22px; height:22px; border:1.5px solid var(--accent); border-radius:5px; display:grid; place-items:center; font-family:'IBM Plex Serif', serif; font-weight:600; color:var(--accent); font-size:11px; overflow:hidden; }
 .pg-card .pg-ch .pg-lh .mk img { width:100%; height:100%; object-fit:contain; }
 .pg-card .pg-ch .pg-cnt { margin-left:auto; font-size:11px; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:2px 8px; color:var(--slate); font-weight:700; }
+.pg-card .pg-ch .pg-cnt:empty { display:none; }
 .pg-card table.doc-table { margin:0; box-shadow:none; }
 .pg-card table.doc-table thead th { position:sticky; top:0; background:var(--panel); z-index:1; }
 .pg-card table.doc-table tbody tr:nth-child(even) { background:#FBF9F4; }

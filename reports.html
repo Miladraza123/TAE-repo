@@ -21,42 +21,32 @@
   html,body{height:100%;}
   body{display:flex;flex-direction:column;}
   .embedded .tabs, .embedded .toolbar.tabs-wrap h1{display:none !important;}
-  main{flex:1;overflow-y:auto;padding:16px 14px 28px;}
+  main{flex:1;overflow-y:auto;padding:0;}
   .toolbar h1{font-size:16px;margin:0 8px 0 0;font-weight:700;}
-  main > .toolbar.filters{max-width:980px; margin:0 auto 4px; padding-left:0; padding-right:0;}
+  .embedded .toolbar.tabs-wrap{display:none !important;}
   .poweredBy{display:none;}
 
-  /* ---- content redesign (approved): KPI tiles above a report's table ---- */
-  .stat-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin:14px 0 4px;}
-  .stat{
-    position:relative; overflow:hidden; background:var(--paper); border:1px solid var(--line);
-    border-radius:var(--radius-xl); padding:13px 16px 13px 19px; box-shadow:0 1px 2px rgba(31,25,20,.04);
-  }
-  .stat::before{content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--line);}
-  .stat .stat-lbl{font-size:10.5px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--mute); margin-bottom:6px;}
-  .stat .stat-val{font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:600; color:var(--ink);}
-  .stat.dr::before{background:var(--debit);} .stat.dr .stat-val{color:var(--debit);}
-  .stat.cr::before{background:var(--credit);} .stat.cr .stat-val{color:var(--credit);}
-  .stat.warn::before{background:var(--accent);} .stat.warn .stat-val{color:#8A6425;}
-
-  /* ---- content redesign (approved): the table reads as a distinct card ---- */
-  .doc-sheet table.doc-table{box-shadow:0 1px 3px rgba(31,25,20,.06);}
-  .doc-sheet table.doc-table tbody tr:nth-child(even){background:#FBF9F4;}
-  .doc-sheet table.doc-table tbody tr:hover{background:var(--panel);}
+  /* Page pattern (theme.css .pg-*) — hero is full-bleed, its content and the
+     body below share one centred column so cards line up under the title. */
+  .pg-hero > *{max-width:1100px; margin-left:auto; margin-right:auto;}
+  .pg-body{max-width:1148px; margin-left:auto; margin-right:auto;}
+  .pg-hero .pg-fld select{max-width:220px;}
+  .print-head{display:none;}
+  .rpt-warn{padding:14px 16px; color:var(--debit); font-size:13px;}
+  .rpt-note{padding:8px 14px; color:var(--mute); font-size:12px; border-bottom:1px solid var(--hair);}
+  #content .doc-table{margin:0;}
 
   @media print{
     @page{size:A4;}
     body{background:#fff;color:#000;}
     main{padding:0;}
-    .toolbar,.tabs,button,input,select{display:none !important;}
-    .stat-row{display:none !important;} /* print keeps its existing, unredesigned layout */
+    .toolbar,.tabs,button,input,select,.pg-hero,.pg-kpis,.pg-ch .pg-cnt,.pg-ch .pg-lh,.pg-ch .pg-title{display:none !important;}
+    .pg-body{margin:0 !important; max-width:none !important; padding:0 20px !important;}
+    .pg-card{border:none !important; border-radius:0 !important; box-shadow:none !important; background:#fff !important;}
+    .pg-card .pg-ch{border:none !important; padding:0 !important;}
+    .print-head{display:block;}
+    .pg-card table.doc-table tbody tr:nth-child(even){background:transparent;}
     th,td{border-bottom:1px solid #999;}
-    .doc-sheet{
-      max-width:none !important; width:auto !important; margin:0 !important;
-      border:none !important; border-radius:0 !important; background:#fff !important; padding:0 20px !important;
-    }
-    .doc-sheet table.doc-table{box-shadow:none;}
-    .doc-sheet table.doc-table tbody tr:nth-child(even){background:transparent;}
     .poweredBy{
       display:block !important; position:fixed; left:20px; right:20px; bottom:8mm; font-size:10px; color:#666;
       border-top:1.5px solid #A67C2E; padding-top:5px;
@@ -69,7 +59,6 @@
 <div class="toolbar tabs-wrap">
   <h1>Reports</h1>
   <div class="tabs" id="tabs"></div>
-  <button type="button" class="btn pri" id="printReportBtn" style="margin-left:auto">Print</button>
 </div>
 
 <main id="content"></main>
@@ -225,15 +214,89 @@
       '<h2 class="stmt-title">' + esc(title) + '</h2>' +
       '<div class="stmt-sub">' + esc(sub || '') + '</div>';
   }
-  // A row of KPI tiles under a report's title — approved for Trial Balance,
-  // Receivable Aging and P&L, whose top-line numbers are already computed.
-  // Hidden in print (@media print below) so the printed page is unchanged.
-  function statRow(items) {
-    return '<div class="stat-row">' + items.map(function (it) {
-      return '<div class="stat' + (it.cls ? ' ' + it.cls : '') + '"><div class="stat-lbl">' + esc(it.label) +
-        '</div><div class="stat-val">' + fmt(it.val) + '</div></div>';
-    }).join('') + '</div>';
+  // ---- page pattern (theme.css .pg-*) -----------------------------------
+  // Every report = hero band (title, sub-line, actions, filters/chips) +
+  // body (KPI cards from the report's own already-computed numbers + one
+  // content card holding the table). Filter inputs keep their ids so every
+  // existing handler below is untouched. `p` is the view's id prefix.
+  function pageShell(p, o) {
+    return '<div class="pg-hero">' +
+        '<div class="pg-crumb">' + esc(o.crumb || 'Reports') + '</div>' +
+        '<div class="pg-row"><div><h2>' + esc(o.title) + '</h2><div class="pg-sub" id="' + p + '_sub">' + esc(o.sub || '') + '</div></div>' +
+          '<div class="pg-sp"></div><div class="pg-acts">' + (o.actions || '') +
+          '<button type="button" class="pg-hb pri" id="' + p + '_print">Print</button></div></div>' +
+        '<div class="pg-ctl">' + (o.ctl || '') + '</div>' +
+      '</div>' +
+      '<div class="pg-body">' +
+        '<div class="pg-kpis" id="' + p + '_kpis" style="display:none"></div>' +
+        '<div class="pg-card">' +
+          '<div class="pg-ch"><span class="pg-title" id="' + p + '_ctitle">' + esc(o.cardTitle || o.title) + '</span>' +
+            '<span class="pg-lh"><span class="mk">' + firmMark() + '</span>' + esc(firm ? firm.name : 'OHT Accounting System') + (firm && firm.city ? ' · ' + esc(firm.city) : '') + '</span>' +
+            '<span class="pg-cnt" id="' + p + '_cnt"></span></div>' +
+          '<div id="' + p + '_body"><div class="pg-empty">' + esc(o.empty || 'Loading…') + '</div></div>' +
+        '</div>' +
+      '</div>';
   }
+  function wirePrint(p) {
+    var b = document.getElementById(p + '_print');
+    if (b) b.addEventListener('click', function () { window.print(); });
+  }
+  function setKpis(p, items) {
+    var el = document.getElementById(p + '_kpis');
+    if (!el) return;
+    if (!items || !items.length) { el.style.display = 'none'; el.innerHTML = ''; return; }
+    el.style.display = '';
+    el.innerHTML = items.map(function (it) {
+      return '<div class="pg-kpi"><div><div class="k">' + esc(it.label) + '</div><div class="v ' + (it.cls || '') + '">' +
+        (it.text != null ? esc(it.text) : fmt(it.val)) + '</div></div><div class="pg-ring ' + (it.cls || 'n') + '">' + esc(it.ring || '') + '</div></div>';
+    }).join('');
+  }
+  function setCount(p, n, word) {
+    var el = document.getElementById(p + '_cnt');
+    if (el) el.textContent = n == null ? '' : (n + ' ' + (word || 'rows'));
+  }
+  function setSub(p, text) {
+    var el = document.getElementById(p + '_sub');
+    if (el) el.textContent = text;
+  }
+  function setBody(p, html) {
+    var el = document.getElementById(p + '_body');
+    if (el) el.innerHTML = html;
+  }
+  function warnHtml(msg) { return '<div class="rpt-warn">' + esc(msg) + '</div>'; }
+  function emptyCard(big, sub) {
+    return '<div class="pg-empty"><div class="big">' + esc(big) + '</div>' + esc(sub || '') + '</div>';
+  }
+  // Letterhead + title that only shows on paper (the hero is screen-only).
+  function printHead(title, sub) { return '<div class="print-head">' + docHead(title, sub) + '</div>'; }
+  function fldDate(id, label, value) {
+    return '<span class="pg-fld"><label for="' + id + '">' + esc(label) + '</label><input type="date" id="' + id + '" value="' + esc(value) + '"></span>';
+  }
+  function fldSelect(id, label, optionsHtml) {
+    return '<span class="pg-fld"><label for="' + id + '">' + esc(label) + '</label><select id="' + id + '">' + optionsHtml + '</select></span>';
+  }
+  function chip(id, label, on) {
+    return '<button type="button" class="pg-chip' + (on ? ' on' : '') + '" id="' + id + '">' + esc(label) + '</button>';
+  }
+  // Which quick range (if any) the current From/To equal — so its chip lights up.
+  function rangeKey(from, to) {
+    var t = todayStr();
+    if (from === t && to === t) return 'today';
+    if (from === firstOfMonth() && to === t) return 'month';
+    var y = new Date().getFullYear();
+    if (from === y + '-01-01' && to === t) return 'year';
+    var d = new Date(); d.setDate(1); d.setMonth(d.getMonth() - 1);
+    var lf = d.toISOString().slice(0, 10), le = new Date(d.getFullYear(), d.getMonth() + 1, 0).toISOString().slice(0, 10);
+    if (from === lf && to === le) return 'lastmonth';
+    return '';
+  }
+  function rangeChips(prefix, from, to) {
+    var k = rangeKey(from, to);
+    return chip(prefix + '_month', 'This month', k === 'month') + chip(prefix + '_today', 'Today', k === 'today') +
+      chip(prefix + '_lastmonth', 'Last month', k === 'lastmonth') + chip(prefix + '_year', 'This year', k === 'year') +
+      '<span class="pg-sepv"></span>' + fldDate(prefix + '_from', 'From', from) + fldDate(prefix + '_to', 'To', to);
+  }
+  function fmtRange(from, to) { return from + ' to ' + to; }
 
   // Cost-visibility gate for raw-material figures — mirrors billing.html's
   // canViewMaterialCost() exactly (same me.isAdmin / me.perms.material_cost_view
@@ -261,35 +324,42 @@
     async render() {
       await loadFirm();
       var asOf = document.getElementById('tb_asof') ? document.getElementById('tb_asof').value : todayStr();
-      var html = '<div class="toolbar filters">' +
-        '<div class="field"><label for="tb_asof">As of</label><input type="date" id="tb_asof" value="' + asOf + '"></div>' +
-        '<button type="button" class="btn" id="tb_reload">Refresh</button>' +
-        '<button type="button" class="btn" id="tb_reconcile">Run reconciliation check</button></div>';
-      html += '<div class="doc-sheet" id="tb_body">Loading…</div>';
-      document.getElementById('content').innerHTML = html;
+      var t = todayStr(), y = new Date().getFullYear();
+      var monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10);
+      document.getElementById('content').innerHTML = pageShell('tb', {
+        crumb: 'Reports / Financial', title: 'Trial Balance', sub: 'As of ' + asOf, cardTitle: 'Balances by party',
+        actions: '<button type="button" class="pg-hb" id="tb_reload">Refresh</button><button type="button" class="pg-hb" id="tb_reconcile">Reconcile check</button>',
+        ctl: fldDate('tb_asof', 'As of', asOf) + chip('tb_q_today', 'Today', asOf === t) + chip('tb_q_month', 'Month end', asOf === monthEnd) + chip('tb_q_year', 'Year end', asOf === y + '-12-31')
+      });
+      wirePrint('tb');
       document.getElementById('tb_reload').addEventListener('click', trialView.render);
       document.getElementById('tb_reconcile').addEventListener('click', trialView.runReconcile);
+      document.getElementById('tb_asof').addEventListener('change', trialView.render);
+      [['tb_q_today', t], ['tb_q_month', monthEnd], ['tb_q_year', y + '-12-31']].forEach(function (q) {
+        document.getElementById(q[0]).addEventListener('click', function () { document.getElementById('tb_asof').value = q[1]; trialView.render(); });
+      });
 
       var { data, error } = await sb.rpc('trial_balance', { p_as_of: asOf });
-      var body = document.getElementById('tb_body');
-      if (error) { body.innerHTML = docHead('Trial Balance', 'As of ' + asOf) + '<p class="warn">' + esc(error.message) + '</p>'; return; }
-      var totalDr = 0, totalCr = 0;
-      (data || []).forEach(function (r) { if (r.side === 'dr') totalDr += Number(r.balance); else totalCr += Number(r.balance); });
-      var h = docHead('Trial Balance', 'As of ' + asOf);
-      h += statRow([
-        { cls: 'dr', label: 'Total Debit', val: totalDr },
-        { cls: 'cr', label: 'Total Credit', val: totalCr },
-        { cls: 'warn', label: 'Difference', val: Math.abs(totalDr - totalCr) }
+      if (error) { setBody('tb', warnHtml(error.message)); return; }
+      var totalDr = 0, totalCr = 0, nDr = 0, nCr = 0;
+      (data || []).forEach(function (r) { if (r.side === 'dr') { totalDr += Number(r.balance); nDr++; } else { totalCr += Number(r.balance); nCr++; } });
+      setSub('tb', 'As of ' + asOf + ' · ' + (data || []).length + ' parties with a balance');
+      setCount('tb', (data || []).length);
+      setKpis('tb', [
+        { cls: 'dr', label: 'Total Debit', val: totalDr, ring: 'DR' },
+        { cls: 'cr', label: 'Total Credit', val: totalCr, ring: 'CR' },
+        { cls: 'wn', label: 'Difference', val: Math.abs(totalDr - totalCr), ring: '±' }
       ]);
-      h += '<div id="tb_recon"></div>';
+      var h = printHead('Trial Balance', 'As of ' + asOf) + '<div id="tb_recon"></div>';
+      if (!(data || []).length) { setBody('tb', h + emptyCard('No balances', 'No party has a balance as of this date.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Party</th><th class="num">Balance</th><th>Side</th></tr></thead><tbody>';
       (data || []).forEach(function (r) {
         h += '<tr><td>' + esc(r.party_name) + '</td><td class="num mono">' + fmt(r.balance) + '</td>' +
-          '<td class="' + (r.side === 'dr' ? 'bucket-b60' : 'bucket-payable') + '">' + r.side.toUpperCase() + '</td></tr>';
+          '<td><span class="pg-pill ' + (r.side === 'dr' ? 'dr' : 'cr') + '">' + r.side.toUpperCase() + '</span></td></tr>';
       });
       h += '</tbody><tfoot><tr><td>Total Dr</td><td class="num mono">' + fmt(totalDr) + '</td><td></td></tr>' +
         '<tr><td>Total Cr</td><td class="num mono">' + fmt(totalCr) + '</td><td></td></tr></tfoot></table>';
-      body.innerHTML = h;
+      setBody('tb', h);
     },
     async runReconcile() {
       var asOf = document.getElementById('tb_asof').value;
@@ -303,8 +373,8 @@
       }
       toast('Reconciliation found ' + data.length + ' discrepant party(ies) — listed above the table.', true);
       if (!out) return;
-      out.innerHTML = '<table class="doc-table" style="margin-bottom:14px"><thead><tr>' +
-        '<th>Party with a Trial Balance / Aging discrepancy</th><th class="num">Difference</th></tr></thead><tbody>' +
+      out.innerHTML = '<div class="rpt-note">Reconciliation — parties where Trial Balance and Receivable Aging disagree</div><table class="doc-table" style="margin-bottom:14px"><thead><tr>' +
+        '<th>Party</th><th class="num">Difference</th></tr></thead><tbody>' +
         data.map(function (r) {
           return '<tr><td>' + esc(r.party_name) + '</td><td class="num mono warn">' + fmt(r.difference) + '</td></tr>';
         }).join('') + '</tbody></table>';
@@ -318,31 +388,41 @@
     async render() {
       await loadFirm();
       var asOf = document.getElementById('ag_asof') ? document.getElementById('ag_asof').value : todayStr();
-      var html = '<div class="toolbar filters">' +
-        '<div class="field"><label for="ag_asof">As of</label><input type="date" id="ag_asof" value="' + asOf + '"></div>' +
-        '<button type="button" class="btn" id="ag_reload">Refresh</button></div>';
-      html += '<div class="doc-sheet" id="ag_body">Loading…</div>';
-      document.getElementById('content').innerHTML = html;
+      var t = todayStr();
+      var monthEnd = new Date(new Date().getFullYear(), new Date().getMonth() + 1, 0).toISOString().slice(0, 10);
+      document.getElementById('content').innerHTML = pageShell('ag', {
+        crumb: 'Reports / Financial', title: 'Receivable Aging', sub: 'As of ' + asOf + ' · outstanding by age', cardTitle: 'Outstanding documents',
+        actions: '<button type="button" class="pg-hb" id="ag_reload">Refresh</button>',
+        ctl: fldDate('ag_asof', 'As of', asOf) + chip('ag_q_today', 'Today', asOf === t) + chip('ag_q_month', 'Month end', asOf === monthEnd)
+      });
+      wirePrint('ag');
       document.getElementById('ag_reload').addEventListener('click', agingView.render);
+      document.getElementById('ag_asof').addEventListener('change', agingView.render);
+      document.getElementById('ag_q_today').addEventListener('click', function () { document.getElementById('ag_asof').value = t; agingView.render(); });
+      document.getElementById('ag_q_month').addEventListener('click', function () { document.getElementById('ag_asof').value = monthEnd; agingView.render(); });
 
       var { data, error } = await sb.rpc('receivable_aging', { p_as_of: asOf });
-      var body = document.getElementById('ag_body');
-      if (error) { body.innerHTML = docHead('Receivable Aging', 'As of ' + asOf) + '<p class="warn">' + esc(error.message) + '</p>'; return; }
+      if (error) { setBody('ag', warnHtml(error.message)); return; }
       var rows = (data || []).sort(function (a, b) { return b.outstanding - a.outstanding; });
       var buckets = { notdue: 0, b0: 0, b30: 0, b60: 0, b90: 0, payable: 0, advance: 0 };
       rows.forEach(function (r) { buckets[r.bucket] = (buckets[r.bucket] || 0) + Number(r.outstanding); });
       var bucketKeys = ['notdue', 'b0', 'b30', 'b60', 'b90'];
-      var bucketLabels = { notdue: 'Not due', b0: '1-30 days', b30: '31-60 days', b60: '61-90 days', b90: '90+ days' };
-      var h = docHead('Receivable Aging', 'As of ' + asOf);
-      h += statRow(bucketKeys.map(function (k) { return { label: bucketLabels[k], val: buckets[k] }; }));
+      var bucketLabels = { notdue: 'Not due', b0: '1-30 days', b30: '31-60 days', b60: '61-90 days', b90: '90+ days', payable: 'Payable', advance: 'Advance' };
+      var bucketCls = { notdue: 'cr', b0: 'n', b30: 'wn', b60: 'wn', b90: 'dr' };
+      var bucketRing = { notdue: '✓', b0: '30', b30: '60', b60: '90', b90: '!' };
+      var pillCls = { notdue: 'g', b0: 'n', b30: 'a', b60: 'a', b90: 'r', payable: 'b', advance: 'b' };
+      setCount('ag', rows.length);
+      setKpis('ag', bucketKeys.map(function (k) { return { cls: bucketCls[k], label: bucketLabels[k], val: buckets[k], ring: bucketRing[k] }; }));
+      var h = printHead('Receivable Aging', 'As of ' + asOf);
+      if (!rows.length) { setBody('ag', h + emptyCard('Nothing outstanding', 'No open documents as of this date.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Party</th><th>Doc</th><th>Date</th><th>Due</th><th class="num">Original</th><th class="num">Outstanding</th><th class="num">Days</th><th>Bucket</th></tr></thead><tbody>';
       rows.forEach(function (r) {
         h += '<tr><td>' + esc(r.party_name) + '</td><td class="mono">' + esc(r.doc_no) + '</td><td class="mono">' + (r.doc_date || '') + '</td><td class="mono">' + (r.due_date || '') + '</td>' +
           '<td class="num mono">' + fmt(r.original_amount) + '</td><td class="num mono">' + fmt(r.outstanding) + '</td>' +
-          '<td class="num mono">' + (r.days_overdue || 0) + '</td><td class="bucket-' + r.bucket + '">' + esc(bucketLabels[r.bucket] || r.bucket) + '</td></tr>';
+          '<td class="num mono">' + (r.days_overdue || 0) + '</td><td><span class="pg-pill ' + (pillCls[r.bucket] || 'n') + '">' + esc(bucketLabels[r.bucket] || r.bucket) + '</span></td></tr>';
       });
       h += '</tbody></table>';
-      body.innerHTML = h;
+      setBody('ag', h);
     }
   };
 
@@ -354,15 +434,15 @@
       var from = document.getElementById('pl_from') ? document.getElementById('pl_from').value : firstOfMonth();
       var to = document.getElementById('pl_to') ? document.getElementById('pl_to').value : todayStr();
       await loadFirm();
-      var html = '<div class="toolbar filters">' +
-        '<div class="field"><label for="pl_from">From</label><input type="date" id="pl_from" value="' + from + '"></div>' +
-        '<div class="field"><label for="pl_to">To</label><input type="date" id="pl_to" value="' + to + '"></div>' +
-        '<button type="button" class="btn" id="pl_today">Today</button><button type="button" class="btn" id="pl_month">This month</button>' +
-        '<button type="button" class="btn" id="pl_lastmonth">Last month</button><button type="button" class="btn" id="pl_year">This year</button>' +
-        '<button type="button" class="btn pri" id="pl_run">Run</button></div>';
-      html += '<div class="doc-sheet" id="pl_body">Pick a range and click Run.</div>';
-      document.getElementById('content').innerHTML = html;
+      document.getElementById('content').innerHTML = pageShell('pl', {
+        crumb: 'Reports / Financial', title: 'Profit & Loss', sub: fmtRange(from, to), cardTitle: 'Statement',
+        actions: '<button type="button" class="pg-hb" id="pl_run">Run</button>',
+        ctl: rangeChips('pl', from, to), empty: 'Computing…'
+      });
+      wirePrint('pl');
       document.getElementById('pl_run').addEventListener('click', plView.run);
+      document.getElementById('pl_from').addEventListener('change', plView.run);
+      document.getElementById('pl_to').addEventListener('change', plView.run);
       document.getElementById('pl_today').addEventListener('click', function () { setRange(todayStr(), todayStr()); });
       document.getElementById('pl_month').addEventListener('click', function () { setRange(firstOfMonth(), todayStr()); });
       document.getElementById('pl_lastmonth').addEventListener('click', function () {
@@ -382,8 +462,11 @@
 
     async run() {
       var from = document.getElementById('pl_from').value, to = document.getElementById('pl_to').value;
-      var body = document.getElementById('pl_body');
-      body.innerHTML = 'Computing…';
+      setBody('pl', '<div class="pg-empty">Computing…</div>');
+      setSub('pl', fmtRange(from, to));
+      Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) {
+        c.classList.toggle('on', c.id === 'pl_' + rangeKey(from, to));
+      });
 
       var [{ data: sales }, { data: returns }, { data: linesData }, { data: serviceInv }, { data: sheetsInRange }] = await Promise.all([
         sb.from('vouchers').select('id,sub_total,discount,grand_total,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
@@ -445,12 +528,13 @@
         return '<tr' + (bold ? ' class="sum"' : '') + '><td>' + label + '</td><td class="num mono' +
           (Number(val) < 0 ? ' warn' : '') + '">' + fmt(val) + '</td></tr>';
       }
-      var h = docHead('Profit & Loss', from + '  to  ' + to);
-      h += statRow([
-        { cls: 'cr', label: 'Net Sales', val: netSales },
-        { cls: 'cr', label: 'Gross Profit', val: grossProfit },
-        { cls: netProfit < 0 ? 'dr' : 'cr', label: 'Net Profit', val: netProfit }
+      setKpis('pl', [
+        { cls: 'cr', label: 'Net Sales', val: netSales, ring: '₨' },
+        { cls: grossProfit < 0 ? 'dr' : 'cr', label: 'Gross Profit', val: grossProfit, ring: 'GP' },
+        { cls: netProfit < 0 ? 'dr' : 'cr', label: 'Net Profit', val: netProfit, ring: 'NP' }
       ]);
+      setCount('pl', null);
+      var h = printHead('Profit & Loss', fmtRange(from, to));
       h += '<table class="doc-table"><tbody>' +
         row('Gross Sales', grossSales) + row('Sales Returns', -salesReturnsInRange) + row('Discounts', -discounts) +
         row('Net Sales', netSales, true) + row('COGS', -cogs) + row('Gross Profit', grossProfit, true) +
@@ -463,7 +547,7 @@
         '<tr><td>Net Profit</td><td class="num mono' + (netProfit < 0 ? ' warn' : '') + '">' + fmt(netProfit) + '</td></tr>' +
         '<tr class="note"><td colspan="2">Net Margin: ' + netMarginPct.toFixed(1) + '%</td></tr>' +
         '</tfoot></table>';
-      body.innerHTML = h;
+      setBody('pl', h);
     }
   };
 
@@ -474,35 +558,48 @@
     async render() {
       await loadFirm();
       if (!partiesCache.length) { var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name'); partiesCache = data || []; }
-      var html = '<div class="toolbar filters">' +
-        '<div class="field"><label for="st_party">Party</label><select id="st_party"><option value="">Pick…</option>' +
-        partiesCache.map(function (p) { return '<option value="' + p.id + '">' + esc(p.name) + '</option>'; }).join('') + '</select></div>' +
-        '<button type="button" class="btn pri" id="st_run">Show</button></div><div id="st_body"></div>';
-      document.getElementById('content').innerHTML = html;
+      var prev = document.getElementById('st_party') ? document.getElementById('st_party').value : '';
+      document.getElementById('content').innerHTML = pageShell('st', {
+        crumb: 'Reports / Party ledger', title: 'Statement of Account', sub: 'Pick a party to see its live-reconstructed ledger', cardTitle: 'Ledger entries',
+        actions: '<button type="button" class="pg-hb" id="st_run">Show</button>',
+        ctl: fldSelect('st_party', 'Party', '<option value="">Pick…</option>' + partiesCache.map(function (p) {
+          return '<option value="' + p.id + '"' + (p.id === prev ? ' selected' : '') + '>' + esc(p.name) + '</option>';
+        }).join('')),
+        empty: 'Pick a party above.'
+      });
+      wirePrint('st');
       document.getElementById('st_run').addEventListener('click', statementView.run);
+      document.getElementById('st_party').addEventListener('change', statementView.run);
+      if (prev) statementView.run();
     },
     async run() {
       var sel = document.getElementById('st_party');
       var partyId = sel.value;
       var partyName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
-      var body = document.getElementById('st_body');
-      if (!partyId) { body.innerHTML = ''; return; }
-      body.innerHTML = '<div class="doc-sheet">Loading…</div>';
+      if (!partyId) { setBody('st', emptyCard('Pick a party', 'Choose a party above to build its statement.')); setKpis('st', []); setCount('st', null); return; }
+      setBody('st', '<div class="pg-empty">Loading…</div>');
 
       var events = await buildLedgerEvents(partyId);
       var closing = events.length ? events[events.length - 1].running : 0;
-      var h = '<div class="doc-sheet">' + docHead('Statement of Account', partyName + ' · as of ' + todayStr());
-      h += '<div class="stmt-balance ' + (closing >= 0 ? 'dr' : 'cr') + '">' + fmt(Math.abs(closing)) +
-        '<span class="side">' + (closing >= 0 ? 'Dr' : 'Cr') + '</span></div>' +
-        '<div class="stmt-sub">Closing balance</div>';
+      var totDr = 0, totCr = 0;
+      events.forEach(function (e) { totDr += Number(e.dr) || 0; totCr += Number(e.cr) || 0; });
+      setSub('st', partyName + ' · as of ' + todayStr());
+      setCount('st', events.length);
+      setKpis('st', [
+        { cls: 'dr', label: 'Total Debit', val: totDr, ring: 'DR' },
+        { cls: 'cr', label: 'Total Credit', val: totCr, ring: 'CR' },
+        { cls: closing >= 0 ? 'dr' : 'cr', label: 'Closing Balance', text: fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr'), ring: '=' }
+      ]);
+      var h = printHead('Statement of Account', partyName + ' · as of ' + todayStr());
+      if (!events.length) { setBody('st', h + emptyCard('No entries', 'This party has no transactions yet.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Date</th><th>Description</th><th class="num">Dr</th><th class="num">Cr</th><th class="num">Balance</th></tr></thead><tbody>';
       events.forEach(function (e) {
         h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
           '<td class="num mono">' + (e.cr ? fmt(e.cr) : '') + '</td><td class="num mono">' + fmt(Math.abs(e.running)) + ' ' + (e.running >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
       });
       h += '</tbody><tfoot><tr><td colspan="4">Closing balance</td><td class="num mono">' +
-        fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr') + '</td></tr></tfoot></table></div>';
-      body.innerHTML = h;
+        fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr') + '</td></tr></tfoot></table>';
+      setBody('st', h);
     }
   };
 
@@ -571,18 +668,24 @@
     async render() {
       await loadFirm();
       if (!itemsCache.length) { var { data } = await sb.from('items').select('id,name,unit,stock_qty,avg_cost').is('deleted_at', null).order('name'); itemsCache = data || []; }
-      var html = '<div class="toolbar filters">' +
-        '<div class="field"><label for="sl_item">Item</label><select id="sl_item"><option value="">Pick…</option>' +
-        itemsCache.map(function (i) { return '<option value="' + i.id + '">' + esc(i.name) + '</option>'; }).join('') + '</select></div>' +
-        '<button type="button" class="btn pri" id="sl_run">Show</button></div><div id="sl_body"></div>';
-      document.getElementById('content').innerHTML = html;
+      var prev = document.getElementById('sl_item') ? document.getElementById('sl_item').value : '';
+      document.getElementById('content').innerHTML = pageShell('sl', {
+        crumb: 'Reports / Inventory', title: 'Item Stock Ledger', sub: 'Pick an item to see every movement', cardTitle: 'Movements',
+        actions: '<button type="button" class="pg-hb" id="sl_run">Show</button>',
+        ctl: fldSelect('sl_item', 'Item', '<option value="">Pick…</option>' + itemsCache.map(function (i) {
+          return '<option value="' + i.id + '"' + (i.id === prev ? ' selected' : '') + '>' + esc(i.name) + '</option>';
+        }).join('')),
+        empty: 'Pick an item above.'
+      });
+      wirePrint('sl');
       document.getElementById('sl_run').addEventListener('click', stockLedgerView.run);
+      document.getElementById('sl_item').addEventListener('change', stockLedgerView.run);
+      if (prev) stockLedgerView.run();
     },
     async run() {
       var itemId = document.getElementById('sl_item').value;
-      var body = document.getElementById('sl_body');
-      if (!itemId) { body.innerHTML = ''; return; }
-      body.innerHTML = '<div class="doc-sheet">Loading…</div>';
+      if (!itemId) { setBody('sl', emptyCard('Pick an item', 'Choose an item above to build its stock ledger.')); setKpis('sl', []); setCount('sl', null); return; }
+      setBody('sl', '<div class="pg-empty">Loading…</div>');
       var item = itemsCache.filter(function (i) { return i.id === itemId; })[0];
 
       var [{ data: lines }, { data: returnLines }, { data: adj }] = await Promise.all([
@@ -603,17 +706,25 @@
       (adj || []).forEach(function (a) { events.push({ date: a.adj_date, desc: 'Adjustment: ' + (a.reason || ''), qty: a.qty }); });
       events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
-      var running = 0;
-      var h = '<div class="doc-sheet">' + docHead('Item Stock Ledger', item.name + ' · as of ' + todayStr());
-      h += '<div class="stmt-balance">' + item.stock_qty + '<span class="side">' + esc(item.unit) + '</span></div>' +
-        '<div class="stmt-sub">Live stock · average cost ' + fmt(item.avg_cost) + '</div>';
+      var running = 0, totalIn = 0, totalOut = 0;
+      events.forEach(function (e) { var q = Number(e.qty) || 0; if (q >= 0) totalIn += q; else totalOut += -q; });
+      var unit = item.unit ? ' ' + item.unit : '';
+      setSub('sl', item.name + ' · as of ' + todayStr() + ' · average cost ' + fmt(item.avg_cost));
+      setCount('sl', events.length);
+      setKpis('sl', [
+        { cls: 'cr', label: 'Total In', text: fmtQty(totalIn) + unit, ring: '+' },
+        { cls: 'dr', label: 'Total Out', text: fmtQty(totalOut) + unit, ring: '−' },
+        { cls: 'wn', label: 'Closing Stock', text: fmtQty(item.stock_qty) + unit, ring: '=' }
+      ]);
+      var h = printHead('Item Stock Ledger', item.name + ' · as of ' + todayStr());
+      if (!events.length) { setBody('sl', h + emptyCard('No movements', 'This item has no transactions yet.')); return; }
       h += '<table class="doc-table"><thead><tr><th>Date</th><th>Event</th><th class="num">Qty ±</th><th class="num">Running</th></tr></thead><tbody>';
       events.forEach(function (e) {
         running += Number(e.qty) || 0;
         h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono' + (Number(e.qty) < 0 ? ' warn' : '') + '">' + e.qty + '</td><td class="num mono">' + running + '</td></tr>';
       });
-      h += '</tbody><tfoot><tr><td colspan="3">Closing stock</td><td class="num mono">' + running + '</td></tr></tfoot></table></div>';
-      body.innerHTML = h;
+      h += '</tbody><tfoot><tr><td colspan="3">Closing stock</td><td class="num mono">' + running + '</td></tr></tfoot></table>';
+      setBody('sl', h);
     }
   };
 
@@ -639,54 +750,57 @@
       var party = document.getElementById('mc_party') ? document.getElementById('mc_party').value : '';
 
       await loadFirm();
-      var html = '<div class="toolbar filters">' + dateRangeFilterHtml('mc', from, to) +
-        '<div class="field"><label for="mc_final">Final Product</label><select id="mc_final">' + itemSelectOptions(finalItem) + '</select></div>' +
-        '<div class="field"><label for="mc_raw">Raw Material</label><select id="mc_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
-        '<div class="field"><label for="mc_wh">Warehouse</label><select id="mc_wh">' + warehouseSelectOptions(wh) + '</select></div>' +
-        '<div class="field"><label for="mc_party">Customer</label><select id="mc_party">' + partySelectOptions(party) + '</select></div>' +
-        '<button type="button" class="btn pri" id="mc_run">Run</button></div>';
-      html += '<div class="doc-sheet" id="mc_body">Loading…</div>';
-      document.getElementById('content').innerHTML = html;
+      document.getElementById('content').innerHTML = pageShell('mc', {
+        crumb: 'Reports / Materials', title: 'Material Consumption', sub: fmtRange(from, to), cardTitle: 'Raw material consumed',
+        actions: '<button type="button" class="pg-hb" id="mc_run">Run</button>',
+        ctl: rangeChips('mc', from, to) + '<span class="pg-sepv"></span>' +
+          fldSelect('mc_final', 'Final Product', itemSelectOptions(finalItem)) + fldSelect('mc_raw', 'Raw Material', itemSelectOptions(rawItem)) +
+          fldSelect('mc_wh', 'Warehouse', warehouseSelectOptions(wh)) + fldSelect('mc_party', 'Customer', partySelectOptions(party))
+      });
+      wirePrint('mc');
       document.getElementById('mc_run').addEventListener('click', matConsumptionView.run);
       wireDateRangeButtons('mc', matConsumptionView.run);
+      ['mc_from', 'mc_to', 'mc_final', 'mc_raw', 'mc_wh', 'mc_party'].forEach(function (id) { document.getElementById(id).addEventListener('change', matConsumptionView.run); });
       matConsumptionView.run();
     },
     async run() {
       var from = document.getElementById('mc_from').value, to = document.getElementById('mc_to').value;
       var finalItem = document.getElementById('mc_final').value, rawItem = document.getElementById('mc_raw').value;
       var wh = document.getElementById('mc_wh').value, party = document.getElementById('mc_party').value;
-      var body = document.getElementById('mc_body');
-      var head = docHead('Material Consumption', from + '  to  ' + to);
-      body.innerHTML = head + '<p class="stmt-sub">Loading…</p>';
+      var head = printHead('Material Consumption', fmtRange(from, to));
+      setBody('mc', '<div class="pg-empty">Loading…</div>'); setSub('mc', fmtRange(from, to)); setKpis('mc', []); setCount('mc', null);
+      Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) { c.classList.toggle('on', c.id === 'mc_' + rangeKey(from, to)); });
+      var nothing = function () { setBody('mc', head + emptyCard('Nothing to show', 'No consumption rows match these filters.')); };
 
       var vq = sb.from('vouchers').select('id,vno,vdate,party_id').eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to);
       if (party) vq = vq.eq('party_id', party);
       var { data: vouchers, error: vErr } = await vq;
-      if (vErr) { body.innerHTML = head + '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      if (vErr) { setBody('mc', warnHtml(vErr.message)); return; }
       var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
       var voucherIds = (vouchers || []).map(function (v) { return v.id; });
-      if (!voucherIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (!voucherIds.length) { nothing(); return; }
 
       var lq = sb.from('voucher_lines').select('id,voucher_id,item_id,amount').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
       if (finalItem) lq = lq.eq('item_id', finalItem);
       var { data: lines, error: lErr } = await lq;
-      if (lErr) { body.innerHTML = head + '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
+      if (lErr) { setBody('mc', warnHtml(lErr.message)); return; }
       var lineMap = {}; (lines || []).forEach(function (l) { lineMap[l.id] = l; });
       var lineIds = (lines || []).map(function (l) { return l.id; });
-      if (!lineIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (!lineIds.length) { nothing(); return; }
 
       var cq = sb.from('voucher_line_material_consumption').select('id,voucher_line_id,raw_item_id,warehouse_id,qty,unit,cost_amount,notes,created_at')
         .in('voucher_line_id', lineIds).order('created_at', { ascending: false }).range(0, 1999);
       if (rawItem) cq = cq.eq('raw_item_id', rawItem);
       if (wh) cq = cq.eq('warehouse_id', wh);
       var { data: rows, error: cErr } = await cq;
-      if (cErr) { body.innerHTML = head + '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
-      if (!rows || !rows.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (cErr) { setBody('mc', warnHtml(cErr.message)); return; }
+      if (!rows || !rows.length) { nothing(); return; }
 
       var showCost = canViewMaterialCost();
-      var totalCost = 0;
+      var totalCost = 0, totalQty = 0;
+      rows.forEach(function (r) { totalQty += Number(r.qty) || 0; });
       var h = head;
-      if (rows.length >= 2000) h += '<p class="warn">Showing the first 2000 matching rows — narrow the filters for a complete result.</p>';
+      if (rows.length >= 2000) h += '<div class="rpt-note">Showing the first 2000 matching rows — narrow the filters for a complete result.</div>';
       h += '<table class="doc-table"><thead><tr><th>Date</th><th>Invoice No</th><th>Customer</th><th>Final Product</th><th>Raw Material</th>' +
         '<th class="num">Qty</th><th>Unit</th><th>Warehouse</th>' + (showCost ? '<th class="num">Cost</th>' : '') + '</tr></thead><tbody>';
       rows.forEach(function (r) {
@@ -709,7 +823,11 @@
       h += '</tbody><tfoot><tr><td colspan="8">Total (' + rows.length + ' row(s))</td>' +
         (showCost ? '<td class="num mono">' + fmt(totalCost) + '</td>' : '') + '</tr></tfoot>';
       h += '</table>';
-      body.innerHTML = h;
+      setBody('mc', h);
+      setCount('mc', rows.length);
+      var k = [{ cls: 'n', label: 'Rows', text: String(rows.length), ring: '#' }, { cls: 'wn', label: 'Total Qty', text: fmtQty(totalQty), ring: 'Σ' }];
+      if (showCost) k.push({ cls: 'dr', label: 'Total Cost', val: totalCost, ring: '₨' });
+      setKpis('mc', k);
     }
   };
 
@@ -727,42 +845,52 @@
       var item = document.getElementById('mp_item') ? document.getElementById('mp_item').value : '';
 
       await loadFirm();
-      var html = '<div class="toolbar filters">' + dateRangeFilterHtml('mp', from, to) +
-        '<div class="field"><label for="mp_group">Group by</label><select id="mp_group">' +
-        '<option value="invoice"' + (groupBy === 'invoice' ? ' selected' : '') + '>Invoice</option>' +
-        '<option value="item"' + (groupBy === 'item' ? ' selected' : '') + '>Final Product</option>' +
-        '</select></div>' +
-        '<div class="field"><label for="mp_item">Final Product</label><select id="mp_item">' + itemSelectOptions(item) + '</select></div>' +
-        '<button type="button" class="btn pri" id="mp_run">Run</button></div>';
-      html += '<div class="doc-sheet" id="mp_body">Loading…</div>';
-      document.getElementById('content').innerHTML = html;
+      document.getElementById('content').innerHTML = pageShell('mp', {
+        crumb: 'Reports / Materials', title: 'Material Cost & Profit', sub: fmtRange(from, to) + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'),
+        cardTitle: 'Cost & margin',
+        actions: '<button type="button" class="pg-hb" id="mp_run">Run</button>',
+        ctl: rangeChips('mp', from, to) + '<span class="pg-sepv"></span>' +
+          chip('mp_g_invoice', 'By invoice', groupBy === 'invoice') + chip('mp_g_item', 'By final product', groupBy === 'item') +
+          '<select id="mp_group" style="display:none"><option value="invoice"' + (groupBy === 'invoice' ? ' selected' : '') + '>Invoice</option>' +
+          '<option value="item"' + (groupBy === 'item' ? ' selected' : '') + '>Final Product</option></select>' +
+          fldSelect('mp_item', 'Final Product', itemSelectOptions(item))
+      });
+      wirePrint('mp');
       document.getElementById('mp_run').addEventListener('click', matProfitView.run);
       wireDateRangeButtons('mp', matProfitView.run);
+      ['mp_from', 'mp_to', 'mp_item'].forEach(function (id) { document.getElementById(id).addEventListener('change', matProfitView.run); });
+      document.getElementById('mp_g_invoice').addEventListener('click', function () { document.getElementById('mp_group').value = 'invoice'; matProfitView.run(); });
+      document.getElementById('mp_g_item').addEventListener('click', function () { document.getElementById('mp_group').value = 'item'; matProfitView.run(); });
       matProfitView.run();
     },
     async run() {
       var from = document.getElementById('mp_from').value, to = document.getElementById('mp_to').value;
       var groupBy = document.getElementById('mp_group').value, item = document.getElementById('mp_item').value;
-      var body = document.getElementById('mp_body');
-      var head = docHead('Material Cost & Profit', from + '  to  ' + to + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'));
-      body.innerHTML = head + '<p class="stmt-sub">Computing…</p>';
+      var head = printHead('Material Cost & Profit', fmtRange(from, to) + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'));
+      setBody('mp', '<div class="pg-empty">Computing…</div>'); setKpis('mp', []); setCount('mp', null);
+      setSub('mp', fmtRange(from, to) + ' · grouped by ' + (groupBy === 'invoice' ? 'invoice' : 'final product'));
+      Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) {
+        if (c.id === 'mp_g_invoice' || c.id === 'mp_g_item') c.classList.toggle('on', c.id === 'mp_g_' + groupBy);
+        else c.classList.toggle('on', c.id === 'mp_' + rangeKey(from, to));
+      });
+      var nothing = function () { setBody('mp', head + emptyCard('Nothing to show', 'No consumption rows match these filters.')); };
 
       var { data: vouchers, error: vErr } = await sb.from('vouchers').select('id,vno,vdate,party_id')
         .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to);
-      if (vErr) { body.innerHTML = head + '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      if (vErr) { setBody('mp', warnHtml(vErr.message)); return; }
       var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
       var voucherIds = (vouchers || []).map(function (v) { return v.id; });
-      if (!voucherIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (!voucherIds.length) { nothing(); return; }
 
       var lq = sb.from('voucher_lines').select('id,voucher_id,item_id,amount').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
       if (item) lq = lq.eq('item_id', item);
       var { data: lines, error: lErr } = await lq;
-      if (lErr) { body.innerHTML = head + '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
-      if (!lines || !lines.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (lErr) { setBody('mp', warnHtml(lErr.message)); return; }
+      if (!lines || !lines.length) { nothing(); return; }
       var lineIds = lines.map(function (l) { return l.id; });
 
       var { data: consump, error: cErr } = await sb.from('voucher_line_material_consumption').select('voucher_line_id,cost_amount').in('voucher_line_id', lineIds);
-      if (cErr) { body.innerHTML = head + '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
+      if (cErr) { setBody('mp', warnHtml(cErr.message)); return; }
       var costByLine = {};
       (consump || []).forEach(function (c) { costByLine[c.voucher_line_id] = (costByLine[c.voucher_line_id] || 0) + Number(c.cost_amount || 0); });
 
@@ -826,7 +954,14 @@
         (showCost ? '<td class="num mono">' + fmt(totalCost) + '</td><td class="num mono' + (totalMargin < 0 ? ' warn' : '') + '">' + fmt(totalMargin) + '</td><td class="num mono">' + totalMarginPct.toFixed(1) + '%</td>' : '') +
         '</tr></tfoot>';
       h += '</table>';
-      body.innerHTML = h;
+      setBody('mp', h);
+      setCount('mp', groupArr.length);
+      var k = [{ cls: 'cr', label: 'Sale Amount', val: totalSale, ring: '₨' }];
+      if (showCost) {
+        k.push({ cls: 'dr', label: 'Material Cost', val: totalCost, ring: '₨' });
+        k.push({ cls: totalMargin < 0 ? 'dr' : 'cr', label: 'Margin', val: totalMargin, ring: totalMarginPct.toFixed(0) + '%' });
+      }
+      setKpis('mp', k);
     }
   };
 
@@ -844,49 +979,54 @@
       var rawItem = document.getElementById('ma_raw') ? document.getElementById('ma_raw').value : '';
 
       await loadFirm();
-      var html = '<div class="toolbar filters">' + dateRangeFilterHtml('ma', from, to) +
-        '<div class="field"><label for="ma_final">Final Product</label><select id="ma_final">' + itemSelectOptions(finalItem) + '</select></div>' +
-        '<div class="field"><label for="ma_raw">Raw Material</label><select id="ma_raw">' + itemSelectOptions(rawItem) + '</select></div>' +
-        '<button type="button" class="btn pri" id="ma_run">Run</button></div>';
-      html += '<div class="doc-sheet" id="ma_body">Loading…</div>';
-      document.getElementById('content').innerHTML = html;
+      document.getElementById('content').innerHTML = pageShell('ma', {
+        crumb: 'Reports / Materials', title: 'Consumption Audit', sub: fmtRange(from, to) + ' · cancelled invoices and returned material',
+        cardTitle: 'Audit trail',
+        actions: '<button type="button" class="pg-hb" id="ma_run">Run</button>',
+        ctl: rangeChips('ma', from, to) + '<span class="pg-sepv"></span>' +
+          fldSelect('ma_final', 'Final Product', itemSelectOptions(finalItem)) + fldSelect('ma_raw', 'Raw Material', itemSelectOptions(rawItem))
+      });
+      wirePrint('ma');
       document.getElementById('ma_run').addEventListener('click', matAuditView.run);
       wireDateRangeButtons('ma', matAuditView.run);
+      ['ma_from', 'ma_to', 'ma_final', 'ma_raw'].forEach(function (id) { document.getElementById(id).addEventListener('change', matAuditView.run); });
       matAuditView.run();
     },
     async run() {
       var from = document.getElementById('ma_from').value, to = document.getElementById('ma_to').value;
       var finalItem = document.getElementById('ma_final').value, rawItem = document.getElementById('ma_raw').value;
-      var body = document.getElementById('ma_body');
-      var head = docHead('Consumption Audit', from + '  to  ' + to + ' · cancelled invoices and returned material');
-      body.innerHTML = head + '<p class="stmt-sub">Loading…</p>';
+      var head = printHead('Consumption Audit', fmtRange(from, to) + ' · cancelled invoices and returned material');
+      setBody('ma', '<div class="pg-empty">Loading…</div>'); setKpis('ma', []); setCount('ma', null);
+      setSub('ma', fmtRange(from, to) + ' · cancelled invoices and returned material');
+      Array.prototype.forEach.call(document.querySelectorAll('#content .pg-chip'), function (c) { c.classList.toggle('on', c.id === 'ma_' + rangeKey(from, to)); });
+      var nothing = function (big, sub) { setBody('ma', head + emptyCard(big || 'Nothing to show', sub || 'No consumption rows match these filters.')); };
 
       // Deliberately NOT filtered on deleted_at — a cancelled invoice is
       // exactly what this audit needs to surface.
       var { data: vouchers, error: vErr } = await sb.from('vouchers').select('id,vno,vdate,party_id,deleted_at')
         .eq('vtype', 'sale').gte('vdate', from).lte('vdate', to);
-      if (vErr) { body.innerHTML = head + '<p class="warn">' + esc(vErr.message) + '</p>'; return; }
+      if (vErr) { setBody('ma', warnHtml(vErr.message)); return; }
       var voucherMap = {}; (vouchers || []).forEach(function (v) { voucherMap[v.id] = v; });
       var voucherIds = (vouchers || []).map(function (v) { return v.id; });
-      if (!voucherIds.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (!voucherIds.length) { nothing(); return; }
 
       var lq = sb.from('voucher_lines').select('id,voucher_id,item_id').eq('consumption_type', 'raw_material_consumption').in('voucher_id', voucherIds);
       if (finalItem) lq = lq.eq('item_id', finalItem);
       var { data: lines, error: lErr } = await lq;
-      if (lErr) { body.innerHTML = head + '<p class="warn">' + esc(lErr.message) + '</p>'; return; }
-      if (!lines || !lines.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (lErr) { setBody('ma', warnHtml(lErr.message)); return; }
+      if (!lines || !lines.length) { nothing(); return; }
       var lineMap = {}; lines.forEach(function (l) { lineMap[l.id] = l; });
       var lineIds = lines.map(function (l) { return l.id; });
 
       var cq = sb.from('voucher_line_material_consumption').select('id,voucher_line_id,raw_item_id,qty,unit,cost_amount').in('voucher_line_id', lineIds).range(0, 1999);
       if (rawItem) cq = cq.eq('raw_item_id', rawItem);
       var { data: consump, error: cErr } = await cq;
-      if (cErr) { body.innerHTML = head + '<p class="warn">' + esc(cErr.message) + '</p>'; return; }
-      if (!consump || !consump.length) { body.innerHTML = head + emptyState('Nothing to show', 'No consumption rows match these filters.'); return; }
+      if (cErr) { setBody('ma', warnHtml(cErr.message)); return; }
+      if (!consump || !consump.length) { nothing(); return; }
       var consumpIds = consump.map(function (c) { return c.id; });
 
       var { data: restorations, error: rErr } = await sb.from('sales_return_material_restoration').select('consumption_id,qty').in('consumption_id', consumpIds);
-      if (rErr) { body.innerHTML = head + '<p class="warn">' + esc(rErr.message) + '</p>'; return; }
+      if (rErr) { setBody('ma', warnHtml(rErr.message)); return; }
       var restoredByConsumption = {};
       (restorations || []).forEach(function (r) { restoredByConsumption[r.consumption_id] = (restoredByConsumption[r.consumption_id] || 0) + Number(r.qty || 0); });
 
@@ -897,7 +1037,7 @@
         return { c: c, line: line, voucher: v, restored: restored, remaining: Number(c.qty) - restored };
       }).filter(function (r) { return (r.voucher && r.voucher.deleted_at) || r.restored > 0; });
 
-      if (!rows.length) { body.innerHTML = head + emptyState('Nothing reversed', 'No cancelled or returned consumption matches these filters.'); return; }
+      if (!rows.length) { nothing('Nothing reversed', 'No cancelled or returned consumption matches these filters.'); return; }
 
       rows.sort(function (a, b) {
         var da = a.voucher ? a.voucher.vdate : '', db = b.voucher ? b.voucher.vdate : '';
@@ -905,7 +1045,7 @@
       });
 
       var showCost = canViewMaterialCost();
-      var totalCost = 0, totalRestoredQty = 0;
+      var totalCost = 0, totalRestoredQty = 0, totalConsumedQty = 0, totalNetQty = 0;
       var h = head + '<table class="doc-table"><thead><tr><th>Date</th><th>Invoice No</th><th>Status</th><th>Final Product</th><th>Raw Material</th>' +
         '<th class="num">Qty Consumed</th><th class="num">Qty Restored</th><th class="num">Net Consumption</th>' +
         (showCost ? '<th class="num">Cost</th>' : '') + '</tr></thead><tbody>';
@@ -913,9 +1053,11 @@
         var v = r.voucher, line = r.line;
         var finalItm = line ? itemsCache.filter(function (i) { return i.id === line.item_id; })[0] : null;
         var rawItm = itemsCache.filter(function (i) { return i.id === r.c.raw_item_id; })[0];
-        var badge = (v && v.deleted_at) ? '<span class="badge b-void">Cancelled</span>' : (r.restored > 0 ? '<span class="badge b-supplier">Returned</span>' : '');
+        var badge = (v && v.deleted_at) ? '<span class="pg-pill r">Cancelled</span>' : (r.restored > 0 ? '<span class="pg-pill b">Returned</span>' : '');
         totalCost += Number(r.c.cost_amount || 0);
         totalRestoredQty += r.restored;
+        totalConsumedQty += Number(r.c.qty) || 0;
+        totalNetQty += Number(r.remaining) || 0;
         h += '<tr><td class="mono">' + (v ? v.vdate : '') + '</td><td class="mono">' + (v ? esc(v.vno) : '') + '</td><td>' + badge + '</td>' +
           '<td>' + (finalItm ? esc(finalItm.name) : '(deleted item)') + '</td>' +
           '<td>' + (rawItm ? esc(rawItm.name) : '(deleted item)') + '</td>' +
@@ -929,7 +1071,15 @@
         '<td class="num mono">' + fmtQty(totalRestoredQty) + '</td><td></td>' +
         (showCost ? '<td class="num mono">' + fmt(totalCost) + '</td>' : '') + '</tr></tfoot>';
       h += '</table>';
-      body.innerHTML = h;
+      setBody('ma', h);
+      setCount('ma', rows.length);
+      var k = [
+        { cls: 'dr', label: 'Consumed', text: fmtQty(totalConsumedQty), ring: '−' },
+        { cls: 'cr', label: 'Restored', text: fmtQty(totalRestoredQty), ring: '+' },
+        { cls: 'wn', label: 'Net Consumption', text: fmtQty(totalNetQty), ring: '=' }
+      ];
+      if (showCost) k.push({ cls: 'dr', label: 'Cost', val: totalCost, ring: '₨' });
+      setKpis('ma', k);
     }
   };
 
@@ -942,8 +1092,6 @@
     var v = VIEWS[activeTab];
     if (v) await v.render();
   }
-
-  document.getElementById('printReportBtn').addEventListener('click', function () { window.print(); });
 
   (async function init() {
     var { data: userData } = await sb.auth.getUser();
