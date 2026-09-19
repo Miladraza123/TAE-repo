@@ -38,13 +38,21 @@
      just on the shell's dark sidebar instead of its light variant. ---- */
   #sidebar .cat{
     display:flex; align-items:center; gap:10px; width:100%; text-align:left;
-    padding:9px 10px; border-radius:7px; border:none; background:none;
-    color:#D8D0C2; font-size:13px; font-weight:700; margin-bottom:1px;
+    padding:8px 10px; border-radius:8px; border:none; background:none;
+    color:#E8E2D5; font-size:13px; font-weight:700; margin-bottom:2px;
   }
   #sidebar .cat:hover{background:var(--abtn-bg); color:#fff;}
   #sidebar .cat .caret{margin-left:auto; color:#8C8577; font-size:11px; transition:transform .16s;}
   #sidebar .cat[aria-expanded="true"] .caret{transform:rotate(90deg);}
-  #sidebar .subgrp .navitem{font-size:12.8px; padding:7px 10px 7px 30px;}
+  /* category / top-level icons sit in a soft accent-tinted chip (approved) */
+  #sidebar .ico-chip{
+    width:26px; height:26px; border-radius:7px; flex:none; display:grid; place-items:center;
+    background:rgba(176,130,74,.16); color:#C9A063;
+  }
+  #sidebar .ico-chip svg{width:15px; height:15px;}
+  #sidebar .cat[aria-expanded="true"] .ico-chip{background:rgba(176,130,74,.28); color:#DDB877;}
+  #sidebar .navitem.on .ico-chip{background:rgba(176,130,74,.28); color:#DDB877;}
+  #sidebar .subgrp .navitem{font-size:12.8px; padding:7px 10px 7px 44px;}
 
   /* ---- shell header: replaces the old horizontal .topbar tabstrip ---- */
   .shellbar{
@@ -334,7 +342,7 @@
   ];
 
   function svgIco(path) {
-    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg>';
+    return '<span class="ico-chip"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">' + path + '</svg></span>';
   }
   var GROUP_ICON = {
     'Masters': '<path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/>',
