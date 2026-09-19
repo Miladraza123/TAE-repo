@@ -25,17 +25,38 @@
   .toolbar h1{font-size:16px;margin:0 8px 0 0;font-weight:700;}
   main > .toolbar.filters{max-width:980px; margin:0 auto 4px; padding-left:0; padding-right:0;}
   .poweredBy{display:none;}
+
+  /* ---- content redesign (approved): KPI tiles above a report's table ---- */
+  .stat-row{display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin:14px 0 4px;}
+  .stat{
+    position:relative; overflow:hidden; background:var(--paper); border:1px solid var(--line);
+    border-radius:var(--radius-xl); padding:13px 16px 13px 19px; box-shadow:0 1px 2px rgba(31,25,20,.04);
+  }
+  .stat::before{content:''; position:absolute; left:0; top:0; bottom:0; width:4px; background:var(--line);}
+  .stat .stat-lbl{font-size:10.5px; font-weight:700; letter-spacing:.6px; text-transform:uppercase; color:var(--mute); margin-bottom:6px;}
+  .stat .stat-val{font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:600; color:var(--ink);}
+  .stat.dr::before{background:var(--debit);} .stat.dr .stat-val{color:var(--debit);}
+  .stat.cr::before{background:var(--credit);} .stat.cr .stat-val{color:var(--credit);}
+  .stat.warn::before{background:var(--accent);} .stat.warn .stat-val{color:#8A6425;}
+
+  /* ---- content redesign (approved): the table reads as a distinct card ---- */
+  .doc-sheet table.doc-table{box-shadow:0 1px 3px rgba(31,25,20,.06);}
+  .doc-sheet table.doc-table tbody tr:nth-child(even){background:#FBF9F4;}
+  .doc-sheet table.doc-table tbody tr:hover{background:var(--panel);}
+
   @media print{
     @page{size:A4;}
     body{background:#fff;color:#000;}
     main{padding:0;}
     .toolbar,.tabs,button,input,select{display:none !important;}
-    .card,.stat{border:1px solid #999;background:#fff;}
+    .stat-row{display:none !important;} /* print keeps its existing, unredesigned layout */
     th,td{border-bottom:1px solid #999;}
     .doc-sheet{
       max-width:none !important; width:auto !important; margin:0 !important;
       border:none !important; border-radius:0 !important; background:#fff !important; padding:0 20px !important;
     }
+    .doc-sheet table.doc-table{box-shadow:none;}
+    .doc-sheet table.doc-table tbody tr:nth-child(even){background:transparent;}
     .poweredBy{
       display:block !important; position:fixed; left:20px; right:20px; bottom:8mm; font-size:10px; color:#666;
       border-top:1.5px solid #A67C2E; padding-top:5px;
@@ -176,12 +197,13 @@
   var firm = null;
   async function loadFirm() {
     if (firm) return firm;
-    var res = await sb.from('companies').select('name,city,phone,ntn,is_default').is('deleted_at', null).order('is_default', { ascending: false });
+    var res = await sb.from('companies').select('name,city,phone,ntn,logo,is_default').is('deleted_at', null).order('is_default', { ascending: false });
     var rows = (res && res.data) || [];
-    firm = rows[0] || { name: 'OHT Accounting System', city: '', phone: '', ntn: '' };
+    firm = rows[0] || { name: 'OHT Accounting System', city: '', phone: '', ntn: '', logo: null };
     return firm;
   }
   function firmMark() {
+    if (firm && firm.logo) return '<img src="' + esc(firm.logo) + '" alt="">';
     var n = (firm && firm.name ? firm.name : 'OHT').trim();
     return esc(n.charAt(0).toUpperCase() || 'O');
   }
@@ -202,6 +224,15 @@
       '</div>' +
       '<h2 class="stmt-title">' + esc(title) + '</h2>' +
       '<div class="stmt-sub">' + esc(sub || '') + '</div>';
+  }
+  // A row of KPI tiles under a report's title — approved for Trial Balance,
+  // Receivable Aging and P&L, whose top-line numbers are already computed.
+  // Hidden in print (@media print below) so the printed page is unchanged.
+  function statRow(items) {
+    return '<div class="stat-row">' + items.map(function (it) {
+      return '<div class="stat' + (it.cls ? ' ' + it.cls : '') + '"><div class="stat-lbl">' + esc(it.label) +
+        '</div><div class="stat-val">' + fmt(it.val) + '</div></div>';
+    }).join('') + '</div>';
   }
 
   // Cost-visibility gate for raw-material figures — mirrors billing.html's
@@ -245,6 +276,11 @@
       var totalDr = 0, totalCr = 0;
       (data || []).forEach(function (r) { if (r.side === 'dr') totalDr += Number(r.balance); else totalCr += Number(r.balance); });
       var h = docHead('Trial Balance', 'As of ' + asOf);
+      h += statRow([
+        { cls: 'dr', label: 'Total Debit', val: totalDr },
+        { cls: 'cr', label: 'Total Credit', val: totalCr },
+        { cls: 'warn', label: 'Difference', val: Math.abs(totalDr - totalCr) }
+      ]);
       h += '<div id="tb_recon"></div>';
       h += '<table class="doc-table"><thead><tr><th>Party</th><th class="num">Balance</th><th>Side</th></tr></thead><tbody>';
       (data || []).forEach(function (r) {
@@ -298,11 +334,7 @@
       var bucketKeys = ['notdue', 'b0', 'b30', 'b60', 'b90'];
       var bucketLabels = { notdue: 'Not due', b0: '1-30 days', b30: '31-60 days', b60: '61-90 days', b90: '90+ days' };
       var h = docHead('Receivable Aging', 'As of ' + asOf);
-      h += '<table class="doc-table" style="margin-bottom:16px"><thead><tr>' +
-        bucketKeys.map(function (k) { return '<th class="num">' + bucketLabels[k] + '</th>'; }).join('') +
-        '</tr></thead><tbody><tr>' +
-        bucketKeys.map(function (k) { return '<td class="num mono bucket-' + k + '">' + fmt(buckets[k]) + '</td>'; }).join('') +
-        '</tr></tbody></table>';
+      h += statRow(bucketKeys.map(function (k) { return { label: bucketLabels[k], val: buckets[k] }; }));
       h += '<table class="doc-table"><thead><tr><th>Party</th><th>Doc</th><th>Date</th><th>Due</th><th class="num">Original</th><th class="num">Outstanding</th><th class="num">Days</th><th>Bucket</th></tr></thead><tbody>';
       rows.forEach(function (r) {
         h += '<tr><td>' + esc(r.party_name) + '</td><td class="mono">' + esc(r.doc_no) + '</td><td class="mono">' + (r.doc_date || '') + '</td><td class="mono">' + (r.due_date || '') + '</td>' +
@@ -353,14 +385,18 @@
       var body = document.getElementById('pl_body');
       body.innerHTML = 'Computing…';
 
-      var [{ data: sales }, { data: returns }, { data: linesData }, { data: serviceInv }, { data: expenseSheets }] = await Promise.all([
+      var [{ data: sales }, { data: returns }, { data: linesData }, { data: serviceInv }, { data: sheetsInRange }] = await Promise.all([
         sb.from('vouchers').select('id,sub_total,discount,grand_total,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
           .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to),
         sb.from('sales_returns').select('id,grand_total,sale_id,deleted_at').gte('rdate', from).lte('rdate', to),
         sb.from('voucher_lines').select('voucher_id,cost_amount'),
         sb.from('service_invoices').select('sub_total,discount').neq('status', 'cancelled').is('deleted_at', null).gte('sidate', from).lte('sidate', to),
-        sb.from('sheets').select('rows').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to)
+        sb.from('sheets').select('id').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to)
       ]);
+      var sheetIdsInRange = (sheetsInRange || []).map(function (s) { return s.id; });
+      var { data: expenseRows } = sheetIdsInRange.length
+        ? await sb.from('sheet_rows').select('d_amt,c_party').in('sheet_id', sheetIdsInRange)
+        : { data: [] };
 
       var grossSales = (sales || []).reduce(function (s, v) { return s + Number(v.sub_total); }, 0);
       var discounts = (sales || []).reduce(function (s, v) { return s + Number(v.discount); }, 0);
@@ -393,14 +429,12 @@
       var { data: expenseParties } = await sb.from('parties').select('id,expense_type').eq('kind', 'expense').is('deleted_at', null);
       var expenseMap = {}; (expenseParties || []).forEach(function (p) { expenseMap[p.id] = p.expense_type; });
       var opEx = 0, financeCharges = 0;
-      (expenseSheets || []).forEach(function (s) {
-        (s.rows || []).forEach(function (r) {
-          var partyId = r[7];
-          if (partyId && expenseMap.hasOwnProperty(partyId)) {
-            var amt = Number(r[0]) || 0;
-            if (expenseMap[partyId] === 'bank_charges') financeCharges += amt; else opEx += amt;
-          }
-        });
+      (expenseRows || []).forEach(function (r) {
+        var partyId = r.c_party;
+        if (partyId && expenseMap.hasOwnProperty(partyId)) {
+          var amt = Number(r.d_amt) || 0;
+          if (expenseMap[partyId] === 'bank_charges') financeCharges += amt; else opEx += amt;
+        }
       });
 
       var operatingProfit = grossProfit + serviceRevenue + otherIncome - opEx;
@@ -412,6 +446,11 @@
           (Number(val) < 0 ? ' warn' : '') + '">' + fmt(val) + '</td></tr>';
       }
       var h = docHead('Profit & Loss', from + '  to  ' + to);
+      h += statRow([
+        { cls: 'cr', label: 'Net Sales', val: netSales },
+        { cls: 'cr', label: 'Gross Profit', val: grossProfit },
+        { cls: netProfit < 0 ? 'dr' : 'cr', label: 'Net Profit', val: netProfit }
+      ]);
       h += '<table class="doc-table"><tbody>' +
         row('Gross Sales', grossSales) + row('Sales Returns', -salesReturnsInRange) + row('Discounts', -discounts) +
         row('Net Sales', netSales, true) + row('COGS', -cogs) + row('Gross Profit', grossProfit, true) +
@@ -491,19 +530,24 @@
       events.push({ date: si.sidate, desc: 'Service ' + si.sino, dr: si.grand_total, cr: 0 });
       if (si.paid > 0) events.push({ date: si.sidate, desc: 'Received with ' + si.sino, dr: 0, cr: si.paid });
     });
-    var { data: sheetsData } = await sb.from('sheets').select('sheet_date,rows').is('deleted_at', null);
+    var { data: sheetsData } = await sb.from('sheets').select('id,sheet_date').is('deleted_at', null);
+    var sheetDateById = {}; (sheetsData || []).forEach(function (s) { sheetDateById[s.id] = s.sheet_date; });
+    var sheetIdsForParty = Object.keys(sheetDateById);
+    var { data: sheetRowsData } = sheetIdsForParty.length
+      ? await sb.from('sheet_rows').select('sheet_id,d_amt,d_rem,c_amt,c_rem,d_party,c_party')
+          .in('sheet_id', sheetIdsForParty).or('d_party.eq.' + partyId + ',c_party.eq.' + partyId)
+      : { data: [] };
     var normName = party.name.trim().toLowerCase().replace(/\s+/g, ' ');
-    (sheetsData || []).forEach(function (s) {
-      (s.rows || []).forEach(function (r) {
-        if (r[6] === partyId) { // credit-side link: cash received FROM them
-          var remark = stripOwnName(r[3] || '', normName);
-          events.push({ date: s.sheet_date, desc: remark || 'Cash received', dr: 0, cr: Number(r[2]) || 0 });
-        }
-        if (r[7] === partyId) { // debit-side link: cash paid TO them
-          var remark2 = stripOwnName(r[1] || '', normName);
-          events.push({ date: s.sheet_date, desc: remark2 || 'Cash paid', dr: Number(r[0]) || 0, cr: 0 });
-        }
-      });
+    (sheetRowsData || []).forEach(function (r) {
+      var sheetDate = sheetDateById[r.sheet_id];
+      if (r.d_party === partyId) { // credit-side link: cash received FROM them
+        var remark = stripOwnName(r.c_rem || '', normName);
+        events.push({ date: sheetDate, desc: remark || 'Cash received', dr: 0, cr: Number(r.c_amt) || 0 });
+      }
+      if (r.c_party === partyId) { // debit-side link: cash paid TO them
+        var remark2 = stripOwnName(r.d_rem || '', normName);
+        events.push({ date: sheetDate, desc: remark2 || 'Cash paid', dr: Number(r.d_amt) || 0, cr: 0 });
+      }
     });
 
     events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });

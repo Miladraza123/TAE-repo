@@ -412,8 +412,9 @@ input, select, textarea { font-family:inherit; }
 .letterhead .mark2 {
   width:44px; height:44px; border:1.5px solid var(--accent); border-radius:8px;
   display:grid; place-items:center; font-family:'IBM Plex Serif',serif; font-weight:600;
-  font-size:20px; color:var(--accent); flex:none;
+  font-size:20px; color:var(--accent); flex:none; overflow:hidden;
 }
+.letterhead .mark2 img { width:100%; height:100%; object-fit:contain; }
 .letterhead .firm-name { font-size:19px; }
 .letterhead .firm-addr { font-size:11.5px; color:var(--mute); }
 .stmt-title { font-size:22px; margin:14px 0 4px; }
