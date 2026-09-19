@@ -722,7 +722,37 @@
     document.getElementById(ALL_TABS[k]).addEventListener('click', function () { switchTab(k); });
   });
   var CARD_TITLES = { sale: 'Sales invoices', purchase: 'Purchase bills', return: 'Sales returns', quotation: 'Quotations', po: 'Purchase orders', sinvoice: 'Service invoices', squote: 'Service quotations', transfer: 'Stock transfers' };
+  // Per-tab draft persistence (§14): each of the 8 tabs gets its own slot
+  // here, keyed by its ALL_TABS key, so an unsaved editor left open on one
+  // tab is hidden (never discarded) when the sidebar switches to another,
+  // and comes back exactly as left when the user returns to that tab.
+  var parkedEditors = {};
+  function currentTabKey() {
+    var mode = state.mode || 'voucher';
+    return mode === 'voucher' ? state.vtype : mode;
+  }
+  function parkCurrentEditor() {
+    if (!document.getElementById('editorSheet').classList.contains('on')) return;
+    var key = currentTabKey();
+    if (state.mode === 'return' && returnEditing) parkedEditors[key] = { kind: 'return', data: returnEditing };
+    else if ((state.mode === 'quotation' || state.mode === 'po') && docEditing) parkedEditors[key] = { kind: 'doc', data: docEditing };
+    else if ((state.mode === 'sinvoice' || state.mode === 'squote') && svcEditing) parkedEditors[key] = { kind: 'service', data: svcEditing };
+    else if (state.mode === 'transfer' && transferEditing) parkedEditors[key] = { kind: 'transfer', data: transferEditing };
+    else if (state.editing) parkedEditors[key] = { kind: 'voucher', data: state.editing };
+    hideSheet();
+  }
+  function restoreParkedEditor(vt) {
+    var parked = parkedEditors[vt];
+    if (!parked) return;
+    if (parked.kind === 'return') { returnEditing = parked.data; renderReturnEditor(); showSheet(); }
+    else if (parked.kind === 'doc') { docEditing = parked.data; renderDocEditor(); showSheet(); }
+    else if (parked.kind === 'service') { svcEditing = parked.data; renderServiceDocEditor(); showSheet(); }
+    else if (parked.kind === 'transfer') { transferEditing = parked.data; renderTransferEditor(); showSheet(); }
+    else if (parked.kind === 'voucher') { state.editing = parked.data; renderEditor(); showSheet(); }
+  }
+
   function switchTab(vt) {
+    parkCurrentEditor();
     Object.keys(ALL_TABS).forEach(function (k) { document.getElementById(ALL_TABS[k]).classList.toggle('on', k === vt); });
     document.getElementById('appTitle').textContent = TAB_TITLES[vt] || 'Billing';
     document.getElementById('blTitle').textContent = TAB_TITLES[vt] || 'Billing';
@@ -748,6 +778,7 @@
       state.vtype = vt;
       loadList();
     }
+    restoreParkedEditor(vt);
   }
   document.getElementById('newBtn').addEventListener('click', function () {
     if (state.mode === 'return') openReturnEditor(null);
@@ -834,9 +865,18 @@
     showSheet();
   }
 
+  // Shared Cancel handler for every editor type (§6/§25) — also the tail
+  // end of every successful save. Clears whichever slot this tab's draft
+  // was parked under (§14), so a saved/cancelled draft never reappears
+  // when the user later switches back to this tab.
   function closeEditor() {
     hideSheet();
+    delete parkedEditors[currentTabKey()];
     state.editing = null;
+    returnEditing = null;
+    docEditing = null;
+    svcEditing = null;
+    transferEditing = null;
   }
 
   function warehouseOptions(selected) {
