@@ -82,8 +82,18 @@
       if (!key || !VIEWS[key]) return;
       activeTab = key;
       if (inited) { buildTabs(); render(); }
+      return;
+    }
+    // Cross-module refresh (§14): every report reads across most of the
+    // schema, so any change elsewhere (Masters/Billing/Daily Ledger) just
+    // re-runs whichever tab is currently on screen — except kinds no report
+    // tab reads at all (Daily Ledger's own cash-book sheets, period locks).
+    if (d.oht === 'refresh' && inited && REPORTS_IGNORE_KINDS.indexOf(d.kind) < 0) {
+      if (d.kind === 'companies') { firm = null; loadFirm().then(render); }
+      else render();
     }
   });
+  var REPORTS_IGNORE_KINDS = ['sheets', 'period_lock'];
 
   // ---- shared toast helper (§14) — same helper index.html/masters.html use;
   // each module is its own document, so each carries its own copy. ----

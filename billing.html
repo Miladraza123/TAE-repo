@@ -1409,7 +1409,7 @@
           OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
           errEl.textContent = '';
           toast('No internet — saved locally as pending. It will get its real invoice number once synced.');
-          closeEditor(); loadList();
+          closeEditor(); loadList(); broadcastRefresh('vouchers'); broadcastRefresh('items');
           return;
         }
 
@@ -1419,7 +1419,7 @@
             OfflineQueue.enqueue({ kind: 'insert', table: 'vouchers', payload: headerPayload });
             OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
             toast('No internet — saved locally as pending. It will get its real invoice number once synced.');
-            closeEditor(); loadList();
+            closeEditor(); loadList(); broadcastRefresh('vouchers'); broadcastRefresh('items');
             return;
           }
           return handleSaveError(insErr, errEl);
@@ -1447,7 +1447,7 @@
           await sb.from(srcCfg.table).update({ status: 'converted', converted_invoice_id: inserted.id, converted_at: new Date().toISOString() }).eq('id', e.convertingFrom.id);
         }
         toast((inserted && inserted.vno ? inserted.vno : (state.vtype === 'sale' ? 'Invoice' : 'Bill')) + ' saved');
-        closeEditor(); loadList();
+        closeEditor(); loadList(); broadcastRefresh('vouchers'); broadcastRefresh('items');
         return;
       }
 
@@ -1466,7 +1466,7 @@
           lineOriginal: e.originalLines, lineNew: newLines
         });
         toast('No internet — your change is saved locally and will sync when back online.');
-        closeEditor(); loadList();
+        closeEditor(); loadList(); broadcastRefresh('vouchers'); broadcastRefresh('items');
       }
 
       if (!navigator.onLine) { queueVoucherEdit(); return; }
@@ -1531,7 +1531,7 @@
     var { error } = await sb.from('vouchers').update({ deleted_at: new Date().toISOString() }).eq('id', e.id);
     if (error) { sheetErr(error.message); return; }
     toast(e.header.vno + ' deleted — restore it from the Recycle Bin');
-    closeEditor(); loadList();
+    closeEditor(); loadList(); broadcastRefresh('vouchers'); broadcastRefresh('items');
   }
 
   // ---------------------------------------------------------------
@@ -1749,7 +1749,7 @@
       OfflineQueue.enqueue({ kind: 'insert', table: 'sales_returns', payload: headerPayload });
       OfflineQueue.enqueue({ kind: 'insert', table: 'sales_return_lines', payload: linesPayload });
       toast('No internet — saved locally as pending. It will get its real number once synced.');
-      closeEditor(); loadReturnsList();
+      closeEditor(); loadReturnsList(); broadcastRefresh('sales_returns'); broadcastRefresh('items');
       return;
     }
 
@@ -1759,7 +1759,7 @@
         OfflineQueue.enqueue({ kind: 'insert', table: 'sales_returns', payload: headerPayload });
         OfflineQueue.enqueue({ kind: 'insert', table: 'sales_return_lines', payload: linesPayload });
         toast('No internet — saved locally as pending. It will get its real number once synced.');
-        closeEditor(); loadReturnsList();
+        closeEditor(); loadReturnsList(); broadcastRefresh('sales_returns'); broadcastRefresh('items');
         return;
       }
       errEl.textContent = insErr.message; return;
@@ -1795,6 +1795,7 @@
     toast('Sales return saved');
     closeEditor();
     loadReturnsList();
+    broadcastRefresh('sales_returns'); broadcastRefresh('items');
   }
 
   // Print (§9/§25) — classic A4 credit note. sales_returns carries no
@@ -1842,7 +1843,7 @@
     var { error } = await sb.from('sales_returns').update({ deleted_at: new Date().toISOString() }).eq('id', r.id);
     if (error) { sheetErr(error.message); return; }
     toast(r.header.rno + ' deleted — restore it from the Recycle Bin');
-    closeEditor(); loadReturnsList();
+    closeEditor(); loadReturnsList(); broadcastRefresh('sales_returns'); broadcastRefresh('items');
   }
 
   // ---------------------------------------------------------------
@@ -2104,7 +2105,7 @@
           OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
           OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
           toast('No internet — saved locally as pending. It will get its real number once synced.');
-          closeEditor(); loadDocsList(d.type);
+          closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
           return;
         }
 
@@ -2114,7 +2115,7 @@
             OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
             OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
             toast('No internet — saved locally as pending. It will get its real number once synced.');
-            closeEditor(); loadDocsList(d.type);
+            closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
             return;
           }
           return handleSaveError(insErr, errEl);
@@ -2133,7 +2134,7 @@
           await sb.from(srcCfg.table).update({ status: 'converted', converted_invoice_id: inserted.id, converted_at: new Date().toISOString() }).eq('id', d.convertingFrom.id);
         }
         toast((inserted && inserted[cfg.numField] ? inserted[cfg.numField] : cfg.title) + ' saved');
-        closeEditor(); loadDocsList(d.type);
+        closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
         return;
       }
 
@@ -2149,7 +2150,7 @@
           lineOriginal: d.originalLines, lineNew: validLines
         });
         toast('No internet — your change is saved locally and will sync when back online.');
-        closeEditor(); loadDocsList(d.type);
+        closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
       }
 
       if (!navigator.onLine) { queueDocEdit(); return; }
@@ -2178,7 +2179,7 @@
       await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
 
       toast("'" + d.originalHeader[cfg.numField] + "' saved");
-      closeEditor(); loadDocsList(d.type);
+      closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
     } catch (ex) {
       errEl.textContent = ex.message || String(ex);
     }
@@ -2239,7 +2240,7 @@
     var { error } = await sb.from(cfg.table).update({ deleted_at: new Date().toISOString() }).eq('id', d.id);
     if (error) { sheetErr(error.message); return; }
     toast(d.header[cfg.numField] + ' deleted — restore it from the Recycle Bin');
-    closeEditor(); loadDocsList(d.type);
+    closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
   }
 
   function convertDoc() {
@@ -2506,7 +2507,7 @@
           OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
           OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
           toast('No internet — saved locally as pending. It will get its real number once synced.');
-          closeEditor(); loadServiceDocsList(d.type);
+          closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
           return;
         }
 
@@ -2516,7 +2517,7 @@
             OfflineQueue.enqueue({ kind: 'insert', table: cfg.table, payload: headerPayload });
             OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
             toast('No internet — saved locally as pending. It will get its real number once synced.');
-            closeEditor(); loadServiceDocsList(d.type);
+            closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
             return;
           }
           return handleSaveError(insErr, errEl);
@@ -2530,7 +2531,7 @@
           }
         }
         toast((inserted && inserted[cfg.numField] ? inserted[cfg.numField] : cfg.title) + ' saved');
-        closeEditor(); loadServiceDocsList(d.type);
+        closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
         return;
       }
 
@@ -2543,7 +2544,7 @@
           lineOriginal: d.originalLines, lineNew: validLines
         });
         toast('No internet — your change is saved locally and will sync when back online.');
-        closeEditor(); loadServiceDocsList(d.type);
+        closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
       }
 
       if (!navigator.onLine) { queueSvcDocEdit(); return; }
@@ -2562,7 +2563,7 @@
       await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
 
       toast("'" + d.originalHeader[cfg.numField] + "' saved");
-      closeEditor(); loadServiceDocsList(d.type);
+      closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
     } catch (ex) {
       errEl.textContent = ex.message || String(ex);
     }
@@ -2628,7 +2629,7 @@
     var { error } = await sb.from(cfg.table).update({ deleted_at: new Date().toISOString() }).eq('id', d.id);
     if (error) { sheetErr(error.message); return; }
     toast(d.header[cfg.numField] + ' deleted — restore it from the Recycle Bin');
-    closeEditor(); loadServiceDocsList(d.type);
+    closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
   }
 
   async function convertServiceDoc() {
@@ -2788,7 +2789,7 @@
         OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfers', payload: headerPayload });
         OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfer_lines', payload: linesPayload });
         toast('No internet — saved locally as pending. It will get its real number once synced.');
-        closeEditor(); loadTransfersList();
+        closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
         return;
       }
 
@@ -2798,7 +2799,7 @@
           OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfers', payload: headerPayload });
           OfflineQueue.enqueue({ kind: 'insert', table: 'stock_transfer_lines', payload: linesPayload });
           toast('No internet — saved locally as pending. It will get its real number once synced.');
-          closeEditor(); loadTransfersList();
+          closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
           return;
         }
         errEl.textContent = insErr.message; return;
@@ -2817,7 +2818,7 @@
       if (!navigator.onLine) {
         OfflineQueue.enqueue({ kind: 'transfer_edit_replace', table: 'stock_transfers', recordId: t.id, headerPayload: t.header, lineTable: 'stock_transfer_lines', lineFkCol: 'transfer_id', linesPayload: linesPayloadEdit });
         toast('No internet — your change is saved locally and will sync when back online.');
-        closeEditor(); loadTransfersList();
+        closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
         return;
       }
 
@@ -2826,7 +2827,7 @@
         if (OfflineQueue.isNetworkError(updErr)) {
           OfflineQueue.enqueue({ kind: 'transfer_edit_replace', table: 'stock_transfers', recordId: t.id, headerPayload: t.header, lineTable: 'stock_transfer_lines', lineFkCol: 'transfer_id', linesPayload: linesPayloadEdit });
           toast('No internet — your change is saved locally and will sync when back online.');
-          closeEditor(); loadTransfersList();
+          closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
           return;
         }
         errEl.textContent = updErr.message; return;
@@ -2835,7 +2836,7 @@
       await sb.from('stock_transfer_lines').insert(linesPayloadEdit);
     }
     toast('Stock transfer saved');
-    closeEditor(); loadTransfersList();
+    closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
   }
 
   // Print (§9/§25) — classic A4 transfer note. No party, no rate/amount: a
@@ -2875,7 +2876,7 @@
     var { error } = await sb.from('stock_transfers').update({ deleted_at: new Date().toISOString() }).eq('id', t.id);
     if (error) { sheetErr(error.message); return; }
     toast(t.header.tno + ' deleted — restore it from the Recycle Bin');
-    closeEditor(); loadTransfersList();
+    closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
   }
 
   // ---------------------------------------------------------------
@@ -3129,13 +3130,26 @@
   }
 
   // ---------------------------------------------------------------
-  // Cross-module refresh (§14): parties/items/companies changed elsewhere
+  // Cross-module refresh (§14): a change in Masters/Billing/Daily Ledger
+  // anywhere else re-fetches the master-data caches this module also uses,
+  // and re-fetches the list currently on screen — so nothing here goes
+  // stale or shows removed data until the user happens to switch tabs.
   // ---------------------------------------------------------------
+  function broadcastRefresh(kind) {
+    try { window.parent.postMessage({ oht: 'refresh', kind: kind }, '*'); } catch (e) {}
+  }
+  function reloadCurrentList() {
+    if (state.mode === 'return') loadReturnsList();
+    else if (state.mode === 'quotation' || state.mode === 'po') loadDocsList(state.mode);
+    else if (state.mode === 'sinvoice' || state.mode === 'squote') loadServiceDocsList(state.mode);
+    else if (state.mode === 'transfer') loadTransfersList();
+    else loadList();
+  }
+  var MASTER_REFRESH_KINDS = ['parties', 'items', 'companies', 'warehouses', 'services'];
   window.addEventListener('message', function (ev) {
     var d = ev.data;
-    if (d && d.oht === 'refresh' && ['parties', 'items', 'companies', 'warehouses'].indexOf(d.kind) >= 0) {
-      loadMasters().then(fillFilterSelects);
-    }
+    if (!d || d.oht !== 'refresh' || MASTER_REFRESH_KINDS.indexOf(d.kind) < 0) return;
+    (d.kind === 'services' ? loadServices() : loadMasters().then(fillFilterSelects)).then(reloadCurrentList);
   });
 
   // ---------------------------------------------------------------

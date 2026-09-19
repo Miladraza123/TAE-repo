@@ -433,8 +433,20 @@
 
   window.addEventListener('message', function (ev) {
     var d = ev.data;
-    if (!d || d.oht !== 'active') return;
-    d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+    if (!d || !d.oht) return;
+    if (d.oht === 'active') {
+      d.active ? sb.auth.startAutoRefresh && sb.auth.startAutoRefresh() : sb.auth.stopAutoRefresh && sb.auth.stopAutoRefresh();
+      return;
+    }
+    // Cross-module refresh (§14): a party renamed in Masters shows up in the
+    // d_party/c_party pickers and the register's own name lookups; a firm
+    // added/edited in Masters shows up in the Firm dropdown (§2) and its
+    // print letterhead (the per-name firmCache is cleared so a changed
+    // logo/signature/stamp isn't served stale on the next print).
+    if (d.oht === 'refresh' && state.sheet) {
+      if (d.kind === 'parties') loadParties().then(render);
+      else if (d.kind === 'companies') { firmCache = {}; loadCompanies().then(render); }
+    }
   });
 
   // originalRows (§7) is the row-level twin of originalSheet: the snapshot

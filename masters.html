@@ -117,8 +117,20 @@
       if (!d.arg || !VIEWS[d.arg]) return;
       activeView = d.arg;
       if (inited) { buildNav(); render(); }
+      return;
+    }
+    // Cross-module refresh (§14): Billing/Daily Ledger changed a table this
+    // module also shows — re-render only if that table's own view is the
+    // one currently on screen, so an unrelated change never triggers a
+    // pointless reload.
+    if (d.oht === 'refresh' && inited && REFRESH_VIEW_KIND[d.kind] === activeView) {
+      render();
     }
   });
+  var REFRESH_VIEW_KIND = {
+    parties: 'parties', items: 'items', services: 'services', companies: 'companies',
+    warehouses: 'warehouses', party_kinds: 'partykinds', period_lock: 'periodlock'
+  };
 
   function broadcastRefresh(kind) {
     window.parent.postMessage({ oht: 'refresh', kind: kind }, '*');
