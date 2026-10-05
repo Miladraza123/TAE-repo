@@ -176,6 +176,7 @@
     { key: 'pl', label: 'Profit & Loss' },
     { key: 'statement', label: 'Statement of Account' },
     { key: 'due', label: 'Payments Due' },
+    { key: 'pending', label: 'Pending Deliveries' },
     { key: 'stockledger', label: 'Item Stock Ledger' },
     { key: 'matcons', label: 'Material Consumption' },
     { key: 'matprofit', label: 'Material Cost & Profit' },
@@ -592,7 +593,7 @@
         sb.from('vouchers').select('id,sub_total,discount,grand_total,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
           .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to),
         sb.from('sales_returns').select('id,grand_total,sale_id,deleted_at').gte('rdate', from).lte('rdate', to),
-        sb.from('voucher_lines').select('voucher_id,cost_amount'),
+        sb.from('voucher_lines').select('voucher_id,qty,cost_amount,dc_line_id').range(0, 49999),
         sb.from('service_invoices').select('sub_total,discount').neq('status', 'cancelled').is('deleted_at', null).gte('sidate', from).lte('sidate', to),
         sb.from('sheets').select('id').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to)
       ]);
@@ -607,12 +608,27 @@
       var netSales = grossSales - salesReturnsInRange - discounts;
 
       var saleIds = (sales || []).map(function (v) { return v.id; });
-      var cogs = (linesData || []).filter(function (l) { return saleIds.indexOf(l.voucher_id) >= 0; })
-        .reduce(function (s, l) { return s + Number(l.cost_amount || 0); }, 0);
+      // A line billed from a Delivery Challan carries no cost of its own (the
+      // DC moved the stock): its cost is its share of the DC line's cost —
+      // own stock for general supply, the order's material issues for a
+      // manufactured product.
+      var [{ data: dcCosts }, { data: dcQtys }] = await Promise.all([
+        sb.from('dc_line_costs').select('dc_line_id,cost').range(0, 49999),
+        sb.from('dc_lines').select('id,qty').range(0, 49999)
+      ]);
+      var dcCost = {}, dcQty = {};
+      (dcCosts || []).forEach(function (c) { dcCost[c.dc_line_id] = Number(c.cost || 0); });
+      (dcQtys || []).forEach(function (d) { dcQty[d.id] = Number(d.qty || 0); });
+      var saleIdSet = {}; saleIds.forEach(function (id) { saleIdSet[id] = true; });
+      var cogs = (linesData || []).filter(function (l) { return saleIdSet[l.voucher_id]; })
+        .reduce(function (s, l) {
+          if (l.dc_line_id) return s + (dcQty[l.dc_line_id] ? (dcCost[l.dc_line_id] || 0) * Number(l.qty || 0) / dcQty[l.dc_line_id] : 0);
+          return s + Number(l.cost_amount || 0);
+        }, 0);
 
       // Returns' cost is removed from COGS too — need each in-range return's lines' cost_amount,
       // filtered to non-deleted parent returns only (§21's documented real bug to avoid).
-      var { data: returnLines } = await sb.from('sales_return_lines').select('return_id,cost_amount');
+      var { data: returnLines } = await sb.from('sales_return_lines').select('return_id,cost_amount').range(0, 49999);
       var validReturnIds = (returns || []).filter(function (r) { return !r.deleted_at; }).map(function (r) { return r.id; });
       var returnsCost = (returnLines || []).filter(function (rl) { return validReturnIds.indexOf(rl.return_id) >= 0; })
         .reduce(function (s, rl) { return s + Number(rl.cost_amount || 0); }, 0);
@@ -1354,9 +1370,98 @@
     }
   };
 
+
+  // ===================================================================
+  // Pending Deliveries — per quotation: ordered / delivered (on Delivery
+  // Challans) / billed / pending, plus the raw material issued against it.
+  // ===================================================================
+  var pendShowAll = false;
+  var pendView = {
+    async render() {
+      await loadFirm();
+      document.getElementById('content').innerHTML = pageShell('pending', {
+        crumb: 'Reports / Orders', title: 'Pending Deliveries',
+        sub: 'Quotation → Delivery Challan → Sales Invoice', cardTitle: 'Orders',
+        actions: '<button type="button" class="pg-hb" id="pend_reload">Refresh</button>',
+        ctl: chip('pend_open', 'Pending only', !pendShowAll) + chip('pend_all', 'All orders', pendShowAll),
+        empty: 'Loading…'
+      });
+      wirePrint('pending');
+      document.getElementById('pend_reload').addEventListener('click', pendView.run);
+      document.getElementById('pend_open').addEventListener('click', function () { pendShowAll = false; pendView.render(); });
+      document.getElementById('pend_all').addEventListener('click', function () { pendShowAll = true; pendView.render(); });
+      pendView.run();
+    },
+    async run() {
+      var [qr, qlr, dlr, blr, mir, itr, ptr] = await Promise.all([
+        sb.from('quotations').select('id,qno,qdate,party_id,walkin_name,status').is('deleted_at', null).neq('status', 'converted').order('qdate', { ascending: false }).range(0, 1999),
+        sb.from('quotation_lines').select('id,quotation_id,item_id,custom_name,custom_unit,qty,line_no').order('line_no').range(0, 9999),
+        sb.from('dc_lines').select('id,qty,quotation_line_id,delivery_challans!inner(dcno,deleted_at)').not('quotation_line_id', 'is', null).is('delivery_challans.deleted_at', null).range(0, 9999),
+        sb.from('voucher_lines').select('dc_line_id,qty,vouchers!inner(deleted_at)').not('dc_line_id', 'is', null).is('vouchers.deleted_at', null).range(0, 9999),
+        sb.from('material_issues').select('quotation_id,cost_amount').is('deleted_at', null).range(0, 9999),
+        sb.from('items').select('id,name,unit').range(0, 9999),
+        sb.from('parties').select('id,name').range(0, 9999)
+      ]);
+      var err = qr.error || qlr.error || dlr.error || blr.error || mir.error;
+      if (err) { setBody('pending', emptyCard('Could not load', err.message)); return; }
+      var items = {}; (itr.data || []).forEach(function (i) { items[i.id] = i; });
+      var parties = {}; (ptr.data || []).forEach(function (p) { parties[p.id] = p.name; });
+      var billed = {}; (blr.data || []).forEach(function (b) { billed[b.dc_line_id] = (billed[b.dc_line_id] || 0) + Number(b.qty || 0); });
+      var byQl = {};
+      (dlr.data || []).forEach(function (d) {
+        var x = byQl[d.quotation_line_id] = byQl[d.quotation_line_id] || { delivered: 0, billed: 0, dcs: {} };
+        x.delivered += Number(d.qty || 0);
+        x.billed += Math.min(Number(d.qty || 0), billed[d.id] || 0);
+        x.dcs[d.delivery_challans.dcno] = true;
+      });
+      var issued = {}; (mir.data || []).forEach(function (m) { issued[m.quotation_id] = (issued[m.quotation_id] || 0) + Number(m.cost_amount || 0); });
+      var linesByQ = {}; (qlr.data || []).forEach(function (l) { (linesByQ[l.quotation_id] = linesByQ[l.quotation_id] || []).push(l); });
+      var showCost = canViewMaterialCost();
+      var n3 = function (v) { return String(Math.round((Number(v) || 0) * 1000) / 1000); };
+      var orders = [], pendLines = 0, costTotal = 0;
+      (qr.data || []).forEach(function (q) {
+        var rows = (linesByQ[q.id] || []).map(function (l) {
+          var x = byQl[l.id] || { delivered: 0, billed: 0, dcs: {} };
+          var pending = Math.max(0, Number(l.qty || 0) - x.delivered);
+          var it = items[l.item_id];
+          return { name: it ? it.name : (l.custom_name || ''), unit: it ? it.unit : (l.custom_unit || 'pcs'), ordered: Number(l.qty || 0),
+            delivered: x.delivered, billed: x.billed, pending: pending, dcs: Object.keys(x.dcs) };
+        });
+        var anyPending = rows.some(function (r) { return r.pending > 0.0005; });
+        var anyUnbilled = rows.some(function (r) { return r.delivered - r.billed > 0.0005; });
+        var started = rows.some(function (r) { return r.delivered > 0; }) || issued[q.id] != null;
+        if (!pendShowAll && !(started && (anyPending || anyUnbilled))) return;
+        orders.push({ q: q, rows: rows, cost: issued[q.id] || 0 });
+        pendLines += rows.filter(function (r) { return r.pending > 0.0005; }).length;
+        costTotal += issued[q.id] || 0;
+      });
+      setSub('pending', pendShowAll ? 'All open quotations' : 'Orders already started (a DC or a material issue) with something still to deliver or bill');
+      var kpis = [
+        { cls: 'n', label: 'Orders', text: String(orders.length), ring: '#' },
+        { cls: pendLines ? 'wn' : 'n', label: 'Lines pending', text: String(pendLines), ring: '!' }
+      ];
+      if (showCost) kpis.push({ cls: 'dr', label: 'Material issued', val: costTotal, ring: 'Rs' });
+      setKpis('pending', kpis);
+      setCount('pending', orders.length, orders.length === 1 ? 'order' : 'orders');
+      if (!orders.length) { setBody('pending', emptyCard('Kuch pending nahi', pendShowAll ? 'No open quotations.' : 'Every started order is fully delivered and billed.')); return; }
+      var h = '<table class="doc-table"><thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Billed</th><th class="num">Pending</th></tr></thead><tbody>';
+      orders.forEach(function (o) {
+        var who = o.q.party_id ? (parties[o.q.party_id] || '—') : ((o.q.walkin_name || '') + ' (walk-in)');
+        h += '<tr class="due-grp"><td colspan="5" style="font-weight:700">' + esc(o.q.qno + ' · ' + who + ' · ' + o.q.qdate) +
+          (showCost && o.cost ? ' <span style="font-weight:400;color:var(--mute)">· material issued ' + fmt(o.cost) + '</span>' : '') + '</td></tr>';
+        o.rows.forEach(function (r) {
+          h += '<tr><td>' + esc(r.name) + (r.dcs.length ? '<div style="font-size:11px;color:var(--mute)">' + esc(r.dcs.sort().join(', ')) + '</div>' : '') + '</td>' +
+            '<td class="num mono">' + n3(r.ordered) + ' ' + esc(r.unit || '') + '</td><td class="num mono">' + n3(r.delivered) + '</td>' +
+            '<td class="num mono">' + n3(r.billed) + '</td><td class="num mono' + (r.pending > 0.0005 ? ' warn' : '') + '">' + n3(r.pending) + '</td></tr>';
+        });
+      });
+      h += '</tbody></table>';
+      setBody('pending', h);
+    }
+  };
   var VIEWS = {
     trial: trialView, aging: agingView, pl: plView, statement: statementView, due: dueView, stockledger: stockLedgerView,
-    matcons: matConsumptionView, matprofit: matProfitView, mataudit: matAuditView
+    pending: pendView, matcons: matConsumptionView, matprofit: matProfitView, mataudit: matAuditView
   };
 
   async function render() {

@@ -1556,6 +1556,8 @@
     { table: 'vouchers', label: 'Sales/Purchase Invoices', field: 'vno' },
     { table: 'sales_returns', label: 'Sales Returns', field: 'rno' },
     { table: 'quotations', label: 'Quotations', field: 'qno' },
+    { table: 'delivery_challans', label: 'Delivery Challans', field: 'dcno' },
+    { table: 'material_issues', label: 'Material Issues', field: 'issue_date' },
     { table: 'purchase_orders', label: 'Purchase Orders', field: 'pono' },
     { table: 'service_invoices', label: 'Service Invoices', field: 'sino' },
     { table: 'service_quotations', label: 'Service Quotations', field: 'sqno' },
@@ -1719,9 +1721,15 @@
   // backup doesn't mention, which is the safe default for recovering from
   // an accidental change without risking a wider wipe.
   // ===================================================================
+  // Restore upserts in this order, so a table comes after every table it
+  // points to: vouchers → quotations → delivery challans → voucher_lines
+  // (an invoice line can point at a DC line, a DC at a quotation line, and
+  // a quotation at the invoice it was converted to).
   var BACKUP_TABLES = ['app_users', 'companies', 'warehouses', 'period_lock', 'party_kinds', 'parties',
-    'items', 'item_units', 'item_specs', 'services', 'vouchers', 'voucher_lines', 'sales_returns', 'sales_return_lines',
-    'stock_adjustments', 'quotations', 'quotation_lines', 'purchase_orders', 'po_lines',
+    'items', 'item_units', 'item_specs', 'services', 'vouchers', 'quotations', 'quotation_lines',
+    'delivery_challans', 'dc_lines', 'material_issues', 'voucher_lines', 'voucher_line_material_consumption',
+    'sales_returns', 'sales_return_lines', 'sales_return_material_restoration',
+    'stock_adjustments', 'purchase_orders', 'po_lines',
     'service_invoices', 'service_invoice_lines', 'service_quotations', 'service_quotation_lines',
     'recurring_service_templates', 'stock_transfers', 'stock_transfer_lines', 'sheets', 'sheet_rows'];
 
