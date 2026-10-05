@@ -43,6 +43,7 @@
   .pad{padding:16px 18px 18px;}
   .pad .group-lbl{margin-top:18px;}
   .page-sub{font-size:12.5px; color:var(--mute); line-height:1.5; margin:0 0 14px;}
+  #content.pg-busy{pointer-events:none; opacity:.55; transition:opacity .15s;}
 </style>
 </head>
 <body>
@@ -136,6 +137,18 @@
       render();
     }
   });
+  // A form opens from the record as it is in the database NOW, not from the
+  // list's copy, which can be a moment old (e.g. clicked right after a save,
+  // before the list re-rendered). Offline, the list's copy is used.
+  async function freshRow(table, id, rows) {
+    try {
+      var res = await sb.from(table).select('*').eq('id', id).maybeSingle();
+      if (res && res.data) {
+        var i = rows.findIndex(function (r) { return r.id === id; });
+        if (i >= 0) Object.assign(rows[i], res.data); // same object as in the view's full list
+      }
+    } catch (e) { /* offline: keep the list's copy */ }
+  }
   var REFRESH_VIEW_KIND = {
     parties: 'parties', items: 'items', services: 'services', companies: 'companies',
     warehouses: 'warehouses', party_kinds: 'parties', period_lock: 'periodlock'
@@ -597,16 +610,18 @@
         var delId = e.target.getAttribute && e.target.getAttribute('data-del');
         if (!delId) return;
         var k = kinds.filter(function (x) { return x.id === delId; })[0];
-        var users = parties.filter(function (p) { return p.party_kind_id === delId; });
+        // Who is in it, from the database — the list on screen can be a
+        // moment old, and a party left pointing at a deleted category is lost.
+        var cnt = await sb.from('parties').select('id').eq('party_kind_id', delId).is('deleted_at', null);
+        var users = (cnt.data || parties.filter(function (p) { return p.party_kind_id === delId; }));
         var ok = await confirmDialog('Delete "' + k.name + '"?',
           users.length ? users.length + (users.length === 1 ? ' party' : ' parties') + ' is category mein hain — wo "Other" mein chali jayengi.' : 'Is category mein koi party nahi.',
           'Delete', true);
         if (!ok) return;
-        if (users.length) {
-          var r1 = await sb.from('parties').update({ kind: 'other', party_kind_id: null }).eq('party_kind_id', delId);
-          if (r1.error) { scrim.querySelector('#mc_err').textContent = r1.error.message; return; }
-          users.forEach(function (p) { p.kind = 'other'; p.party_kind_id = null; });
-        }
+        // Always run it (deleted parties too), whatever the count said.
+        var r1 = await sb.from('parties').update({ kind: 'other', party_kind_id: null }).eq('party_kind_id', delId);
+        if (r1.error) { scrim.querySelector('#mc_err').textContent = r1.error.message; return; }
+        parties.forEach(function (p) { if (p.party_kind_id === delId) { p.kind = 'other'; p.party_kind_id = null; } });
         var r2 = await sb.from('party_kinds').update({ deleted_at: new Date().toISOString() }).eq('id', delId);
         if (r2.error) { scrim.querySelector('#mc_err').textContent = r2.error.message; return; }
         kinds.splice(kinds.indexOf(k), 1);
@@ -656,7 +671,7 @@
           setPgCount(rows.length, opts.title.toLowerCase());
           setPgSub(rows.length + ' of ' + all.length + (opts.subline ? ' · ' + opts.subline : ''));
           Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-            el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+            el.addEventListener('click', function () { freshRow(opts.table, el.dataset.id, rows).then(function () { openForm(el.dataset.id, rows); }); });
           });
         }
         paint();
@@ -664,7 +679,10 @@
         document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
         function openForm(id, rows) {
-          var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : {};
+          // A new record starts Active (an unticked box made every new
+          // warehouse/service inactive, hidden from the billing dropdowns).
+          var rec = id ? rows.filter(function (r) { return r.id === id; })[0]
+            : (opts.columns.some(function (c) { return c.key === 'active'; }) ? { active: true } : {});
           // Captured ONCE, at open time — never re-derived at save time. This
           // matters most for image fields (§25's exact critical gotcha):
           // picking a logo mutates the live editing object immediately, so a
@@ -846,6 +864,14 @@
       var all = data || [];
       var { data: partyKindsData } = await sb.from('party_kinds').select('id,name,base_kind').is('deleted_at', null).order('name');
       var partyKindOptions = partyKindsData || [];
+      // The category list is read again whenever a party form opens, so a
+      // category just added (here or by someone else) is always offered.
+      async function freshKinds() {
+        try {
+          var res = await sb.from('party_kinds').select('id,name,base_kind').is('deleted_at', null).order('name');
+          if (res && res.data) { partyKindOptions.length = 0; Array.prototype.push.apply(partyKindOptions, res.data); }
+        } catch (e) { /* offline: keep what we have */ }
+      }
       var kindFilter = '';
       var catChips = [{ k: '', label: 'All' }].concat(FIXED_CATS.map(function (c) { return { k: c[0], label: c[1] }; }))
         .concat(partyKindOptions.map(function (k) { return { k: 'pk:' + k.id, label: k.name }; }))
@@ -888,13 +914,13 @@
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No parties yet', term ? 'Nothing matches “' + term + '”.' : 'Add your first customer or supplier to get started.');
         Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+          el.addEventListener('click', function () { Promise.all([freshRow('parties', el.dataset.id, rows), freshKinds()]).then(function () { openForm(el.dataset.id, rows); }); });
         });
       }
       paint();
       wireToolbar(paint);
       wireChips(function (k) { kindFilter = k; paint(); });
-      document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
+      document.getElementById('addBtn').addEventListener('click', function () { freshKinds().then(function () { openForm(null, rows); }); });
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { kind: 'customer', opening_side: 'dr', credit_days: 0, active: true };
@@ -1271,7 +1297,7 @@
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No items yet', term ? 'Nothing matches “' + term + '”.' : 'Add the goods or raw materials you buy and sell.');
         Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+          el.addEventListener('click', function () { freshRow('items', el.dataset.id, rows).then(function () { openForm(el.dataset.id, rows); }); });
         });
       }
       paint();
@@ -1574,9 +1600,15 @@
         cardTitle: 'Deleted records', body: '<div id="rb_rows"><div class="pg-empty">Loading…</div></div>'
       });
       var rowsHtml = '', n = 0;
+      // All tables at once (one after another took several seconds).
+      var results = await Promise.all(RECYCLE_TABLES.map(function (t) {
+        return sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50)
+          .then(function (r) { return r; }, function (e) { return { error: e }; });
+      }));
+      if (activeView !== 'recyclebin') return; // the user moved on meanwhile
       for (var i = 0; i < RECYCLE_TABLES.length; i++) {
         var t = RECYCLE_TABLES[i];
-        var { data, error } = await sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50);
+        var data = results[i].data, error = results[i].error;
         if (error || !data || !data.length) continue;
         rowsHtml += '<div class="list-group-hdr">' + esc(t.label) + '</div>';
         data.forEach(function (r) {
@@ -1590,6 +1622,7 @@
         });
       }
       var wrap = document.getElementById('rb_rows');
+      if (!wrap) return;
       wrap.innerHTML = rowsHtml || emptyState('Recycle Bin is empty', 'Deleted records will appear here so they can be restored.');
       setPgCount(n, n === 1 ? 'record' : 'records');
       Array.prototype.forEach.call(document.querySelectorAll('.restoreBtn'), function (btn) {
@@ -1835,9 +1868,42 @@
     recyclebin: recycleBinView, backup: backupView, periodlock: periodLockView, changepw: changePwView
   };
 
-  async function render() {
-    var v = VIEWS[activeView];
-    if (v) await v.render();
+  // One render at a time. A save and the refresh it broadcasts (which comes
+  // back to this window too) used to render in parallel, and whichever
+  // fetch finished last painted the screen — sometimes the older data, so
+  // e.g. a party just moved to a new category reopened showing the old one.
+  // A render asked for while one is running now runs again right after it,
+  // so the screen always ends on the newest data.
+  // While another screen is waiting its turn, the one still on display is
+  // dimmed and can't be clicked — otherwise "+ Add" on the old page opened
+  // the old page's form (a Warehouse form after clicking Firms).
+  var rendering = null, renderAgain = false, renderingView = null, paintedView = null;
+  function render() {
+    var content = document.getElementById('content');
+    if (rendering) {
+      renderAgain = true;
+      if (content && renderingView !== activeView) content.classList.add('pg-busy');
+      return rendering;
+    }
+    rendering = (async function () {
+      try {
+        do {
+          renderAgain = false;
+          renderingView = activeView;
+          // A different screen: keep the old one dimmed until the new one
+          // has fetched and painted (its first await is the data fetch).
+          if (content) content.classList.toggle('pg-busy', paintedView !== activeView);
+          var v = VIEWS[activeView];
+          if (v) await v.render();
+          paintedView = renderingView;
+          if (content) content.classList.remove('pg-busy');
+        } while (renderAgain);
+      } finally {
+        rendering = null; renderingView = null;
+        if (content) content.classList.remove('pg-busy');
+      }
+    })();
+    return rendering;
   }
 
   (async function init() {

@@ -2550,7 +2550,7 @@
     var company = await firmForPrint(h.company_id);
     var sigLabels = ['Prepared by', 'Approved by'];
     var po = await askPrintOptions(company, sigLabels);
-    if (!po) return;
+    if (!po || docEditing !== d) return; // the editor was closed/replaced meanwhile
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var walkinName = !h.party_id && h.walkin_name ? h.walkin_name : null;
     var totals = docTotals();
@@ -2981,7 +2981,7 @@
     var isInv = d.type === 'sinvoice';
     var sigLabels = isInv ? ['Received by', 'Authorised by'] : ['Prepared by', 'Approved by'];
     var po = await askPrintOptions(company, sigLabels);
-    if (!po) return;
+    if (!po || svcEditing !== d) return; // the editor was closed/replaced meanwhile (e.g. a conversion)
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var totals = svcDisplayTotals();
     var showTax = !!h.tax_on;
@@ -4180,7 +4180,7 @@
     var company = await firmForPrint(h.company_id);
     var sigLabels = ['Received by', 'Authorised by'];
     var po = await askPrintOptions(company, sigLabels);
-    if (!po) return;
+    if (!po || state.editing !== e) return; // the editor was closed/replaced meanwhile
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
     var isSale = state.vtype === 'sale';
     var docTitle = (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' \u00B7 Sales Tax' : '');
