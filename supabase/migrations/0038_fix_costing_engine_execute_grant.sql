@@ -1,0 +1,23 @@
+-- ==========================================================
+-- Fix: no Sale/Purchase/Return line with a stock item could be saved
+-- from the app ("permission denied for function _recompute_item_cost_core").
+--
+-- 0007 revoked EXECUTE on _recompute_item_cost_core from authenticated,
+-- but every caller of it — recompute_item_cost() and the trg_recompute_*
+-- triggers that call recompute_item_cost() — is SECURITY INVOKER, so the
+-- core runs as the signed-in user and is refused. The insert of the line
+-- fails with 403, after the voucher header has already been saved, which
+-- left headers with no lines.
+--
+-- The core already runs inside recompute_item_cost()'s
+-- app.system_write = 'on' window, which is exactly what the RLS policies
+-- on items / item_cost_snapshot / voucher_lines allow for system writes,
+-- so the signed-in user only needs EXECUTE on it. Called directly over
+-- RPC (without that window) its writes stay subject to the caller's RLS.
+--
+-- Verified in a rolled-back transaction on the live project: with this
+-- grant, an admin's sale line saves and the item's stock drops by the
+-- line's quantity.
+-- ==========================================================
+
+grant execute on function _recompute_item_cost_core(uuid, boolean) to authenticated;
