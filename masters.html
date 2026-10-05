@@ -43,6 +43,7 @@
   .pad{padding:16px 18px 18px;}
   .pad .group-lbl{margin-top:18px;}
   .page-sub{font-size:12.5px; color:var(--mute); line-height:1.5; margin:0 0 14px;}
+  #content.pg-busy{pointer-events:none; opacity:.55; transition:opacity .15s;}
 </style>
 </head>
 <body>
@@ -678,7 +679,10 @@
         document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
 
         function openForm(id, rows) {
-          var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : {};
+          // A new record starts Active (an unticked box made every new
+          // warehouse/service inactive, hidden from the billing dropdowns).
+          var rec = id ? rows.filter(function (r) { return r.id === id; })[0]
+            : (opts.columns.some(function (c) { return c.key === 'active'; }) ? { active: true } : {});
           // Captured ONCE, at open time — never re-derived at save time. This
           // matters most for image fields (§25's exact critical gotcha):
           // picking a logo mutates the live editing object immediately, so a
@@ -1870,18 +1874,33 @@
   // e.g. a party just moved to a new category reopened showing the old one.
   // A render asked for while one is running now runs again right after it,
   // so the screen always ends on the newest data.
-  var rendering = null, renderAgain = false;
+  // While another screen is waiting its turn, the one still on display is
+  // dimmed and can't be clicked — otherwise "+ Add" on the old page opened
+  // the old page's form (a Warehouse form after clicking Firms).
+  var rendering = null, renderAgain = false, renderingView = null, paintedView = null;
   function render() {
-    if (rendering) { renderAgain = true; return rendering; }
+    var content = document.getElementById('content');
+    if (rendering) {
+      renderAgain = true;
+      if (content && renderingView !== activeView) content.classList.add('pg-busy');
+      return rendering;
+    }
     rendering = (async function () {
       try {
         do {
           renderAgain = false;
+          renderingView = activeView;
+          // A different screen: keep the old one dimmed until the new one
+          // has fetched and painted (its first await is the data fetch).
+          if (content) content.classList.toggle('pg-busy', paintedView !== activeView);
           var v = VIEWS[activeView];
           if (v) await v.render();
+          paintedView = renderingView;
+          if (content) content.classList.remove('pg-busy');
         } while (renderAgain);
       } finally {
-        rendering = null;
+        rendering = null; renderingView = null;
+        if (content) content.classList.remove('pg-busy');
       }
     })();
     return rendering;
