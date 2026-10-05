@@ -1596,9 +1596,15 @@
         cardTitle: 'Deleted records', body: '<div id="rb_rows"><div class="pg-empty">Loading…</div></div>'
       });
       var rowsHtml = '', n = 0;
+      // All tables at once (one after another took several seconds).
+      var results = await Promise.all(RECYCLE_TABLES.map(function (t) {
+        return sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50)
+          .then(function (r) { return r; }, function (e) { return { error: e }; });
+      }));
+      if (activeView !== 'recyclebin') return; // the user moved on meanwhile
       for (var i = 0; i < RECYCLE_TABLES.length; i++) {
         var t = RECYCLE_TABLES[i];
-        var { data, error } = await sb.from(t.table).select('*').not('deleted_at', 'is', null).order('deleted_at', { ascending: false }).limit(50);
+        var data = results[i].data, error = results[i].error;
         if (error || !data || !data.length) continue;
         rowsHtml += '<div class="list-group-hdr">' + esc(t.label) + '</div>';
         data.forEach(function (r) {
@@ -1612,6 +1618,7 @@
         });
       }
       var wrap = document.getElementById('rb_rows');
+      if (!wrap) return;
       wrap.innerHTML = rowsHtml || emptyState('Recycle Bin is empty', 'Deleted records will appear here so they can be restored.');
       setPgCount(n, n === 1 ? 'record' : 'records');
       Array.prototype.forEach.call(document.querySelectorAll('.restoreBtn'), function (btn) {
