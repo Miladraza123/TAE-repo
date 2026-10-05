@@ -144,7 +144,7 @@
       var res = await sb.from(table).select('*').eq('id', id).maybeSingle();
       if (res && res.data) {
         var i = rows.findIndex(function (r) { return r.id === id; });
-        if (i >= 0) rows[i] = res.data;
+        if (i >= 0) Object.assign(rows[i], res.data); // same object as in the view's full list
       }
     } catch (e) { /* offline: keep the list's copy */ }
   }
@@ -609,16 +609,18 @@
         var delId = e.target.getAttribute && e.target.getAttribute('data-del');
         if (!delId) return;
         var k = kinds.filter(function (x) { return x.id === delId; })[0];
-        var users = parties.filter(function (p) { return p.party_kind_id === delId; });
+        // Who is in it, from the database — the list on screen can be a
+        // moment old, and a party left pointing at a deleted category is lost.
+        var cnt = await sb.from('parties').select('id').eq('party_kind_id', delId).is('deleted_at', null);
+        var users = (cnt.data || parties.filter(function (p) { return p.party_kind_id === delId; }));
         var ok = await confirmDialog('Delete "' + k.name + '"?',
           users.length ? users.length + (users.length === 1 ? ' party' : ' parties') + ' is category mein hain — wo "Other" mein chali jayengi.' : 'Is category mein koi party nahi.',
           'Delete', true);
         if (!ok) return;
-        if (users.length) {
-          var r1 = await sb.from('parties').update({ kind: 'other', party_kind_id: null }).eq('party_kind_id', delId);
-          if (r1.error) { scrim.querySelector('#mc_err').textContent = r1.error.message; return; }
-          users.forEach(function (p) { p.kind = 'other'; p.party_kind_id = null; });
-        }
+        // Always run it (deleted parties too), whatever the count said.
+        var r1 = await sb.from('parties').update({ kind: 'other', party_kind_id: null }).eq('party_kind_id', delId);
+        if (r1.error) { scrim.querySelector('#mc_err').textContent = r1.error.message; return; }
+        parties.forEach(function (p) { if (p.party_kind_id === delId) { p.kind = 'other'; p.party_kind_id = null; } });
         var r2 = await sb.from('party_kinds').update({ deleted_at: new Date().toISOString() }).eq('id', delId);
         if (r2.error) { scrim.querySelector('#mc_err').textContent = r2.error.message; return; }
         kinds.splice(kinds.indexOf(k), 1);
