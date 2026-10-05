@@ -92,6 +92,10 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/><path d="M9 13h6"/><path d="M9 17h4"/></svg>
         <span>Quotation</span>
       </button>
+      <button class="navitem" id="navDC" data-tab="dc">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M1 3h15v13H1z"/><path d="M16 8h4l3 3v5h-7z"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+        <span>Delivery challan</span>
+      </button>
 
       <button class="navitem" id="navPO" data-tab="po">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2h-4"/><path d="M9 3a3 3 0 0 0 6 0"/><path d="m8 13 2.5 2.5L16 10"/></svg>
@@ -274,6 +278,13 @@
   }
   // A line's rate is always per BASE unit (amount = base qty × rate), while a
   // Masters unit rate is per THAT unit — e.g. Bundle(10 pcs) @ 950 → 95/pcs.
+  // What a line's Rate box and print show: per the chosen sale unit when
+  // there is one (Bundle @ 950), otherwise the stored per-base rate.
+  function shownRate(l) {
+    var r = Number(l.rate) || 0;
+    if (!l.sale_unit) return l.rate;
+    return Math.round(r * (Number(l.unit_factor) || 1) * 100) / 100;
+  }
   function unitRateToBase(u) {
     return Number(u.rate) / (Number(u.factor) || 1);
   }
@@ -524,6 +535,12 @@
       if (el && el.focus) {
         el.focus();
         if (keep.s != null) { try { el.setSelectionRange(keep.s, keep.e); } catch (ex) { /* ignore */ } }
+        else if (el.type === 'number') {
+          // Number inputs have no caret API and refocus with the caret at the
+          // START, so the next digit landed in front ("1" then "5" -> "51").
+          // Re-setting the value puts the caret back at the end.
+          var v = el.value; el.value = ''; el.value = v;
+        }
       }
     }
   }
@@ -725,6 +742,7 @@
     else if (state.mode === 'quotation' || state.mode === 'po') renderDocsList(state.mode);
     else if (state.mode === 'sinvoice' || state.mode === 'squote') renderServiceDocsList(state.mode);
     else if (state.mode === 'transfer') renderTransfersList();
+    else if (state.mode === 'dc') renderDcList();
     else renderList();
   }
   var searchEl = document.getElementById('search');
@@ -757,12 +775,12 @@
   document.getElementById('sheetScrim').addEventListener('click', closeEditor);
 
   state.mode = 'voucher';
-  var ALL_TABS = { sale: 'navSale', purchase: 'navPurchase', return: 'navReturn', quotation: 'navQuotation', po: 'navPO', sinvoice: 'navServiceInvoice', squote: 'navServiceQuotation', transfer: 'navTransfer' };
-  var TAB_TITLES = { sale: 'Sales', purchase: 'Purchases', return: 'Sales Returns', quotation: 'Quotations', po: 'Purchase Orders', sinvoice: 'Service Invoices', squote: 'Service Quotations', transfer: 'Stock Transfers' };
+  var ALL_TABS = { sale: 'navSale', purchase: 'navPurchase', return: 'navReturn', quotation: 'navQuotation', dc: 'navDC', po: 'navPO', sinvoice: 'navServiceInvoice', squote: 'navServiceQuotation', transfer: 'navTransfer' };
+  var TAB_TITLES = { sale: 'Sales', purchase: 'Purchases', return: 'Sales Returns', quotation: 'Quotations', dc: 'Delivery Challans', po: 'Purchase Orders', sinvoice: 'Service Invoices', squote: 'Service Quotations', transfer: 'Stock Transfers' };
   Object.keys(ALL_TABS).forEach(function (k) {
     document.getElementById(ALL_TABS[k]).addEventListener('click', function () { switchTab(k); });
   });
-  var CARD_TITLES = { sale: 'Sales invoices', purchase: 'Purchase bills', return: 'Sales returns', quotation: 'Quotations', po: 'Purchase orders', sinvoice: 'Service invoices', squote: 'Service quotations', transfer: 'Stock transfers' };
+  var CARD_TITLES = { sale: 'Sales invoices', purchase: 'Purchase bills', return: 'Sales returns', quotation: 'Quotations', dc: 'Delivery challans', po: 'Purchase orders', sinvoice: 'Service invoices', squote: 'Service quotations', transfer: 'Stock transfers' };
   // Per-tab draft persistence (§14): each of the 8 tabs gets its own slot
   // here, keyed by its ALL_TABS key, so an unsaved editor left open on one
   // tab is hidden (never discarded) when the sidebar switches to another,
@@ -779,6 +797,7 @@
     else if ((state.mode === 'quotation' || state.mode === 'po') && docEditing) parkedEditors[key] = { kind: 'doc', data: docEditing };
     else if ((state.mode === 'sinvoice' || state.mode === 'squote') && svcEditing) parkedEditors[key] = { kind: 'service', data: svcEditing };
     else if (state.mode === 'transfer' && transferEditing) parkedEditors[key] = { kind: 'transfer', data: transferEditing };
+    else if (state.mode === 'dc' && dcEditing) parkedEditors[key] = { kind: 'dc', data: dcEditing };
     else if (state.editing) parkedEditors[key] = { kind: 'voucher', data: state.editing };
     hideSheet();
   }
@@ -789,6 +808,7 @@
     else if (parked.kind === 'doc') { docEditing = parked.data; renderDocEditor(); showSheet(); }
     else if (parked.kind === 'service') { svcEditing = parked.data; renderServiceDocEditor(); showSheet(); }
     else if (parked.kind === 'transfer') { transferEditing = parked.data; renderTransferEditor(); showSheet(); }
+    else if (parked.kind === 'dc') { dcEditing = parked.data; renderDcEditor(); showSheet(); }
     else if (parked.kind === 'voucher') { state.editing = parked.data; renderEditor(); showSheet(); }
   }
 
@@ -814,6 +834,9 @@
     } else if (vt === 'transfer') {
       state.mode = 'transfer';
       loadTransfersList();
+    } else if (vt === 'dc') {
+      state.mode = 'dc';
+      loadDcList();
     } else {
       state.mode = 'voucher';
       state.vtype = vt;
@@ -826,6 +849,7 @@
     else if (state.mode === 'quotation' || state.mode === 'po') openDocEditor(state.mode, null);
     else if (state.mode === 'sinvoice' || state.mode === 'squote') openServiceDocEditor(state.mode, null);
     else if (state.mode === 'transfer') openTransferEditor(null);
+    else if (state.mode === 'dc') openDcEditor(null);
     else openEditor(null);
   });
 
@@ -858,11 +882,45 @@
   // never to this table) that PostgREST rejects outright if sent in an
   // insert ("Could not find the '<field>' column … in the schema cache").
   var VOUCHER_LINE_COLS = ['item_id', 'description', 'qty', 'rate', 'tax_pct', 'amount', 'pcs_on', 'pcs',
-    'warehouse_id', 'sale_unit', 'sale_qty', 'unit_factor', 'consumption_type'];
+    'warehouse_id', 'sale_unit', 'sale_qty', 'unit_factor', 'consumption_type', 'dc_line_id', 'custom_name', 'custom_unit'];
   function sanitizeVoucherLine(l) {
     var o = {};
-    VOUCHER_LINE_COLS.forEach(function (k) { o[k] = l[k]; });
+    VOUCHER_LINE_COLS.forEach(function (k) { o[k] = l[k] === undefined ? null : l[k]; });
+    if (o.unit_factor == null) o.unit_factor = 1;
+    if (!o.consumption_type) o.consumption_type = 'general_goods';
+    if (!o.dc_line_id) delete o.dc_line_id;
+    if (!o.custom_name) { delete o.custom_name; delete o.custom_unit; }
     return o;
+  }
+  // A sale line is a Masters item, a line billed from a Delivery Challan
+  // (dc_line_id — its stock already left at the DC), or a custom product
+  // typed by name whose stock effect is only its raw materials.
+  function isCustomSaleLine(l) { return !l.item_id && !l.dc_line_id && l.custom_name != null; }
+  function saleLineValid(l) {
+    return (l.item_id || String(l.custom_name || '').trim()) && Number(l.qty) > 0;
+  }
+  function saleLineName(l) {
+    var it = l.item_id ? state.items.filter(function (x) { return x.id === l.item_id; })[0] : null;
+    return it ? it.name : (l.custom_name || 'Item');
+  }
+  function saleLineUnit(l) {
+    var it = l.item_id ? state.items.filter(function (x) { return x.id === l.item_id; })[0] : null;
+    return l.sale_unit || (it ? it.unit : (l.custom_unit || 'pcs')) || '';
+  }
+  // dc_line_id -> { dcno, dcQty, billedElsewhere } for the lines on screen.
+  var dcLineInfo = {};
+  async function loadDcLineInfo(lines, voucherId) {
+    var ids = (lines || []).map(function (l) { return l.dc_line_id; }).filter(Boolean);
+    if (!ids.length) return;
+    var [{ data: dls }, { data: billed }] = await Promise.all([
+      sb.from('dc_lines').select('id,qty,delivery_challans(dcno)').in('id', ids),
+      sb.from('voucher_lines').select('dc_line_id,qty,voucher_id,vouchers!inner(deleted_at)').in('dc_line_id', ids).is('vouchers.deleted_at', null)
+    ]);
+    (dls || []).forEach(function (dl) {
+      var other = (billed || []).filter(function (b) { return b.dc_line_id === dl.id && b.voucher_id !== voucherId; })
+        .reduce(function (s, b) { return s + Number(b.qty || 0); }, 0);
+      dcLineInfo[dl.id] = { dcno: dl.delivery_challans ? dl.delivery_challans.dcno : 'DC', dcQty: Number(dl.qty), billedElsewhere: other };
+    });
   }
 
   function blankMaterial() {
@@ -893,6 +951,7 @@
         });
       }
       (lines || []).forEach(function (l) { l.materials = materialsByLine[l.id] || []; });
+      await loadDcLineInfo(lines, id);
       // Snapshot captured ONCE, at open time — never re-derived at save time (§14/§25's critical rule).
       state.editing = {
         isNew: false, id: id,
@@ -918,6 +977,8 @@
     docEditing = null;
     svcEditing = null;
     transferEditing = null;
+    dcEditing = null;
+    miEditing = null;
   }
 
   function warehouseOptions(selected) {
@@ -949,6 +1010,7 @@
   }
 
   function renderEditor() {
+    lastEditorRender = renderEditor;
     var e = state.editing;
     var h = e.header;
     var totals = computeTotals();
@@ -1067,17 +1129,27 @@
     var isSale = state.vtype === 'sale';
     var showWarehouse = state.warehouses.length > 1;
     var body = document.getElementById('linesWrap');
+    var X_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
     body.innerHTML = e.lines.map(function (l, idx) {
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
-      var units = item ? (state.itemUnits[item.id] || []) : [];
+      var fromDc = isSale && !!l.dc_line_id;
+      var custom = isSale && isCustomSaleLine(l);
+      var units = item && !fromDc ? (state.itemUnits[item.id] || []) : [];
 
       var rows = '';
       rows += '<div class="f2">' +
-        '<div class="field"><label>Qty</label><input type="number" step="0.001" class="lf num" data-i="' + idx + '" data-f="qty" value="' + (l.sale_unit ? (l.sale_qty != null ? l.sale_qty : '') : l.qty) + '"></div>' +
-        '<div class="field"><label>Rate</label><input type="number" step="0.01" class="lf num" data-i="' + idx + '" data-f="rate" value="' + l.rate + '"></div>' +
+        '<div class="field"><label>Qty' + (fromDc || custom ? ' (' + esc(saleLineUnit(l)) + ')' : '') + '</label><input type="number" step="0.001" class="lf num" data-i="' + idx + '" data-f="qty" value="' + (l.sale_unit ? (l.sale_qty != null ? l.sale_qty : '') : l.qty) + '"></div>' +
+        '<div class="field"><label>Rate' + (l.sale_unit ? ' per ' + esc(l.sale_unit) : '') + '</label><input type="number" step="0.01" class="lf num" data-i="' + idx + '" data-f="rate" value="' + shownRate(l) + '"></div>' +
         '</div>';
 
-      if (isSale) {
+      if (fromDc) {
+        var inf = dcLineInfo[l.dc_line_id];
+        rows += '<div class="hint">' + (inf
+          ? 'From ' + esc(inf.dcno) + ' — delivered ' + inf.dcQty + ', unbilled ' + Math.max(0, inf.dcQty - inf.billedElsewhere) + '. Stock already left at the DC.'
+          : 'From a Delivery Challan — stock already left at the DC.') + '</div>';
+      } else if (custom) {
+        rows += '<div class="field"><label>Unit</label><input class="lf" data-i="' + idx + '" data-f="custom_unit" value="' + esc(l.custom_unit || '') + '" placeholder="pcs"></div>';
+      } else if (isSale) {
         var unitField = units.length
           ? '<div class="field"><label>Unit</label><select class="lf" data-i="' + idx + '" data-f="sale_unit">' +
               '<option value="">' + esc(item ? item.unit : '') + '</option>' +
@@ -1095,7 +1167,7 @@
       if (e.header.tax_on) {
         extra += '<div class="field"><label>Tax %</label><input type="number" step="0.01" class="lf num" data-i="' + idx + '" data-f="tax_pct" value="' + l.tax_pct + '"></div>';
       }
-      if (showWarehouse) {
+      if (showWarehouse && !fromDc && !custom) {
         extra += '<div class="field"><label>Warehouse</label><select class="lf" data-i="' + idx + '" data-f="warehouse_id">' + warehouseOptions(l.warehouse_id) + '</select></div>';
       }
       if (extra) rows += '<div class="f2">' + extra + '</div>';
@@ -1103,25 +1175,34 @@
       rows += '<div class="field"><label>Description</label><textarea class="lf" rows="2" data-i="' + idx + '" data-f="description" ' +
         'placeholder="Prints under the item name on the bill">' + esc(l.description || '') + '</textarea></div>';
       rows += '<div class="doc-sum-row"><span>Amount</span><span class="v">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</span></div>';
+      if (isSale && !fromDc && !l.id) {
+        rows += '<button type="button" class="btn rowbtn sCustomToggle" data-i="' + idx + '">' +
+          (custom ? 'Pick a stock item instead' : 'Custom product (made from raw materials)') + '</button>';
+      }
 
       // The raw-material sub-panel lives INSIDE its own line's card now
       // (it used to be a second <tr> spanning the whole table).
-      if (isSale && l.consumption_type === 'raw_material_consumption') {
+      if (isSale && !fromDc && l.consumption_type === 'raw_material_consumption') {
         rows += '<div id="matPanel_' + idx + '"></div>';
       }
 
+      var picker;
+      if (fromDc) {
+        picker = '<div class="combo"><input value="' + esc(saleLineName(l)) + '" readonly aria-label="Item (from Delivery Challan)"></div>';
+      } else if (custom) {
+        picker = '<div class="combo"><input class="lf" data-i="' + idx + '" data-f="custom_name" value="' + esc(l.custom_name || '') + '" placeholder="Custom product name…" aria-label="Custom product name"></div>';
+      } else {
+        picker = comboHtml({
+          value: l.item_id,
+          options: itemComboOptions(lineRateField()),
+          placeholder: 'Search item…',
+          empty: ITEM_EMPTY,
+          onPick: (function (i) { return function (id) { applyLineField(i, 'item_id', id || ''); }; })(idx)
+        });
+      }
       return '<div class="ln">' +
-        '<div class="ln-top">' +
-          comboHtml({
-            value: l.item_id,
-            options: itemComboOptions(lineRateField()),
-            placeholder: 'Search item…',
-            empty: ITEM_EMPTY,
-            onPick: (function (i) { return function (id) { applyLineField(i, 'item_id', id || ''); }; })(idx)
-          }) +
-          '<button type="button" class="icb rmLine" data-i="' + idx + '" aria-label="Remove line">' +
-            '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
-          '</button>' +
+        '<div class="ln-top">' + picker +
+          '<button type="button" class="icb rmLine" data-i="' + idx + '" aria-label="Remove line">' + X_SVG + '</button>' +
         '</div>' +
         '<div class="ln-rows">' + rows + '</div>' +
       '</div>';
@@ -1137,9 +1218,22 @@
         refreshTotalsDisplay();
       });
     });
+    Array.prototype.forEach.call(body.querySelectorAll('.sCustomToggle'), function (btn) {
+      btn.addEventListener('click', function () {
+        var l = state.editing.lines[Number(btn.dataset.i)];
+        if (isCustomSaleLine(l)) {
+          l.custom_name = null; l.custom_unit = null; l.consumption_type = 'general_goods'; l.materials = [];
+        } else {
+          l.item_id = null; l.custom_name = ''; l.custom_unit = ''; l.sale_unit = null; l.sale_qty = null; l.unit_factor = 1;
+          l.consumption_type = 'raw_material_consumption'; l.materials = l.materials || [];
+        }
+        renderLines();
+        refreshTotalsDisplay();
+      });
+    });
 
     e.lines.forEach(function (l, idx) {
-      if (isSale && l.consumption_type === 'raw_material_consumption') renderMaterialPanel(idx);
+      if (isSale && !l.dc_line_id && l.consumption_type === 'raw_material_consumption') renderMaterialPanel(idx);
     });
     wireCombos(body);
   }
@@ -1155,6 +1249,8 @@
   // logic; `revert` puts a rejected native control back where it was.
   function applyLineField(idx, field, val, revert) {
     var line = state.editing.lines[idx];
+    // Typed in place — a re-render would only move the cursor.
+    if (field === 'custom_name' || field === 'custom_unit') { line[field] = val; return; }
 
     if (field === 'consumption_type') {
       // Accidental-switch protection (§ approved): the line always defaults
@@ -1178,6 +1274,12 @@
       return;
     }
 
+    if (field === 'rate' && line.sale_unit) {
+      // The box shows the rate per chosen unit; the line keeps it per base unit.
+      line.rate = (Number(val) || 0) / (Number(line.unit_factor) || 1);
+      refreshTotalsDisplay();
+      return;
+    }
     if (field === 'qty') {
       // qty is ALWAYS the base-unit, stock/cost-affecting quantity. When an
       // alt sale unit is active, what the user types is sale_qty, and
@@ -1428,7 +1530,7 @@
   function validate() {
     var e = state.editing;
     if (!e.header.party_id) return 'Pick a party first';
-    var validLines = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+    var validLines = e.lines.filter(saleLineValid);
     if (!validLines.length) return 'Add at least one item with a quantity';
     for (var i = 0; i < e.lines.length; i++) {
       var l = e.lines[i];
@@ -1436,8 +1538,13 @@
         var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
         return "'" + (item ? item.name : 'Item') + "' par " + l.sale_unit + " chuna hai — conversion likhna zaroori hai (1 " + l.sale_unit + " = kitne " + (item ? item.unit : 'base') + ").";
       }
-      if (state.vtype === 'sale' && l.consumption_type === 'raw_material_consumption' && l.item_id && Number(l.qty) > 0) {
-        var finalItem = state.items.filter(function (x) { return x.id === l.item_id; })[0];
+      if (isCustomSaleLine(l) && Number(l.qty) > 0 && !String(l.custom_name || '').trim()) return 'Custom product ka naam likhein.';
+      if (l.dc_line_id && dcLineInfo[l.dc_line_id]) {
+        var inf = dcLineInfo[l.dc_line_id], left = inf.dcQty - inf.billedElsewhere;
+        if (Number(l.qty) > left + 0.0005) return "'" + saleLineName(l) + "' — " + inf.dcno + ' par sirf ' + left + ' bill karna baqi hai.';
+      }
+      if (state.vtype === 'sale' && l.consumption_type === 'raw_material_consumption' && !l.dc_line_id && saleLineValid(l)) {
+        var finalItem = l.item_id ? state.items.filter(function (x) { return x.id === l.item_id; })[0] : { name: l.custom_name };
         var mats = l.materials || [];
         if (!mats.length) return "'" + (finalItem ? finalItem.name : 'Item') + "' Raw Material hai — kam az kam ek raw material line enter karein.";
         for (var j = 0; j < mats.length; j++) {
@@ -1493,11 +1600,12 @@
     (finalLines || []).forEach(function (fl) { if (memoryLines.some(function (ml) { return ml.id === fl.id; })) usedIds[fl.id] = true; });
     for (var i = 0; i < memoryLines.length; i++) {
       var ml = memoryLines[i];
-      if (ml.consumption_type !== 'raw_material_consumption') continue;
+      if (ml.consumption_type !== 'raw_material_consumption' || ml.dc_line_id) continue;
       var realId = ml.id;
       if (!realId) {
         var candidate = (finalLines || []).filter(function (fl) {
-          return !usedIds[fl.id] && fl.item_id === ml.item_id && Number(fl.qty) === Number(ml.qty) && Number(fl.rate) === Number(ml.rate);
+          return !usedIds[fl.id] && (fl.item_id || null) === (ml.item_id || null) && (fl.custom_name || null) === (ml.custom_name || null) &&
+            Number(fl.qty) === Number(ml.qty) && Number(fl.rate) === Number(ml.rate);
         })[0];
         if (candidate) { usedIds[candidate.id] = true; realId = candidate.id; }
       }
@@ -1531,7 +1639,7 @@
         // reaches the server and the numbering trigger fires.
         var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
         var headerPayload = Object.assign({ id: newId }, payload);
-        var linesPayload = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; })
+        var linesPayload = e.lines.filter(saleLineValid)
           .map(function (l) { var c = sanitizeVoucherLine(l); c.voucher_id = newId; return c; });
 
         if (!navigator.onLine) {
@@ -1566,7 +1674,7 @@
           // Raw-material sync needs real line ids — not queued offline (§
           // known limitation: dynamic consumption requires a live connection
           // to save, even though the rest of the invoice can go offline).
-          await syncAllLineMaterials(e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; }), insertedLines);
+          await syncAllLineMaterials(e.lines.filter(saleLineValid), insertedLines);
         }
 
         // If this invoice was created via "Convert to Sale/Purchase" from a
@@ -1587,7 +1695,12 @@
       // 'doc_edit_merge' op instead of losing the in-progress edit — the
       // original snapshots (e.originalHeader/e.originalLines) captured at
       // open-time are exactly what the deferred merge needs to run later.
-      var newLines = e.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+      var newLines = e.lines.filter(saleLineValid).map(function (l) {
+        var c = Object.assign({}, l);
+        if (!c.dc_line_id) delete c.dc_line_id;
+        if (!c.custom_name) { delete c.custom_name; delete c.custom_unit; }
+        return c;
+      });
       function queueVoucherEdit() {
         OfflineQueue.enqueue({
           kind: 'doc_edit_merge',
@@ -1628,7 +1741,8 @@
         errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
       }
-      var { data: finalLines } = await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+      var { data: finalLines, error: applyErr } = await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+      if (applyErr) return OfflineQueue.isNetworkError(applyErr) ? queueVoucherEdit() : handleSaveError(applyErr, errEl);
       if (state.vtype === 'sale') {
         // Raw-material sync needs real line ids — not queued offline (§
         // known limitation: dynamic consumption requires a live connection
@@ -1740,6 +1854,7 @@
   }
 
   async function renderReturnEditor() {
+    lastEditorRender = renderReturnEditor;
     var r = returnEditing;
 
     if (r.isNew) {
@@ -1813,7 +1928,7 @@
     var html = '<div class="lines">';
     r.saleLines.forEach(function (l, idx) {
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
-      html += '<div class="ln"><div class="ln-top"><div class="ln-name">' + esc(item ? item.name : '') + '</div></div>' +
+      html += '<div class="ln"><div class="ln-top"><div class="ln-name">' + esc(item ? item.name : (l.custom_name || '')) + '</div></div>' +
         '<div class="ln-rows">' +
           '<div class="doc-sum-row"><span>Sold qty</span><span class="v">' + esc(l.qty) + '</span></div>' +
           '<div class="doc-sum-row"><span>Still returnable</span><span class="v">' + esc(l.returnable) + '</span></div>' +
@@ -2131,6 +2246,7 @@
   }
 
   function renderDocEditor() {
+    lastEditorRender = renderDocEditor;
     var d = docEditing, cfg = DOC_CONFIG[d.type], h = d.header;
     var totals = docTotals();
 
@@ -2183,6 +2299,9 @@
         '<input type="number" step="0.01" class="amt-in" id="d_other_charge_amt" value="' + h.other_charge_amt + '"></div>';
     }
 
+    if (d.type === 'quotation' && !d.isNew) {
+      html += '<div class="group-lbl">Delivery &amp; material</div><div id="qProgress"></div>';
+    }
     html += '<div class="group-lbl">Note</div>';
     html += '<div class="field"><textarea id="d_narration" rows="2">' + esc(h.narration || '') + '</textarea></div>';
 
@@ -2197,6 +2316,8 @@
     var ftr = (!d.isNew ? '<button type="button" class="btn dgr" id="docDeleteBtn">Delete</button>' : '') +
       (!d.isNew ? '<button type="button" class="btn" id="docPrintBtn">Print</button>' : '') +
       (!d.isNew && h.status === 'open' ? '<button type="button" class="btn" id="docConvertBtn">' + cfg.convertLabel + '</button>' : '') +
+      (!d.isNew && d.type === 'quotation' && h.status === 'open' ? '<button type="button" class="btn" id="docDcBtn">Delivery Challan</button>' : '') +
+      (!d.isNew && d.type === 'quotation' ? '<button type="button" class="btn" id="docMiBtn">Material Issue</button>' : '') +
       '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
       '<button type="button" class="btn pri" id="docSaveBtn">Save</button>';
 
@@ -2230,6 +2351,9 @@
     var delBtn = document.getElementById('docDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteDoc);
     var printBtnDoc = document.getElementById('docPrintBtn'); if (printBtnDoc) printBtnDoc.addEventListener('click', printDoc);
     var convBtn = document.getElementById('docConvertBtn'); if (convBtn) convBtn.addEventListener('click', convertDoc);
+    var dcBtn = document.getElementById('docDcBtn'); if (dcBtn) dcBtn.addEventListener('click', quoteToDc);
+    var miBtn = document.getElementById('docMiBtn'); if (miBtn) miBtn.addEventListener('click', openMaterialIssues);
+    fillQuoteProgress(d);
     wireCombos(document.getElementById('editorCard'));
   }
 
@@ -2409,7 +2533,8 @@
         errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
       }
-      await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      var { error: applyErr } = await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      if (applyErr) return OfflineQueue.isNetworkError(applyErr) ? queueDocEdit() : handleSaveError(applyErr, errEl);
 
       toast("'" + d.originalHeader[cfg.numField] + "' saved");
       closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
@@ -2615,6 +2740,7 @@
   }
 
   function renderServiceDocEditor() {
+    lastEditorRender = renderServiceDocEditor;
     var d = svcEditing, cfg = SVC_CONFIG[d.type], h = d.header;
     var totals = svcDisplayTotals();
 
@@ -2640,10 +2766,7 @@
       html += '<div class="field"><label>Party</label>' +
         comboHtml({
           value: h.party_id,
-          options: partyComboOptions(null).filter(function (o) {
-            var p = state.parties.filter(function (x) { return x.id === o.id; })[0];
-            return p && p.kind !== 'expense';
-          }),
+          options: partyComboOptions(['customer', 'both', 'supplier']),
           placeholder: 'Search party…',
           empty: PARTY_EMPTY,
           onPick: function (id) { h.party_id = id || null; renderServiceDocEditor(); }
@@ -2839,7 +2962,8 @@
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines });
       if (lmErr) return OfflineQueue.isNetworkError(lmErr) ? queueSvcDocEdit() : handleSaveError(lmErr, errEl);
       if (lineMerge.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt lines mein "' + lineMerge.conflicts.join(', ') + '" badal diya'; return; }
-      await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      var { error: applyErr } = await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      if (applyErr) return OfflineQueue.isNetworkError(applyErr) ? queueSvcDocEdit() : handleSaveError(applyErr, errEl);
 
       toast("'" + d.originalHeader[cfg.numField] + "' saved");
       closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
@@ -2994,6 +3118,7 @@
   }
 
   function renderTransferEditor() {
+    lastEditorRender = renderTransferEditor;
     var t = transferEditing, h = t.header;
     var html = '<div class="field"><label>Date</label><input type="date" id="t_date" value="' + h.tdate + '"></div>' +
       '<div class="f2">' +
@@ -3139,7 +3264,7 @@
         '<td class="num">' + esc(l.qty) + (item && item.unit ? ' ' + esc(item.unit) : '') + '</td>'];
     });
     var html = buildPdDoc({
-      firm: company, tag: 'Stock transfer — record of intent only',
+      firm: company, tag: 'Stock transfer — record of intent only', noAmounts: true,
       docTitle: 'Stock Transfer', sub: h.tno + ' · ' + h.tdate,
       metaRows: [['Transfer no', h.tno], ['Date', h.tdate], ['From', fromW ? fromW.name : null], ['To', toW ? toW.name : null], ['Printed', printStamp()]],
       parties: null,
@@ -3161,6 +3286,717 @@
     if (error) { sheetErr(error.message); return; }
     toast(t.header.tno + ' deleted — restore it from the Recycle Bin');
     closeEditor(); loadTransfersList(); broadcastRefresh('stock_transfers'); broadcastRefresh('items');
+  }
+
+  // ---------------------------------------------------------------
+  // Delivery Challans — Quotation → DC (partial, as many as needed) →
+  // Sales Invoice (from one or more DCs). A DC carries NO rates; rates go
+  // on the invoice. Stock leaves at the DC for "General supply" lines and
+  // never again on an invoice made from it (voucher_lines.dc_line_id —
+  // the costing engine skips those lines). "Manufactured" lines move no
+  // stock of their own: their raw material leaves through Material Issues
+  // against the quotation.
+  // ---------------------------------------------------------------
+  var dcState = { list: [], perDc: {}, qnos: {} };
+  var dcEditing = null;
+  var X_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+  function todayStr() { return new Date().toISOString().slice(0, 10); }
+  function itemById(id) { return state.items.filter(function (x) { return x.id === id; })[0] || null; }
+  function qtyStr(n) { return String(Math.round((Number(n) || 0) * 1000) / 1000); }
+
+  // Sum of billed qty per DC line, from live invoices only.
+  async function billedByDcLine(ids) {
+    var out = {};
+    if (!ids.length) return out;
+    var { data } = await sb.from('voucher_lines').select('dc_line_id,qty,vouchers!inner(deleted_at)')
+      .in('dc_line_id', ids).is('vouchers.deleted_at', null);
+    (data || []).forEach(function (b) { out[b.dc_line_id] = (out[b.dc_line_id] || 0) + Number(b.qty || 0); });
+    return out;
+  }
+
+  async function loadDcList() {
+    var [{ data, error }, { data: lines }, { data: billed }, { data: quotes }] = await Promise.all([
+      sb.from('delivery_challans').select('*').is('deleted_at', null).order('dc_date', { ascending: false }).order('dcno', { ascending: false }).limit(500),
+      sb.from('dc_lines').select('id,dc_id,qty,delivery_challans!inner(deleted_at)').is('delivery_challans.deleted_at', null).range(0, 4999),
+      sb.from('voucher_lines').select('dc_line_id,qty,vouchers!inner(deleted_at)').not('dc_line_id', 'is', null).is('vouchers.deleted_at', null).range(0, 4999),
+      sb.from('quotations').select('id,qno').range(0, 4999)
+    ]);
+    if (error) { showListError(error); return; }
+    dcState.list = data || [];
+    var billedByLine = {};
+    (billed || []).forEach(function (b) { billedByLine[b.dc_line_id] = (billedByLine[b.dc_line_id] || 0) + Number(b.qty || 0); });
+    dcState.perDc = {};
+    (lines || []).forEach(function (l) {
+      var x = dcState.perDc[l.dc_id] = dcState.perDc[l.dc_id] || { qty: 0, billed: 0 };
+      x.qty += Number(l.qty || 0);
+      x.billed += Math.min(Number(l.qty || 0), billedByLine[l.id] || 0);
+    });
+    dcState.qnos = {};
+    (quotes || []).forEach(function (q) { dcState.qnos[q.id] = q.qno; });
+    renderDcList();
+  }
+
+  function dcBillStatus(dcId) {
+    var x = dcState.perDc[dcId];
+    if (!x || x.billed <= 0.0005) return { label: 'Unbilled', cls: 'b-warn' };
+    if (x.billed + 0.0005 >= x.qty) return { label: 'Billed', cls: 'b-ok' };
+    return { label: 'Part billed', cls: 'b-neutral' };
+  }
+
+  function renderDcList() {
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = dcState.list.filter(function (d) {
+      if (!passesFilter(d.dc_date, d.company_id, 0)) return false;
+      return !term || (d.dcno || '').toLowerCase().indexOf(term) >= 0 ||
+        partyName(d.party_id).toLowerCase().indexOf(term) >= 0 ||
+        (dcState.qnos[d.quotation_id] || '').toLowerCase().indexOf(term) >= 0;
+    });
+    var html = rows.length ? '' : emptyStateHtml('No delivery challans yet',
+      term ? 'Nothing matches “' + term + '”.' : 'Make one from a quotation (Delivery Challan button), or tap + New.');
+    var open = 0;
+    rows.forEach(function (d) {
+      var st = dcBillStatus(d.id);
+      if (st.label !== 'Billed') open++;
+      html += listRowHtml({
+        id: d.id, code: 'DC', name: d.dcno,
+        sub: partyName(d.party_id) + ' · ' + d.dc_date + (dcState.qnos[d.quotation_id] ? ' · ' + dcState.qnos[d.quotation_id] : ''),
+        badge: st.label, badgeCls: st.cls
+      });
+    });
+    document.getElementById('listArea').innerHTML = html;
+    wireListRows(function (id) { openDcEditor(id); });
+    setListKpis([
+      { label: 'Challans', text: String(rows.length), cls: 'n', ring: '#' },
+      { label: 'Not fully billed', text: String(open), cls: open ? 'wn' : 'n', ring: '!' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'challan' : 'challans');
+    setListSub(rows.length + ' of ' + dcState.list.length + ' · ' + rangeLabel() + firmLabel());
+  }
+
+  function blankDcLine() {
+    return { id: null, item_id: null, custom_name: null, custom_unit: null, description: '', qty: 0,
+      consumption_type: 'general_goods', warehouse_id: defaultWarehouseId(), quotation_line_id: null };
+  }
+  function isCustomDcLine(l) { return !l.item_id && l.custom_name != null; }
+  function dcLineValid(l) { return (l.item_id || String(l.custom_name || '').trim()) && Number(l.qty) > 0; }
+  function dcLineName(l) { var it = itemById(l.item_id); return it ? it.name : (l.custom_name || ''); }
+  function dcLineUnit(l) { var it = itemById(l.item_id); return it ? (it.unit || '') : (l.custom_unit || 'pcs'); }
+  function defaultDcType(item) { return item && item.item_type === 'raw_material_consumption' ? 'manufactured' : 'general_goods'; }
+
+  // Ordered / delivered / billed per quotation line, the quotation's DCs,
+  // and its material issues — shared by the quotation's progress panel,
+  // Quotation → DC, and the DC editor's "ordered … pending" hints.
+  async function quoteProgress(qid) {
+    var [{ data: q }, { data: qlines }, { data: dls }, { data: mis }] = await Promise.all([
+      sb.from('quotations').select('id,qno,party_id,company_id,walkin_name,status').eq('id', qid).maybeSingle(),
+      sb.from('quotation_lines').select('*').eq('quotation_id', qid).order('line_no'),
+      sb.from('dc_lines').select('id,dc_id,qty,quotation_line_id,delivery_challans!inner(dcno,quotation_id,deleted_at)')
+        .eq('delivery_challans.quotation_id', qid).is('delivery_challans.deleted_at', null),
+      sb.from('material_issues').select('id,item_id,qty,cost_amount').eq('quotation_id', qid).is('deleted_at', null)
+    ]);
+    var billed = await billedByDcLine((dls || []).map(function (l) { return l.id; }));
+    var dcnos = {};
+    (dls || []).forEach(function (l) { dcnos[l.dc_id] = l.delivery_challans.dcno; });
+    var lines = (qlines || []).map(function (ql) {
+      var mine = (dls || []).filter(function (l) { return l.quotation_line_id === ql.id; });
+      var delivered = mine.reduce(function (s, l) { return s + Number(l.qty || 0); }, 0);
+      var invoiced = mine.reduce(function (s, l) { return s + Math.min(Number(l.qty || 0), billed[l.id] || 0); }, 0);
+      return { ql: ql, ordered: Number(ql.qty || 0), delivered: delivered, invoiced: invoiced,
+        pending: Math.max(0, Number(ql.qty || 0) - delivered), dcLines: mine };
+    });
+    return {
+      quote: q, lines: lines, dcnos: dcnos, issues: mis || [],
+      issueCost: (mis || []).reduce(function (s, m) { return s + Number(m.cost_amount || 0); }, 0)
+    };
+  }
+
+  // qinfo: quotation_line_id -> { ordered, deliveredElsewhere } for a DC's hints.
+  function dcQuoteInfo(prog, dcId) {
+    var info = {};
+    prog.lines.forEach(function (x) {
+      info[x.ql.id] = {
+        ordered: x.ordered,
+        deliveredElsewhere: x.dcLines.filter(function (l) { return l.dc_id !== dcId; }).reduce(function (s, l) { return s + Number(l.qty || 0); }, 0)
+      };
+    });
+    return info;
+  }
+
+  async function openDcEditor(id, preset) {
+    await loadMasters();
+    if (preset) {
+      dcEditing = preset;
+    } else if (!id) {
+      var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
+      dcEditing = { isNew: true, id: null, billed: {}, qinfo: {}, originalLines: [],
+        header: { dc_date: todayStr(), party_id: null, company_id: defCompany ? defCompany.id : null, quotation_id: null, narration: '' },
+        lines: [blankDcLine()] };
+    } else {
+      var [{ data: header }, { data: lines }] = await Promise.all([
+        sb.from('delivery_challans').select('*').eq('id', id).single(),
+        sb.from('dc_lines').select('*').eq('dc_id', id).order('line_no')
+      ]);
+      if (!header) { toast('This record was deleted by someone else.', true); loadDcList(); return; }
+      var billed = await billedByDcLine((lines || []).map(function (l) { return l.id; }));
+      dcEditing = { isNew: false, id: id, header: header, lines: lines || [], billed: billed, qinfo: {},
+        originalLines: JSON.parse(JSON.stringify(lines || [])) };
+      if (header.quotation_id) {
+        var prog = await quoteProgress(header.quotation_id);
+        dcEditing.qno = prog.quote ? prog.quote.qno : '';
+        dcEditing.qinfo = dcQuoteInfo(prog, id);
+      }
+    }
+    renderDcEditor();
+    showSheet();
+  }
+
+  function dcHasBilled(t) { return Object.keys(t.billed || {}).some(function (k) { return t.billed[k] > 0.0005; }); }
+  function dcUnbilledLeft(t) {
+    return (t.originalLines || []).some(function (l) { return Number(l.qty || 0) - ((t.billed || {})[l.id] || 0) > 0.0005; });
+  }
+
+  function renderDcEditor() {
+    lastEditorRender = renderDcEditor;
+    var t = dcEditing, h = t.header;
+    var locked = dcHasBilled(t);
+    var html = '';
+    if (state.companies.length > 1) {
+      html += '<div class="field"><label>Firm</label><select id="dc_company">' +
+        state.companies.map(function (c) { return '<option value="' + c.id + '"' + (c.id === h.company_id ? ' selected' : '') + '>' + esc(c.name) + '</option>'; }).join('') +
+        '</select></div>';
+    }
+    html += '<div class="field"><label>Date</label><input type="date" id="dc_date" value="' + esc(h.dc_date) + '"></div>';
+    html += '<div class="field"><label>Deliver to</label>' +
+      (locked
+        ? '<input value="' + esc(partyName(h.party_id)) + '" readonly><div class="hint">Already billed — the party can\'t change.</div>'
+        : comboHtml({
+            value: h.party_id,
+            options: partyComboOptions(['customer', 'both']),
+            placeholder: 'Search customer…',
+            empty: PARTY_EMPTY,
+            onPick: function (id) { h.party_id = id || null; }
+          })) +
+      '</div>';
+    if (h.quotation_id) html += '<div class="hint">Against quotation <b>' + esc(t.qno || '') + '</b></div>';
+    html += '<div class="hint">No rates on a challan — rates go on the Sales Invoice. <b>General supply</b> lines take stock out now; ' +
+      '<b>Manufactured</b> lines don\'t — their raw material goes out through Material Issue on the quotation.</div>';
+    html += '<div class="group-lbl">Items delivered</div>';
+    html += '<div class="lines" id="dcLinesWrap"></div>';
+    html += '<button type="button" class="btn add-more" id="dcAddLineBtn">+ Add line</button>';
+    html += '<div class="group-lbl">Narration</div>';
+    html += '<div class="field"><textarea id="dc_narration" rows="2">' + esc(h.narration || '') + '</textarea></div>';
+
+    var ftr = (!t.isNew ? '<button type="button" class="btn dgr" id="dcDeleteBtn">Delete</button>' : '') +
+      (!t.isNew ? '<button type="button" class="btn" id="dcPrintBtn">Print</button>' : '') +
+      (!t.isNew && dcUnbilledLeft(t) ? '<button type="button" class="btn" id="dcInvoiceBtn">Make Sales Invoice</button>' : '') +
+      '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
+      '<button type="button" class="btn pri" id="dcSaveBtn">Save</button>';
+    renderSheet('Delivery Challan' + (t.isNew ? ' — New' : ' — ' + h.dcno), html, ftr);
+    renderDcLines();
+
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    var comp = document.getElementById('dc_company');
+    if (comp) comp.addEventListener('change', function () { h.company_id = this.value || null; });
+    document.getElementById('dc_date').addEventListener('input', function () { h.dc_date = this.value; });
+    document.getElementById('dc_narration').addEventListener('input', function () { h.narration = this.value; });
+    document.getElementById('dcAddLineBtn').addEventListener('click', function () { t.lines.push(blankDcLine()); renderDcLines(); });
+    document.getElementById('dcSaveBtn').addEventListener('click', saveDc);
+    var del = document.getElementById('dcDeleteBtn'); if (del) del.addEventListener('click', deleteDc);
+    var pr = document.getElementById('dcPrintBtn'); if (pr) pr.addEventListener('click', printDc);
+    var inv = document.getElementById('dcInvoiceBtn'); if (inv) inv.addEventListener('click', makeInvoiceFromDc);
+    wireCombos(document.getElementById('editorCard'));
+  }
+
+  function renderDcLines() {
+    var t = dcEditing;
+    var body = document.getElementById('dcLinesWrap');
+    var showWarehouse = state.warehouses.length > 1;
+    body.innerHTML = t.lines.map(function (l, idx) {
+      var billed = l.id ? ((t.billed || {})[l.id] || 0) : 0;
+      var lineLocked = billed > 0.0005;
+      var custom = isCustomDcLine(l);
+      var item = itemById(l.item_id);
+      var rows = '<div class="f2">' +
+        '<div class="field"><label>Qty' + (dcLineName(l) ? ' (' + esc(dcLineUnit(l)) + ')' : '') + '</label>' +
+          '<input type="number" step="0.001" class="dcf num" data-i="' + idx + '" data-f="qty" value="' + esc(l.qty) + '"></div>' +
+        '<div class="field"><label>Type</label><select class="dcf" data-i="' + idx + '" data-f="consumption_type"' + (custom || lineLocked ? ' disabled' : '') + '>' +
+          '<option value="general_goods"' + (l.consumption_type === 'general_goods' && !custom ? ' selected' : '') + '>General supply</option>' +
+          '<option value="manufactured"' + (l.consumption_type === 'manufactured' || custom ? ' selected' : '') + '>Manufactured</option>' +
+        '</select></div></div>';
+      if (custom) {
+        rows += '<div class="field"><label>Unit</label><input class="dcf" data-i="' + idx + '" data-f="custom_unit" value="' + esc(l.custom_unit || '') + '" placeholder="pcs"></div>';
+      }
+      if (showWarehouse && !custom && l.consumption_type === 'general_goods') {
+        rows += '<div class="field"><label>From warehouse</label><select class="dcf" data-i="' + idx + '" data-f="warehouse_id">' + warehouseOptions(l.warehouse_id) + '</select></div>';
+      }
+      rows += '<div class="field"><label>Description</label><textarea rows="2" class="dcf" data-i="' + idx + '" data-f="description" placeholder="Prints under the item name">' + esc(l.description || '') + '</textarea></div>';
+      var hints = [];
+      var qi = l.quotation_line_id && t.qinfo ? t.qinfo[l.quotation_line_id] : null;
+      if (qi) hints.push('Ordered ' + qtyStr(qi.ordered) + ' · on other DCs ' + qtyStr(qi.deliveredElsewhere) + ' · pending ' + qtyStr(Math.max(0, qi.ordered - qi.deliveredElsewhere)));
+      if (item && l.consumption_type === 'general_goods') hints.push('In stock ' + qtyStr(item.stock_qty) + ' ' + (item.unit || ''));
+      if (lineLocked) hints.push('Billed ' + qtyStr(billed));
+      if (hints.length) rows += '<div class="hint">' + esc(hints.join(' · ')) + '</div>';
+      if (!l.id) {
+        rows += '<button type="button" class="btn rowbtn dcCustomToggle" data-i="' + idx + '">' +
+          (custom ? 'Pick a stock item instead' : 'Custom product (not in Masters)') + '</button>';
+      }
+      var picker;
+      if (lineLocked) picker = '<div class="combo"><input value="' + esc(dcLineName(l)) + '" readonly></div>';
+      else if (custom) picker = '<div class="combo"><input class="dcf" data-i="' + idx + '" data-f="custom_name" value="' + esc(l.custom_name || '') + '" placeholder="Custom product name…" aria-label="Custom product name"></div>';
+      else picker = comboHtml({
+        value: l.item_id,
+        options: itemComboOptions('sale_rate'),
+        placeholder: 'Search item…',
+        empty: ITEM_EMPTY,
+        onPick: (function (i) { return function (id) { applyDcLineField(i, 'item_id', id || ''); }; })(idx)
+      });
+      return '<div class="ln"><div class="ln-top">' + picker +
+        (lineLocked ? '' : '<button type="button" data-i="' + idx + '" class="icb dcRmLine" aria-label="Remove line">' + X_ICON + '</button>') +
+        '</div><div class="ln-rows">' + rows + '</div></div>';
+    }).join('');
+    Array.prototype.forEach.call(body.querySelectorAll('.dcf'), function (el) {
+      el.addEventListener('change', function () {
+        applyDcLineField(Number(el.dataset.i), el.dataset.f, el.type === 'number' ? Number(el.value) : el.value);
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.dcCustomToggle'), function (btn) {
+      btn.addEventListener('click', function () {
+        var l = t.lines[Number(btn.dataset.i)];
+        if (isCustomDcLine(l)) { l.custom_name = null; l.custom_unit = null; l.consumption_type = 'general_goods'; }
+        else { l.item_id = null; l.custom_name = ''; l.custom_unit = ''; l.consumption_type = 'manufactured'; }
+        renderDcLines();
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.dcRmLine'), function (btn) {
+      btn.addEventListener('click', function () { t.lines.splice(Number(btn.dataset.i), 1); renderDcLines(); });
+    });
+    wireCombos(body);
+  }
+
+  function applyDcLineField(idx, f, val) {
+    var l = dcEditing.lines[idx];
+    l[f] = val;
+    if (f === 'item_id') {
+      var item = itemById(val);
+      l.consumption_type = defaultDcType(item);
+      if (item && !String(l.description || '').trim()) l.description = specsSummary(item.id);
+    }
+    if (f === 'custom_name' || f === 'custom_unit' || f === 'description') return;
+    renderDcLines();
+  }
+
+  function dcLinePayload(l, i, dcId) {
+    var custom = !l.item_id;
+    var o = {
+      line_no: i + 1,
+      item_id: l.item_id || null,
+      custom_name: custom ? String(l.custom_name || '').trim() : null,
+      custom_unit: custom ? (String(l.custom_unit || '').trim() || null) : null,
+      description: String(l.description || '').trim() || null,
+      qty: Number(l.qty) || 0,
+      consumption_type: custom ? 'manufactured' : (l.consumption_type || 'general_goods'),
+      warehouse_id: l.warehouse_id || null,
+      quotation_line_id: l.quotation_line_id || null
+    };
+    if (dcId) o.dc_id = dcId;
+    return o;
+  }
+
+  async function saveDc() {
+    var t = dcEditing, h = t.header;
+    var errEl = document.getElementById('editorErr');
+    errEl.textContent = '';
+    if (!h.party_id) { errEl.textContent = 'Pick the customer first'; return; }
+    if (!h.dc_date) { errEl.textContent = 'Pick the date'; return; }
+    var valid = t.lines.filter(dcLineValid);
+    if (!valid.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
+    var headerPayload = { dc_date: h.dc_date, party_id: h.party_id, company_id: h.company_id || null,
+      quotation_id: h.quotation_id || null, narration: String(h.narration || '').trim() || null };
+    function done(msg) {
+      toast(msg);
+      closeEditor();
+      if (state.mode === 'dc') loadDcList();
+      broadcastRefresh('delivery_challans'); broadcastRefresh('items');
+      loadMasters();
+    }
+    try {
+      if (t.isNew) {
+        var newId = (crypto.randomUUID ? crypto.randomUUID() : newId_fallback());
+        var hp = Object.assign({ id: newId }, headerPayload);
+        var lp = valid.map(function (l, i) { return dcLinePayload(l, i, newId); });
+        function queueNew() {
+          OfflineQueue.enqueue({ kind: 'insert', table: 'delivery_challans', payload: hp });
+          OfflineQueue.enqueue({ kind: 'insert', table: 'dc_lines', payload: lp });
+          done('No internet — saved locally as pending. It will get its DC number once synced.');
+        }
+        if (!navigator.onLine) { queueNew(); return; }
+        var { data: inserted, error: insErr } = await sb.from('delivery_challans').insert(hp).select().single();
+        if (insErr) return OfflineQueue.isNetworkError(insErr) ? queueNew() : handleSaveError(insErr, errEl);
+        var { error: lineErr } = await sb.from('dc_lines').insert(lp);
+        if (lineErr) {
+          if (OfflineQueue.isNetworkError(lineErr)) OfflineQueue.enqueue({ kind: 'insert', table: 'dc_lines', payload: lp });
+          else { errEl.textContent = await undoHeaderAfterLineError('delivery_challans', inserted, inserted && inserted.dcno, lineErr); return; }
+        }
+        done((inserted && inserted.dcno ? inserted.dcno : 'Delivery Challan') + ' saved');
+        return;
+      }
+      if (!navigator.onLine) { errEl.textContent = 'Changing a saved challan needs internet — try again when online.'; return; }
+      var { error: updErr } = await sb.from('delivery_challans').update(headerPayload).eq('id', t.id);
+      if (updErr) return handleSaveError(updErr, errEl);
+      var keep = {};
+      valid.forEach(function (l) { if (l.id) keep[l.id] = true; });
+      var removed = (t.originalLines || []).filter(function (o) { return !keep[o.id]; });
+      for (var r = 0; r < removed.length; r++) {
+        var { error: delErr } = await sb.from('dc_lines').delete().eq('id', removed[r].id);
+        if (delErr) { errEl.textContent = delErr.message; return; }
+      }
+      for (var i = 0; i < valid.length; i++) {
+        var l = valid[i];
+        var res = l.id
+          ? await sb.from('dc_lines').update(dcLinePayload(l, i, null)).eq('id', l.id)
+          : await sb.from('dc_lines').insert(dcLinePayload(l, i, t.id));
+        if (res.error) { errEl.textContent = res.error.message; return; }
+      }
+      done("'" + h.dcno + "' saved");
+    } catch (ex) {
+      errEl.textContent = ex.message || String(ex);
+    }
+  }
+
+  async function deleteDc() {
+    var t = dcEditing;
+    var ok = await confirmDialog('Delete ' + t.header.dcno + '?',
+      'Its general-supply stock comes back to the godown. It can be restored from the Recycle Bin.', 'Delete', true);
+    if (!ok) return;
+    var { error } = await sb.from('delivery_challans').update({ deleted_at: new Date().toISOString() }).eq('id', t.id);
+    if (error) { sheetErr(error.message); return; }
+    toast(t.header.dcno + ' deleted — restore it from the Recycle Bin');
+    closeEditor();
+    if (state.mode === 'dc') loadDcList();
+    broadcastRefresh('delivery_challans'); broadcastRefresh('items');
+    loadMasters();
+  }
+
+  // Classic A4 challan — item, qty and unit only (no rates on a DC).
+  async function printDc() {
+    var t = dcEditing, h = t.header;
+    var company = await firmForPrint(h.company_id);
+    var sigLabels = ['Delivered by', 'Received by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
+    var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
+    var rows = t.lines.filter(dcLineValid).map(function (l) {
+      return ['<td>' + esc(dcLineName(l)) + descHtml(l.description) + '</td>',
+        '<td class="num">' + esc(qtyStr(l.qty)) + '</td>', '<td>' + esc(dcLineUnit(l)) + '</td>'];
+    });
+    var meta = [['DC no', h.dcno], ['Date', h.dc_date]];
+    if (t.qno) meta.push(['Quotation', t.qno]);
+    meta.push(['Printed', printStamp()]);
+    var html = buildPdDoc({
+      firm: company, tag: 'Delivery challan — goods delivered, not an invoice', noAmounts: true,
+      docTitle: 'Delivery Challan', sub: h.dcno + ' · ' + h.dc_date,
+      metaRows: meta,
+      parties: [
+        { label: 'Deliver to', name: party ? party.name : '—', sub: party ? party.city : '' },
+        { label: 'From', name: company.name, sub: firmAddrText(company) }
+      ],
+      cols: [{ label: 'Item' }, { label: 'Qty', cls: 'num' }, { label: 'Unit' }],
+      rows: rows, totals: null,
+      narrationLabel: 'Narration', narration: h.narration,
+      sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
+      footerRight: 'Delivery Challan · ' + h.dcno
+    });
+    showPrintDoc(html, h.dcno + '.pdf');
+  }
+
+  // Picks which of the party's unbilled challans go on one invoice (this
+  // one is ticked; others of the same customer can be added).
+  function pickDcsDialog(groups, currentId) {
+    return new Promise(function (resolve) {
+      var scrim = document.getElementById('confirmScrim');
+      scrim.innerHTML =
+        '<div class="confirm-card po-card" role="dialog" aria-modal="true">' +
+          '<h4>Bill which challans?</h4>' +
+          '<div class="po-lbl">Unbilled challans of this customer</div><div class="po-opt">' +
+          groups.map(function (g) {
+            return '<label class="po-check" style="margin:0"><input type="checkbox" value="' + esc(g.id) + '"' + (g.id === currentId ? ' checked' : '') + '> ' +
+              esc(g.dcno + ' · ' + g.date + ' · ' + g.lines.length + ' line' + (g.lines.length === 1 ? '' : 's')) + '</label>';
+          }).join('') +
+          '</div>' +
+          '<div class="acts"><button type="button" class="btn" data-a="0">Cancel</button><button type="button" class="btn pri" data-a="1">Make invoice</button></div>' +
+        '</div>';
+      scrim.classList.add('on');
+      var finished = false;
+      function finish(v) {
+        if (finished) return; finished = true;
+        scrim.classList.remove('on'); scrim.innerHTML = '';
+        document.removeEventListener('keydown', onKey);
+        resolve(v);
+      }
+      function onKey(ev) { if (ev.key === 'Escape') finish(null); }
+      scrim.querySelector('[data-a="0"]').addEventListener('click', function () { finish(null); });
+      scrim.querySelector('[data-a="1"]').addEventListener('click', function () {
+        finish(Array.prototype.map.call(scrim.querySelectorAll('input[type="checkbox"]:checked'), function (c) { return c.value; }));
+      });
+      scrim.addEventListener('click', function (ev) { if (ev.target === scrim) finish(null); });
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+  async function makeInvoiceFromDc() {
+    var t = dcEditing, partyId = t.header.party_id;
+    var { data: dls, error } = await sb.from('dc_lines')
+      .select('*, delivery_challans!inner(id,dcno,dc_date,party_id,company_id,deleted_at)')
+      .eq('delivery_challans.party_id', partyId).is('delivery_challans.deleted_at', null).order('line_no');
+    if (error) { sheetErr(error.message); return; }
+    var billed = await billedByDcLine((dls || []).map(function (l) { return l.id; }));
+    var groups = {}, order = [];
+    (dls || []).forEach(function (l) {
+      var left = Number(l.qty || 0) - (billed[l.id] || 0);
+      if (left <= 0.0005) return;
+      var dc = l.delivery_challans;
+      if (!groups[dc.id]) { groups[dc.id] = { id: dc.id, dcno: dc.dcno, date: dc.dc_date, company_id: dc.company_id, lines: [] }; order.push(dc.id); }
+      groups[dc.id].lines.push({ dl: l, left: left, billed: billed[l.id] || 0 });
+    });
+    var list = order.map(function (k) { return groups[k]; }).sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : (a.dcno < b.dcno ? -1 : 1); });
+    if (!list.length) { toast('Everything on this challan is already billed.', true); return; }
+    var picked = list.length === 1 ? [list[0].id] : await pickDcsDialog(list, t.id);
+    if (!picked || !picked.length) return;
+    var chosen = list.filter(function (g) { return picked.indexOf(g.id) >= 0; });
+    var qlIds = [];
+    chosen.forEach(function (g) { g.lines.forEach(function (x) { if (x.dl.quotation_line_id) qlIds.push(x.dl.quotation_line_id); }); });
+    var qlRates = {};
+    if (qlIds.length) {
+      var { data: qls } = await sb.from('quotation_lines').select('id,rate,tax_pct').in('id', qlIds);
+      (qls || []).forEach(function (q) { qlRates[q.id] = q; });
+    }
+    var lines = [];
+    chosen.forEach(function (g) {
+      g.lines.forEach(function (x) {
+        var dl = x.dl, item = itemById(dl.item_id), ql = qlRates[dl.quotation_line_id];
+        dcLineInfo[dl.id] = { dcno: g.dcno, dcQty: Number(dl.qty), billedElsewhere: x.billed };
+        lines.push(Object.assign(blankLine(), {
+          item_id: dl.item_id || null,
+          custom_name: dl.item_id ? null : dl.custom_name,
+          custom_unit: dl.item_id ? null : dl.custom_unit,
+          description: dl.description || '',
+          qty: x.left,
+          rate: ql ? Number(ql.rate) : (item ? Number(item.sale_rate) || 0 : 0),
+          tax_pct: ql ? Number(ql.tax_pct) || 0 : (item ? Number(item.tax_pct) || 0 : 0),
+          dc_line_id: dl.id,
+          consumption_type: dl.consumption_type === 'general_goods' ? 'general_goods' : 'raw_material_consumption',
+          warehouse_id: dl.warehouse_id || defaultWarehouseId(),
+          materials: []
+        }));
+      });
+    });
+    var header = Object.assign(blankHeader(), {
+      vtype: 'sale', party_id: partyId, company_id: chosen[0].company_id || blankHeader().company_id,
+      narration: 'Against ' + chosen.map(function (g) { return g.dcno; }).join(', ')
+    });
+    header.vtype = 'sale';
+    closeEditor();
+    switchTab('sale');
+    state.vtype = 'sale';
+    state.editing = { isNew: true, id: null, header: header, lines: lines, originalHeader: null, originalLines: [] };
+    renderEditor();
+    showSheet();
+    toast('Rates come from the quotation (or the item) — check them, then Save.');
+  }
+
+  // ---- Quotation side: progress panel, Quotation → DC, Material Issue ----
+  async function fillQuoteProgress(d) {
+    var el = document.getElementById('qProgress');
+    if (!el || d.isNew || d.type !== 'quotation') return;
+    if (!d.progress) {
+      el.innerHTML = '<div class="hint">Loading delivery status…</div>';
+      d.progress = await quoteProgress(d.id);
+      el = document.getElementById('qProgress');
+      if (!el || docEditing !== d) return;
+    }
+    var p = d.progress;
+    var rows = p.lines.map(function (x) {
+      var item = itemById(x.ql.item_id);
+      var name = item ? item.name : (x.ql.custom_name || '');
+      return '<div class="doc-sum-row"><span>' + esc(name) + '</span><span class="v">' +
+        esc('Ordered ' + qtyStr(x.ordered) + ' · Delivered ' + qtyStr(x.delivered) + ' · Billed ' + qtyStr(x.invoiced) + ' · Pending ' + qtyStr(x.pending)) +
+        '</span></div>';
+    }).join('');
+    var dcs = Object.keys(p.dcnos).map(function (k) { return p.dcnos[k]; }).sort();
+    var html = rows +
+      '<div class="hint">' + (dcs.length ? 'Challans: ' + esc(dcs.join(', ')) : 'No delivery challan yet.') +
+      ' · Material issued: ' + p.issues.length + ' time' + (p.issues.length === 1 ? '' : 's') +
+      (canViewMaterialCost() ? ' (cost ' + fmtMoney(p.issueCost) + ')' : '') + '</div>';
+    el.innerHTML = html;
+    // Once goods went out on a DC, a direct "Convert to Sale" would take
+    // the stock out a second time — bill through the challans instead.
+    var conv = document.getElementById('docConvertBtn');
+    if (conv && dcs.length) conv.remove();
+    var dcBtn = document.getElementById('docDcBtn');
+    if (dcBtn && !p.lines.some(function (x) { return x.pending > 0.0005; })) dcBtn.remove();
+  }
+
+  async function quoteToDc() {
+    var d = docEditing;
+    var p = d.progress || (d.progress = await quoteProgress(d.id));
+    var pending = p.lines.filter(function (x) { return x.pending > 0.0005; });
+    if (!pending.length) { toast('Everything on this quotation is already delivered.', true); return; }
+    var q = p.quote || {};
+    var lines = pending.map(function (x) {
+      var ql = x.ql, item = itemById(ql.item_id);
+      return Object.assign(blankDcLine(), {
+        item_id: ql.item_id || null,
+        custom_name: ql.item_id ? null : (ql.custom_name || 'Item'),
+        custom_unit: ql.item_id ? null : (ql.custom_unit || null),
+        description: ql.description || '',
+        qty: x.pending,
+        consumption_type: ql.item_id ? defaultDcType(item) : 'manufactured',
+        quotation_line_id: ql.id
+      });
+    });
+    var preset = {
+      isNew: true, id: null, billed: {}, originalLines: [], qno: q.qno, qinfo: dcQuoteInfo(p, null),
+      header: { dc_date: todayStr(), party_id: q.party_id || null, company_id: q.company_id || null, quotation_id: d.id, narration: '' },
+      lines: lines
+    };
+    closeEditor();
+    switchTab('dc');
+    await openDcEditor(null, preset);
+    if (!q.party_id) toast('This quotation is for a walk-in customer — pick a real party (Masters) for the challan.', true);
+    else toast('Pending qty filled in — change it for a partial delivery, then Save.');
+  }
+
+  var miEditing = null;
+  async function openMaterialIssues() {
+    var d = docEditing;
+    miEditing = { doc: d, quoteId: d.id, qno: d.header.qno, list: [],
+      draft: { issue_date: todayStr(), item_id: null, qty: 0, warehouse_id: defaultWarehouseId(), notes: '' } };
+    await reloadMaterialIssues();
+  }
+  async function reloadMaterialIssues() {
+    var m = miEditing;
+    if (!m) return; // the user went back to the quotation meanwhile
+    var { data, error } = await sb.from('material_issues').select('*').eq('quotation_id', m.quoteId).is('deleted_at', null)
+      .order('issue_date').order('created_at');
+    if (error) { toast(error.message, true); return; }
+    if (miEditing !== m) return;
+    m.list = data || [];
+    renderMaterialIssues();
+  }
+  function renderMaterialIssues() {
+    lastEditorRender = renderMaterialIssues;
+    var m = miEditing, dr = m.draft, showCost = canViewMaterialCost();
+    var showWarehouse = state.warehouses.length > 1;
+    var byItem = {}, order = [], totalCost = 0;
+    m.list.forEach(function (r) {
+      if (!byItem[r.item_id]) { byItem[r.item_id] = { qty: 0, cost: 0 }; order.push(r.item_id); }
+      byItem[r.item_id].qty += Number(r.qty || 0);
+      byItem[r.item_id].cost += Number(r.cost_amount || 0);
+      totalCost += Number(r.cost_amount || 0);
+    });
+    var html = '<div class="hint">Raw material taken out for this order. Stock goes out on the issue date — issue as many times as needed; ' +
+      'the total is shared over the manufactured items delivered on its challans.</div>';
+    html += '<div class="group-lbl">Total issued</div>';
+    html += order.length ? order.map(function (id) {
+      var it = itemById(id);
+      return '<div class="doc-sum-row"><span>' + esc(it ? it.name : '?') + '</span><span class="v">' +
+        esc(qtyStr(byItem[id].qty) + ' ' + (it ? it.unit || '' : '')) + (showCost ? ' · ' + fmtMoney(byItem[id].cost) : '') + '</span></div>';
+    }).join('') + (showCost ? '<div class="doc-sum-row grand"><span>Material cost</span><span class="v">' + fmtMoney(totalCost) + '</span></div>' : '')
+      : '<div class="hint">Nothing issued yet.</div>';
+
+    html += '<div class="group-lbl">New issue</div>';
+    html += '<div class="lines"><div class="ln"><div class="ln-top">' +
+      comboHtml({
+        value: dr.item_id,
+        options: rawMaterialComboOptions(null),
+        placeholder: 'Search raw material…',
+        empty: ITEM_EMPTY,
+        onPick: function (id) { dr.item_id = id || null; }
+      }) + '</div><div class="ln-rows">' +
+      '<div class="f2"><div class="field"><label>Date</label><input type="date" id="mi_date" value="' + esc(dr.issue_date) + '"></div>' +
+      '<div class="field"><label>Qty</label><input type="number" step="0.001" class="num" id="mi_qty" value="' + esc(dr.qty) + '"></div></div>' +
+      (showWarehouse ? '<div class="field"><label>Warehouse</label><select id="mi_wh">' + warehouseOptions(dr.warehouse_id) + '</select></div>' : '') +
+      '<div class="field"><label>Notes</label><input id="mi_notes" value="' + esc(dr.notes || '') + '" placeholder="e.g. first batch"></div>' +
+      '<button type="button" class="btn pri" id="miAddBtn">Issue material</button>' +
+      '</div></div></div>';
+
+    html += '<div class="group-lbl">Issue history (' + m.list.length + ')</div><div class="lines">';
+    html += m.list.map(function (r) {
+      var it = itemById(r.item_id);
+      return '<div class="ln"><div class="ln-top"><div class="combo"><input value="' + esc((it ? it.name : '?') + (it && it.unit ? ' (' + it.unit + ')' : '')) + '" readonly></div>' +
+        '<button type="button" class="icb miDel" data-id="' + esc(r.id) + '" aria-label="Delete issue">' + X_ICON + '</button></div>' +
+        '<div class="ln-rows"><div class="f2">' +
+          '<div class="field"><label>Date</label><input type="date" class="mif" data-id="' + esc(r.id) + '" data-f="issue_date" value="' + esc(r.issue_date) + '"></div>' +
+          '<div class="field"><label>Qty</label><input type="number" step="0.001" class="mif num" data-id="' + esc(r.id) + '" data-f="qty" value="' + esc(r.qty) + '"></div>' +
+        '</div>' +
+        '<div class="field"><label>Notes</label><input class="mif" data-id="' + esc(r.id) + '" data-f="notes" value="' + esc(r.notes || '') + '"></div>' +
+        (showWarehouse ? '<div class="hint">Warehouse: ' + esc(warehouseName(r.warehouse_id)) + '</div>' : '') +
+        (showCost ? '<div class="doc-sum-row"><span>Cost</span><span class="v">' + fmtMoney(r.cost_amount || 0) + '</span></div>' : '') +
+        '<button type="button" class="btn rowbtn miSave" data-id="' + esc(r.id) + '">Save change</button>' +
+        '</div></div>';
+    }).join('');
+    html += '</div>';
+
+    var ftr = '<button type="button" class="btn" id="miBackBtn">Back to quotation</button>';
+    renderSheet('Material Issue — ' + (m.qno || 'Quotation'), html, ftr);
+    wireCombos(document.getElementById('editorCard'));
+    document.getElementById('mi_date').addEventListener('input', function () { dr.issue_date = this.value; });
+    document.getElementById('mi_qty').addEventListener('input', function () { dr.qty = Number(this.value) || 0; });
+    document.getElementById('mi_notes').addEventListener('input', function () { dr.notes = this.value; });
+    var wh = document.getElementById('mi_wh'); if (wh) wh.addEventListener('change', function () { dr.warehouse_id = this.value || null; });
+    document.getElementById('miAddBtn').addEventListener('click', addMaterialIssue);
+    document.getElementById('miBackBtn').addEventListener('click', function () {
+      var d = m.doc;
+      miEditing = null;
+      docEditing = d;
+      d.progress = null;
+      renderDocEditor();
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.miSave'), function (btn) {
+      btn.addEventListener('click', function () { saveMaterialIssueRow(btn.dataset.id); });
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.miDel'), function (btn) {
+      btn.addEventListener('click', function () { deleteMaterialIssue(btn.dataset.id); });
+    });
+  }
+  function afterIssueChange(msg) {
+    toast(msg);
+    broadcastRefresh('material_issues'); broadcastRefresh('items');
+    return loadMasters().then(reloadMaterialIssues);
+  }
+  async function addMaterialIssue() {
+    var m = miEditing, dr = m.draft;
+    var errEl = document.getElementById('editorErr');
+    errEl.textContent = '';
+    if (!dr.item_id) { errEl.textContent = 'Pick the raw material'; return; }
+    if (!(Number(dr.qty) > 0)) { errEl.textContent = 'Qty must be more than 0'; return; }
+    if (!dr.issue_date) { errEl.textContent = 'Pick the date'; return; }
+    var { error } = await sb.from('material_issues').insert({
+      quotation_id: m.quoteId, issue_date: dr.issue_date, item_id: dr.item_id, qty: Number(dr.qty),
+      warehouse_id: dr.warehouse_id || null, notes: String(dr.notes || '').trim() || null
+    });
+    if (error) { errEl.textContent = error.message; return; }
+    var it = itemById(dr.item_id);
+    m.draft = { issue_date: dr.issue_date, item_id: null, qty: 0, warehouse_id: dr.warehouse_id, notes: '' };
+    await afterIssueChange(qtyStr(dr.qty) + ' ' + (it ? it.unit + ' ' + it.name : '') + ' issued');
+  }
+  async function saveMaterialIssueRow(id) {
+    var patch = {};
+    Array.prototype.forEach.call(document.querySelectorAll('.mif[data-id="' + id + '"]'), function (el) {
+      patch[el.dataset.f] = el.type === 'number' ? Number(el.value) : (el.value || null);
+    });
+    if (!(Number(patch.qty) > 0)) { sheetErr('Qty must be more than 0 — use ✕ to remove an issue'); return; }
+    if (!patch.issue_date) { sheetErr('Pick the date'); return; }
+    var { error } = await sb.from('material_issues').update(patch).eq('id', id);
+    if (error) { sheetErr(error.message); return; }
+    await afterIssueChange('Issue updated');
+  }
+  async function deleteMaterialIssue(id) {
+    var ok = await confirmDialog('Delete this issue?', 'Its stock comes back to the godown. It can be restored from the Recycle Bin.', 'Delete', true);
+    if (!ok) return;
+    var { error } = await sb.from('material_issues').update({ deleted_at: new Date().toISOString() }).eq('id', id);
+    if (error) { sheetErr(error.message); return; }
+    await afterIssueChange('Issue deleted');
   }
 
   // ---------------------------------------------------------------
@@ -3302,7 +4138,7 @@
           opts.metaRows.map(function (r) { return '<div><b>' + esc(r[0]) + '</b><span class="mono">' + esc(r[1] == null ? '—' : r[1]) + '</span></div>'; }).join('') +
         '</div>' +
       '</div><div class="pd-rule"></div><div class="pd-rule2"></div>' +
-      '<div class="pd-ttl"><h1>' + esc(opts.docTitle) + '</h1><span class="sub">' + esc(opts.sub || '') + '</span><span class="basis">Amounts in PKR</span></div>';
+      '<div class="pd-ttl"><h1>' + esc(opts.docTitle) + '</h1><span class="sub">' + esc(opts.sub || '') + '</span>' + (opts.noAmounts ? '' : '<span class="basis">Amounts in PKR</span>') + '</div>';
 
     if (opts.parties && opts.parties.length) {
       html += '<div class="party">' + opts.parties.map(function (p) {
@@ -3350,14 +4186,15 @@
     var docTitle = (isSale ? 'Sales Invoice' : 'Purchase Bill') + (h.tax_on ? ' \u00B7 Sales Tax' : '');
     var showTax = !!h.tax_on;
 
-    var rows = e.lines.filter(function (l) { return l.item_id; }).map(function (l, i) {
+    var rows = e.lines.filter(function (l) { return l.item_id || l.custom_name; }).map(function (l, i) {
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
       var qty = l.sale_unit ? (l.sale_qty != null ? l.sale_qty : l.qty) : l.qty;
-      var unit = l.sale_unit || (item ? item.unit : '') || '';
-      return '<tr><td class="idx mono">' + (i + 1) + '</td><td>' + esc(item ? item.name : '') + descHtml(l.description) +
+      var unit = saleLineUnit(l);
+      var dcRef = l.dc_line_id && dcLineInfo[l.dc_line_id] ? '<div style="font-size:10px;color:#6B6357">' + esc(dcLineInfo[l.dc_line_id].dcno) + '</div>' : '';
+      return '<tr><td class="idx mono">' + (i + 1) + '</td><td>' + esc(saleLineName(l)) + descHtml(l.description) + dcRef +
         (l.sale_unit && item && item.unit && l.sale_unit !== item.unit ? '<div style="font-size:10px;color:#6B6357">= ' + esc(l.qty) + ' ' + esc(item.unit) + '</div>' : '') +
         '</td><td class="num">' + esc(qty) + '</td><td>' + esc(unit) + '</td>' +
-        '<td class="num">' + fmtMoney(l.rate) + '</td>' +
+        '<td class="num">' + fmtMoney(shownRate(l)) + '</td>' +
         (showTax ? '<td class="num">' + esc(Number(l.tax_pct) || 0) + '%</td>' : '') +
         '<td class="num">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td></tr>';
     }).join('');
@@ -3430,14 +4267,34 @@
     else if (state.mode === 'quotation' || state.mode === 'po') loadDocsList(state.mode);
     else if (state.mode === 'sinvoice' || state.mode === 'squote') loadServiceDocsList(state.mode);
     else if (state.mode === 'transfer') loadTransfersList();
+    else if (state.mode === 'dc') loadDcList();
     else loadList();
   }
-  var MASTER_REFRESH_KINDS = ['parties', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
+  var MASTER_REFRESH_KINDS = ['parties', 'party_kinds', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || d.oht !== 'refresh' || MASTER_REFRESH_KINDS.indexOf(d.kind) < 0) return;
-    (d.kind === 'services' ? loadServices() : loadMasters().then(fillFilterSelects)).then(reloadCurrentList);
+    (d.kind === 'services' ? loadServices() : loadMasters().then(fillFilterSelects))
+      .then(reloadCurrentList).then(rerenderOpenEditor);
   });
+
+  // A form already open keeps its own copy of the party/item/service lists
+  // inside its search boxes, so a change in Masters only showed after the
+  // form was reopened. Re-render it from its (unchanged) draft — but never
+  // while the user is typing in a search box; then wait until they leave it.
+  function rerenderOpenEditor() {
+    if (!document.getElementById('editorSheet').classList.contains('on')) return;
+    var act = document.activeElement;
+    if (act && act.closest && act.closest('.combo')) {
+      act.addEventListener('blur', function once() {
+        act.removeEventListener('blur', once);
+        setTimeout(rerenderOpenEditor, 0);
+      });
+      return;
+    }
+    if (lastEditorRender) lastEditorRender();
+  }
+  var lastEditorRender = null; // set by each editor's render function
 
   // ---------------------------------------------------------------
   // Boot

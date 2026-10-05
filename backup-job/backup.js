@@ -17,8 +17,10 @@ const nodemailer = require('nodemailer');
 const TABLES = [
   'app_users', 'companies', 'warehouses', 'period_lock', 'party_kinds', 'parties',
   'items', 'item_units', 'item_specs', 'services', 'item_cost_snapshot', 'party_opening_balances',
-  'vouchers', 'voucher_lines', 'sales_returns', 'sales_return_lines', 'stock_adjustments',
-  'quotations', 'quotation_lines', 'purchase_orders', 'po_lines',
+  'vouchers', 'quotations', 'quotation_lines', 'delivery_challans', 'dc_lines', 'material_issues',
+  'voucher_lines', 'voucher_line_material_consumption',
+  'sales_returns', 'sales_return_lines', 'sales_return_material_restoration', 'stock_adjustments',
+  'purchase_orders', 'po_lines',
   'service_invoices', 'service_invoice_lines', 'service_quotations', 'service_quotation_lines',
   'recurring_service_templates', 'stock_transfers', 'stock_transfer_lines', 'sheets', 'sheet_rows',
   'audit_log' // exported for reference only — NEVER restored, see restore tooling

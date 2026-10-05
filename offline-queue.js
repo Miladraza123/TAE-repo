@@ -22,7 +22,19 @@ window.OfflineQueue = (function () {
   function setQueue(q) {
     try { localStorage.setItem(KEY, JSON.stringify(q)); } catch (e) {}
   }
+  function newUuid() {
+    if (window.crypto && crypto.randomUUID) return crypto.randomUUID();
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function (c) {
+      var r = Math.random() * 16 | 0; return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+  }
   function enqueue(op) {
+    // Every queued insert row carries its own id, so running the same op a
+    // second time (a lost response, or two windows flushing) is always a
+    // duplicate-key no-op instead of a second copy of the row.
+    if (op.kind === 'insert' && op.payload) {
+      (Array.isArray(op.payload) ? op.payload : [op.payload]).forEach(function (r) { if (r && !r.id) r.id = newUuid(); });
+    }
     var q = getQueue();
     op.id = op.id || (Date.now() + '-' + Math.random().toString(36).slice(2));
     q.push(op);
@@ -115,8 +127,22 @@ window.OfflineQueue = (function () {
     return { error: { message: 'unknown queued op kind: ' + op.kind } };
   }
 
+  // The queue lives in localStorage, which every module window (Billing,
+  // Masters … each its own iframe) shares — and each of them flushes. Only
+  // one window may drain it at a time, or the same op runs twice.
   async function flush(sb, onDrainedOne) {
     if (flushing || !navigator.onLine) return;
+    if (navigator.locks && navigator.locks.request) {
+      return navigator.locks.request('oht-offline-queue', { ifAvailable: true }, function (lock) {
+        if (!lock) return; // another window is draining it right now
+        return drain(sb, onDrainedOne);
+      });
+    }
+    return drain(sb, onDrainedOne);
+  }
+
+  async function drain(sb, onDrainedOne) {
+    if (flushing) return;
     flushing = true;
     try {
       var q = getQueue();

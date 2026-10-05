@@ -9,6 +9,8 @@ on:
 jobs:
   backup:
     runs-on: ubuntu-latest
+    env:
+      HAS_DB_URL: ${{ secrets.SUPABASE_DB_URL != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -24,7 +26,10 @@ jobs:
       # main backup (§23) — continue-on-error so a pg_dump/runner mismatch
       # never blocks the actual data backup below.
       - name: Optional schema-only dump
-        if: ${{ secrets.SUPABASE_DB_URL != '' }}
+        # `secrets` is not allowed in a step-level `if:` — GitHub rejects the
+        # whole workflow file for it (every run failed with 0 jobs). The
+        # check goes through an env var instead.
+        if: ${{ env.HAS_DB_URL == 'true' }}
         continue-on-error: true
         env:
           PGCONNECT_TIMEOUT: '10'
@@ -58,6 +63,8 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     needs: backup
+    permissions:
+      contents: write   # the keepalive commit is pushed with GITHUB_TOKEN
     steps:
       - uses: actions/checkout@v4
         with:

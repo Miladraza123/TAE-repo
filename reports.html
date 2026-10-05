@@ -89,6 +89,11 @@
     // re-runs whichever tab is currently on screen — except kinds no report
     // tab reads at all (Daily Ledger's own cash-book sheets, period locks).
     if (d.oht === 'refresh' && inited && REPORTS_IGNORE_KINDS.indexOf(d.kind) < 0) {
+      // Master lists are cached per page load — drop them so the next render
+      // re-reads (a party added in Masters shows up without a reload).
+      if (d.kind === 'parties' || d.kind === 'party_kinds') { partiesCache = []; stParties = null; }
+      if (d.kind === 'items' || d.kind === 'item_units' || d.kind === 'item_specs') itemsCache = [];
+      if (d.kind === 'warehouses') warehousesCache = [];
       if (d.kind === 'companies') { firm = null; loadFirm().then(render); }
       else render();
     }
@@ -170,6 +175,8 @@
     { key: 'aging', label: 'Receivable Aging' },
     { key: 'pl', label: 'Profit & Loss' },
     { key: 'statement', label: 'Statement of Account' },
+    { key: 'due', label: 'Payments Due' },
+    { key: 'pending', label: 'Pending Deliveries' },
     { key: 'stockledger', label: 'Item Stock Ledger' },
     { key: 'matcons', label: 'Material Consumption' },
     { key: 'matprofit', label: 'Material Cost & Profit' },
@@ -586,7 +593,7 @@
         sb.from('vouchers').select('id,sub_total,discount,grand_total,loading_on,loading_amt,cartage_on,cartage_amt,cutting_on,cutting_amt')
           .eq('vtype', 'sale').is('deleted_at', null).gte('vdate', from).lte('vdate', to),
         sb.from('sales_returns').select('id,grand_total,sale_id,deleted_at').gte('rdate', from).lte('rdate', to),
-        sb.from('voucher_lines').select('voucher_id,cost_amount'),
+        sb.from('voucher_lines').select('voucher_id,qty,cost_amount,dc_line_id').range(0, 49999),
         sb.from('service_invoices').select('sub_total,discount').neq('status', 'cancelled').is('deleted_at', null).gte('sidate', from).lte('sidate', to),
         sb.from('sheets').select('id').is('deleted_at', null).gte('sheet_date', from).lte('sheet_date', to)
       ]);
@@ -601,12 +608,27 @@
       var netSales = grossSales - salesReturnsInRange - discounts;
 
       var saleIds = (sales || []).map(function (v) { return v.id; });
-      var cogs = (linesData || []).filter(function (l) { return saleIds.indexOf(l.voucher_id) >= 0; })
-        .reduce(function (s, l) { return s + Number(l.cost_amount || 0); }, 0);
+      // A line billed from a Delivery Challan carries no cost of its own (the
+      // DC moved the stock): its cost is its share of the DC line's cost —
+      // own stock for general supply, the order's material issues for a
+      // manufactured product.
+      var [{ data: dcCosts }, { data: dcQtys }] = await Promise.all([
+        sb.from('dc_line_costs').select('dc_line_id,cost').range(0, 49999),
+        sb.from('dc_lines').select('id,qty').range(0, 49999)
+      ]);
+      var dcCost = {}, dcQty = {};
+      (dcCosts || []).forEach(function (c) { dcCost[c.dc_line_id] = Number(c.cost || 0); });
+      (dcQtys || []).forEach(function (d) { dcQty[d.id] = Number(d.qty || 0); });
+      var saleIdSet = {}; saleIds.forEach(function (id) { saleIdSet[id] = true; });
+      var cogs = (linesData || []).filter(function (l) { return saleIdSet[l.voucher_id]; })
+        .reduce(function (s, l) {
+          if (l.dc_line_id) return s + (dcQty[l.dc_line_id] ? (dcCost[l.dc_line_id] || 0) * Number(l.qty || 0) / dcQty[l.dc_line_id] : 0);
+          return s + Number(l.cost_amount || 0);
+        }, 0);
 
       // Returns' cost is removed from COGS too — need each in-range return's lines' cost_amount,
       // filtered to non-deleted parent returns only (§21's documented real bug to avoid).
-      var { data: returnLines } = await sb.from('sales_return_lines').select('return_id,cost_amount');
+      var { data: returnLines } = await sb.from('sales_return_lines').select('return_id,cost_amount').range(0, 49999);
       var validReturnIds = (returns || []).filter(function (r) { return !r.deleted_at; }).map(function (r) { return r.id; });
       var returnsCost = (returnLines || []).filter(function (rl) { return validReturnIds.indexOf(rl.return_id) >= 0; })
         .reduce(function (s, rl) { return s + Number(rl.cost_amount || 0); }, 0);
@@ -669,22 +691,51 @@
   // ===================================================================
   // Statement of Account (§11) — live-reconstructed party ledger
   // ===================================================================
+  // Categories, in the same order as the party form: fixed, user-made, Other last.
+  var ST_FIXED = [['customer', 'Customer'], ['supplier', 'Supplier'], ['both', 'Customer & Supplier'],
+    ['expense', 'Expense head'], ['bank', 'Bank'], ['head', 'Head / Owner']];
+  var stParties = null, stKinds = null, stCat = '';
+  function stCatKey(p) { return p.party_kind_id ? 'pk:' + p.party_kind_id : (p.kind || 'other'); }
+  function stMonthStart() { var t = todayStr(); return t.slice(0, 8) + '01'; }
+
   var statementView = {
     async render() {
       await loadFirm();
-      if (!partiesCache.length) { var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name'); partiesCache = data || []; }
+      if (!stParties) {
+        var [{ data }, { data: kinds }] = await Promise.all([
+          sb.from('parties').select('id,name,kind,city,party_kind_id').is('deleted_at', null).order('name'),
+          sb.from('party_kinds').select('id,name').is('deleted_at', null).order('name')
+        ]);
+        stParties = data || []; stKinds = kinds || [];
+      }
       var prev = document.getElementById('st_party') ? document.getElementById('st_party').value : '';
+      if (stPreselect) { prev = stPreselect; stPreselect = null; }
+      var prevFrom = document.getElementById('st_from') ? document.getElementById('st_from').value : '';
+      var prevTo = document.getElementById('st_to') ? document.getElementById('st_to').value : todayStr();
+      var cats = [['', 'All']].concat(ST_FIXED).concat(stKinds.map(function (k) { return ['pk:' + k.id, k.name]; })).concat([['other', 'Other']]);
+      var count = function (key) { return key ? stParties.filter(function (p) { return stCatKey(p) === key; }).length : stParties.length; };
+      var chipsHtml = cats.map(function (c) {
+        return '<button type="button" class="pg-chip st-cat' + (c[0] === stCat ? ' on' : '') + '" data-k="' + esc(c[0]) + '">' +
+          esc(c[1]) + ' <span style="opacity:.6">' + count(c[0]) + '</span></button>';
+      }).join('');
+      var list = stParties.filter(function (p) { return !stCat || stCatKey(p) === stCat; });
+      if (prev && !list.some(function (p) { return p.id === prev; })) prev = '';
       document.getElementById('content').innerHTML = pageShell('st', {
-        crumb: 'Reports / Party ledger', title: 'Statement of Account', sub: 'Pick a party to see its live-reconstructed ledger', cardTitle: 'Ledger entries',
+        crumb: 'Reports / Party ledger', title: 'Statement of Account', sub: 'Pick a category and a party', cardTitle: 'Ledger entries',
         actions: '<button type="button" class="pg-hb" id="st_run">Show</button>',
-        ctl: fldSelect('st_party', 'Party', '<option value="">Pick…</option>' + partiesCache.map(function (p) {
-          return '<option value="' + p.id + '"' + (p.id === prev ? ' selected' : '') + '>' + esc(p.name) + '</option>';
-        }).join('')),
+        ctl: '<div style="display:flex;flex-wrap:wrap;gap:6px;width:100%">' + chipsHtml + '</div>' +
+          fldSelect('st_party', 'Party', '<option value="">Pick…</option>' + list.map(function (p) {
+            return '<option value="' + p.id + '"' + (p.id === prev ? ' selected' : '') + '>' + esc(p.name) + (p.city ? ' — ' + esc(p.city) : '') + '</option>';
+          }).join('')) +
+          fldDate('st_from', 'From', prevFrom) + fldDate('st_to', 'To', prevTo),
         empty: 'Pick a party above.'
       });
       wirePrint('st');
+      Array.prototype.forEach.call(document.querySelectorAll('.st-cat'), function (b) {
+        b.addEventListener('click', function () { stCat = b.getAttribute('data-k'); statementView.render(); });
+      });
       document.getElementById('st_run').addEventListener('click', statementView.run);
-      document.getElementById('st_party').addEventListener('change', statementView.run);
+      ['st_party', 'st_from', 'st_to'].forEach(function (id) { document.getElementById(id).addEventListener('change', statementView.run); });
       if (prev) statementView.run();
     },
     async run() {
@@ -692,29 +743,147 @@
       var partyId = sel.value;
       var partyName = sel.options[sel.selectedIndex] ? sel.options[sel.selectedIndex].textContent : '';
       if (!partyId) { setBody('st', emptyCard('Pick a party', 'Choose a party above to build its statement.')); setKpis('st', []); setCount('st', null); return; }
+      var from = document.getElementById('st_from').value || '';
+      var to = document.getElementById('st_to').value || todayStr();
       setBody('st', '<div class="pg-empty">Loading…</div>');
 
-      var events = await buildLedgerEvents(partyId);
-      var closing = events.length ? events[events.length - 1].running : 0;
+      var all = await buildLedgerEvents(partyId);
+      // Everything before From becomes one Opening line; after To is left out.
+      var opening = 0, events = [];
+      all.forEach(function (e) {
+        if (from && e.date < from) opening += (Number(e.dr) || 0) - (Number(e.cr) || 0);
+        else if (e.date <= to) events.push(e);
+      });
+      var running = opening;
+      events.forEach(function (e) { running += (Number(e.dr) || 0) - (Number(e.cr) || 0); e.running = running; });
+      var closing = running;
       var totDr = 0, totCr = 0;
       events.forEach(function (e) { totDr += Number(e.dr) || 0; totCr += Number(e.cr) || 0; });
-      setSub('st', partyName + ' · as of ' + todayStr());
+      var p = stParties.filter(function (x) { return x.id === partyId; })[0];
+      var catName = p ? (p.party_kind_id ? ((stKinds.filter(function (k) { return k.id === p.party_kind_id; })[0] || {}).name || 'Other')
+        : ((ST_FIXED.filter(function (c) { return c[0] === p.kind; })[0] || [0, 'Other'])[1])) : '';
+      setSub('st', partyName + (catName ? ' · ' + catName : '') + ' · ' + (from || 'start') + ' → ' + to);
       setCount('st', events.length);
+      var bal = function (n) { return fmt(Math.abs(n)) + ' ' + (n >= 0 ? 'Dr' : 'Cr'); };
       setKpis('st', [
+        { cls: opening >= 0 ? 'dr' : 'cr', label: 'Opening', text: bal(opening), ring: 'B/F' },
         { cls: 'dr', label: 'Total Debit', val: totDr, ring: 'DR' },
         { cls: 'cr', label: 'Total Credit', val: totCr, ring: 'CR' },
-        { cls: closing >= 0 ? 'dr' : 'cr', label: 'Closing Balance', text: fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr'), ring: '=' }
+        { cls: closing >= 0 ? 'dr' : 'cr', label: 'Closing', text: bal(closing), ring: '=' }
       ]);
-      var h = '';
-      if (!events.length) { setBody('st', h + emptyCard('No entries', 'This party has no transactions yet.')); return; }
-      h += '<table class="doc-table"><thead><tr><th>Date</th><th>Description</th><th class="num">Dr</th><th class="num">Cr</th><th class="num">Balance</th></tr></thead><tbody>';
+      var h = '<table class="doc-table"><thead><tr><th>Date</th><th>Description</th><th class="num">Dr</th><th class="num">Cr</th><th class="num">Balance</th></tr></thead><tbody>';
+      if (from) h += '<tr><td class="mono">' + esc(from) + '</td><td>Opening balance (b/f)</td><td></td><td></td><td class="num mono">' + bal(opening) + '</td></tr>';
       events.forEach(function (e) {
         h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
-          '<td class="num mono">' + (e.cr ? fmt(e.cr) : '') + '</td><td class="num mono">' + fmt(Math.abs(e.running)) + ' ' + (e.running >= 0 ? 'Dr' : 'Cr') + '</td></tr>';
+          '<td class="num mono">' + (e.cr ? fmt(e.cr) : '') + '</td><td class="num mono">' + bal(e.running) + '</td></tr>';
       });
-      h += '</tbody><tfoot><tr><td colspan="4">Closing balance</td><td class="num mono">' +
-        fmt(Math.abs(closing)) + ' ' + (closing >= 0 ? 'Dr' : 'Cr') + '</td></tr></tfoot></table>';
+      if (!events.length) h += '<tr><td colspan="5" style="color:var(--mute)">No entries in this period.</td></tr>';
+      h += '</tbody><tfoot><tr><td colspan="4">Closing balance</td><td class="num mono">' + bal(closing) + '</td></tr></tfoot></table>';
       setBody('st', h);
+    }
+  };
+
+  // ===================================================================
+  // Payments Due — suppliers to pay / customers to collect from, bill by
+  // bill with due dates (payable_aging / receivable_aging), soonest first.
+  // ===================================================================
+  var dueTab = 'pay';
+  var stPreselect = null; // party to open in Statement of Account
+  var dueView = {
+    async render() {
+      await loadFirm();
+      document.getElementById('content').innerHTML = pageShell('due', {
+        crumb: 'Reports / Lena – Dena', title: 'Payments Due',
+        sub: 'Due date = bill due date, warna party ke credit days', cardTitle: 'Bills',
+        actions: '<button type="button" class="pg-hb" id="due_reload">Refresh</button>',
+        ctl: chip('due_t_pay', 'Mujhe dene hain (Suppliers)', dueTab === 'pay') + chip('due_t_recv', 'Mujhe lene hain (Customers)', dueTab === 'recv'),
+        empty: 'Loading…'
+      });
+      wirePrint('due');
+      document.getElementById('due_reload').addEventListener('click', dueView.run);
+      document.getElementById('due_t_pay').addEventListener('click', function () { dueTab = 'pay'; dueView.render(); });
+      document.getElementById('due_t_recv').addEventListener('click', function () { dueTab = 'recv'; dueView.render(); });
+      dueView.run();
+    },
+    async run() {
+      var asOf = todayStr();
+      var isPay = dueTab === 'pay';
+      var [pay, recv] = await Promise.all([
+        sb.rpc('payable_aging', { p_as_of: asOf }),
+        sb.rpc('receivable_aging', { p_as_of: asOf })
+      ]);
+      var err = (isPay ? pay : recv).error;
+      if (err) { setBody('due', emptyCard('Could not load', err.message)); return; }
+      var billsOf = function (res, payables) {
+        return (res.data || []).filter(function (r) {
+          return payables ? r.doc_kind !== 'advance' : (r.doc_kind !== 'advance' && r.doc_kind !== 'payable');
+        });
+      };
+      var payBills = billsOf(pay, true), recvBills = billsOf(recv, false);
+      var sum = function (a) { return a.reduce(function (t, r) { return t + (Number(r.outstanding) || 0); }, 0); };
+      document.getElementById('due_t_pay').textContent = 'Mujhe dene hain · ' + fmt(sum(payBills));
+      document.getElementById('due_t_recv').textContent = 'Mujhe lene hain · ' + fmt(sum(recvBills));
+
+      var bills = isPay ? payBills : recvBills;
+      var week = new Date(); week.setDate(week.getDate() + 7);
+      var weekStr = week.toISOString().slice(0, 10);
+      var groups = { over: [], week: [], later: [] };
+      bills.forEach(function (r) {
+        var d = r.due_date;
+        if (d && d < asOf) groups.over.push(r);
+        else if (d && d <= weekStr) groups.week.push(r);
+        else groups.later.push(r);
+      });
+      Object.keys(groups).forEach(function (k) {
+        groups[k].sort(function (a, b) { return String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')); });
+      });
+      setSub('due', (isPay ? 'Suppliers ko' : 'Customers se') + ' · as of ' + asOf + ' · due date = bill due date, warna party ke credit days');
+      setKpis('due', [
+        { cls: 'dr', label: 'Overdue', val: sum(groups.over), ring: '!' },
+        { cls: 'wn', label: 'Is hafte', val: sum(groups.week), ring: '7d' },
+        { cls: 'cr', label: 'Baad mein', val: sum(groups.later), ring: '…' }
+      ]);
+      setCount('due', bills.length, bills.length === 1 ? 'bill' : 'bills');
+      if (!bills.length) { setBody('due', emptyCard(isPay ? 'Koi payment baqi nahi' : 'Kisi customer se kuch lena baqi nahi', 'Sab clear hai.')); return; }
+
+      var kindLabel = { purchase: 'Bill', sale: 'Invoice', service_invoice: 'Service invoice', opening: 'Opening', cash_paid: 'Cash paid' };
+      var section = function (title, cls, rows) {
+        if (!rows.length) return '';
+        var h = '<tr class="due-grp"><td colspan="5" class="' + cls + '" style="font-weight:700;letter-spacing:.06em;font-size:11px">' + title +
+          ' · ' + fmt(sum(rows)) + '</td></tr>';
+        rows.forEach(function (r) {
+          var late = r.due_date && r.due_date < asOf;
+          var days = r.due_date ? Math.round((new Date(r.due_date) - new Date(asOf)) / 86400000) : null;
+          var when = days == null ? 'no due date' : late ? '<b class="dr">' + (-days) + ' din late</b>' : (days === 0 ? 'aaj due' : days + ' din baqi');
+          h += '<tr><td><a href="#" class="due-party" data-id="' + r.party_id + '" style="font-weight:700;color:inherit">' + esc(r.party_name) + '</a>' +
+            '<div style="font-size:11px;color:var(--mute)">' + esc((kindLabel[r.doc_kind] || r.doc_kind) + ' ' + (r.doc_kind === 'opening' ? '' : (r.doc_no || ''))) + '</div></td>' +
+            '<td class="mono">' + esc(r.due_date || '—') + '</td><td>' + when + '</td>' +
+            '<td class="num mono">' + fmt(r.outstanding) + '</td>' +
+            '<td class="num"><button type="button" class="pg-hb due-act" data-id="' + r.party_id + '">' + (isPay ? 'Pay' : 'Receive') + '</button></td></tr>';
+        });
+        return h;
+      };
+      var h = '<table class="doc-table"><thead><tr><th>Party / Bill</th><th>Due date</th><th>Status</th><th class="num">Baqi</th><th></th></tr></thead><tbody>' +
+        section('OVERDUE', 'dr', groups.over) + section('IS HAFTE DUE', 'wn', groups.week) + section('BAAD MEIN', 'cr', groups.later) +
+        '</tbody><tfoot><tr><td colspan="3">Total</td><td class="num mono">' + fmt(sum(bills)) + '</td><td></td></tr></tfoot></table>';
+      var adv = ((isPay ? pay : recv).data || []).filter(function (r) { return r.doc_kind === 'advance'; });
+      if (adv.length) {
+        h += '<div class="rpt-note" style="margin-top:10px">Advance ' + (isPay ? 'jo humne suppliers ko diya' : 'jo customers ne diya') + ': ' +
+          adv.map(function (r) { return esc(r.party_name) + ' ' + fmt(r.outstanding); }).join(' · ') + '</div>';
+      }
+      setBody('due', h);
+      Array.prototype.forEach.call(document.querySelectorAll('#due_body .due-act'), function (b) {
+        b.addEventListener('click', function () {
+          window.parent.postMessage({ oht: 'open', app: 'ledger', arg: (isPay ? 'pay:' : 'recv:') + b.getAttribute('data-id') }, '*');
+        });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('#due_body .due-party'), function (a) {
+        a.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          stPreselect = a.getAttribute('data-id'); stCat = '';
+          window.parent.postMessage({ oht: 'open', app: 'reports', arg: 'statement' }, '*');
+        });
+      });
     }
   };
 
@@ -757,11 +926,11 @@
       // the Credit · Paid column (c_amt/c_rem). Never mix the two sides.
       if (r.d_party === partyId) { // cash received FROM them → credits the party
         var remark = stripOwnName(r.d_rem || '', normName);
-        events.push({ date: sheetDate, desc: remark || 'Cash received', dr: 0, cr: Number(r.d_amt) || 0 });
+        events.push({ date: sheetDate, desc: 'Cash received' + (remark ? ' — ' + remark : ''), dr: 0, cr: Number(r.d_amt) || 0 });
       }
       if (r.c_party === partyId) { // cash paid TO them → debits the party
         var remark2 = stripOwnName(r.c_rem || '', normName);
-        events.push({ date: sheetDate, desc: remark2 || 'Cash paid', dr: Number(r.c_amt) || 0, cr: 0 });
+        events.push({ date: sheetDate, desc: 'Cash paid' + (remark2 ? ' — ' + remark2 : ''), dr: Number(r.c_amt) || 0, cr: 0 });
       }
     });
 
@@ -1201,9 +1370,98 @@
     }
   };
 
+
+  // ===================================================================
+  // Pending Deliveries — per quotation: ordered / delivered (on Delivery
+  // Challans) / billed / pending, plus the raw material issued against it.
+  // ===================================================================
+  var pendShowAll = false;
+  var pendView = {
+    async render() {
+      await loadFirm();
+      document.getElementById('content').innerHTML = pageShell('pending', {
+        crumb: 'Reports / Orders', title: 'Pending Deliveries',
+        sub: 'Quotation → Delivery Challan → Sales Invoice', cardTitle: 'Orders',
+        actions: '<button type="button" class="pg-hb" id="pend_reload">Refresh</button>',
+        ctl: chip('pend_open', 'Pending only', !pendShowAll) + chip('pend_all', 'All orders', pendShowAll),
+        empty: 'Loading…'
+      });
+      wirePrint('pending');
+      document.getElementById('pend_reload').addEventListener('click', pendView.run);
+      document.getElementById('pend_open').addEventListener('click', function () { pendShowAll = false; pendView.render(); });
+      document.getElementById('pend_all').addEventListener('click', function () { pendShowAll = true; pendView.render(); });
+      pendView.run();
+    },
+    async run() {
+      var [qr, qlr, dlr, blr, mir, itr, ptr] = await Promise.all([
+        sb.from('quotations').select('id,qno,qdate,party_id,walkin_name,status').is('deleted_at', null).neq('status', 'converted').order('qdate', { ascending: false }).range(0, 1999),
+        sb.from('quotation_lines').select('id,quotation_id,item_id,custom_name,custom_unit,qty,line_no').order('line_no').range(0, 9999),
+        sb.from('dc_lines').select('id,qty,quotation_line_id,delivery_challans!inner(dcno,deleted_at)').not('quotation_line_id', 'is', null).is('delivery_challans.deleted_at', null).range(0, 9999),
+        sb.from('voucher_lines').select('dc_line_id,qty,vouchers!inner(deleted_at)').not('dc_line_id', 'is', null).is('vouchers.deleted_at', null).range(0, 9999),
+        sb.from('material_issues').select('quotation_id,cost_amount').is('deleted_at', null).range(0, 9999),
+        sb.from('items').select('id,name,unit').range(0, 9999),
+        sb.from('parties').select('id,name').range(0, 9999)
+      ]);
+      var err = qr.error || qlr.error || dlr.error || blr.error || mir.error;
+      if (err) { setBody('pending', emptyCard('Could not load', err.message)); return; }
+      var items = {}; (itr.data || []).forEach(function (i) { items[i.id] = i; });
+      var parties = {}; (ptr.data || []).forEach(function (p) { parties[p.id] = p.name; });
+      var billed = {}; (blr.data || []).forEach(function (b) { billed[b.dc_line_id] = (billed[b.dc_line_id] || 0) + Number(b.qty || 0); });
+      var byQl = {};
+      (dlr.data || []).forEach(function (d) {
+        var x = byQl[d.quotation_line_id] = byQl[d.quotation_line_id] || { delivered: 0, billed: 0, dcs: {} };
+        x.delivered += Number(d.qty || 0);
+        x.billed += Math.min(Number(d.qty || 0), billed[d.id] || 0);
+        x.dcs[d.delivery_challans.dcno] = true;
+      });
+      var issued = {}; (mir.data || []).forEach(function (m) { issued[m.quotation_id] = (issued[m.quotation_id] || 0) + Number(m.cost_amount || 0); });
+      var linesByQ = {}; (qlr.data || []).forEach(function (l) { (linesByQ[l.quotation_id] = linesByQ[l.quotation_id] || []).push(l); });
+      var showCost = canViewMaterialCost();
+      var n3 = function (v) { return String(Math.round((Number(v) || 0) * 1000) / 1000); };
+      var orders = [], pendLines = 0, costTotal = 0;
+      (qr.data || []).forEach(function (q) {
+        var rows = (linesByQ[q.id] || []).map(function (l) {
+          var x = byQl[l.id] || { delivered: 0, billed: 0, dcs: {} };
+          var pending = Math.max(0, Number(l.qty || 0) - x.delivered);
+          var it = items[l.item_id];
+          return { name: it ? it.name : (l.custom_name || ''), unit: it ? it.unit : (l.custom_unit || 'pcs'), ordered: Number(l.qty || 0),
+            delivered: x.delivered, billed: x.billed, pending: pending, dcs: Object.keys(x.dcs) };
+        });
+        var anyPending = rows.some(function (r) { return r.pending > 0.0005; });
+        var anyUnbilled = rows.some(function (r) { return r.delivered - r.billed > 0.0005; });
+        var started = rows.some(function (r) { return r.delivered > 0; }) || issued[q.id] != null;
+        if (!pendShowAll && !(started && (anyPending || anyUnbilled))) return;
+        orders.push({ q: q, rows: rows, cost: issued[q.id] || 0 });
+        pendLines += rows.filter(function (r) { return r.pending > 0.0005; }).length;
+        costTotal += issued[q.id] || 0;
+      });
+      setSub('pending', pendShowAll ? 'All open quotations' : 'Orders already started (a DC or a material issue) with something still to deliver or bill');
+      var kpis = [
+        { cls: 'n', label: 'Orders', text: String(orders.length), ring: '#' },
+        { cls: pendLines ? 'wn' : 'n', label: 'Lines pending', text: String(pendLines), ring: '!' }
+      ];
+      if (showCost) kpis.push({ cls: 'dr', label: 'Material issued', val: costTotal, ring: 'Rs' });
+      setKpis('pending', kpis);
+      setCount('pending', orders.length, orders.length === 1 ? 'order' : 'orders');
+      if (!orders.length) { setBody('pending', emptyCard('Kuch pending nahi', pendShowAll ? 'No open quotations.' : 'Every started order is fully delivered and billed.')); return; }
+      var h = '<table class="doc-table"><thead><tr><th>Item</th><th class="num">Ordered</th><th class="num">Delivered</th><th class="num">Billed</th><th class="num">Pending</th></tr></thead><tbody>';
+      orders.forEach(function (o) {
+        var who = o.q.party_id ? (parties[o.q.party_id] || '—') : ((o.q.walkin_name || '') + ' (walk-in)');
+        h += '<tr class="due-grp"><td colspan="5" style="font-weight:700">' + esc(o.q.qno + ' · ' + who + ' · ' + o.q.qdate) +
+          (showCost && o.cost ? ' <span style="font-weight:400;color:var(--mute)">· material issued ' + fmt(o.cost) + '</span>' : '') + '</td></tr>';
+        o.rows.forEach(function (r) {
+          h += '<tr><td>' + esc(r.name) + (r.dcs.length ? '<div style="font-size:11px;color:var(--mute)">' + esc(r.dcs.sort().join(', ')) + '</div>' : '') + '</td>' +
+            '<td class="num mono">' + n3(r.ordered) + ' ' + esc(r.unit || '') + '</td><td class="num mono">' + n3(r.delivered) + '</td>' +
+            '<td class="num mono">' + n3(r.billed) + '</td><td class="num mono' + (r.pending > 0.0005 ? ' warn' : '') + '">' + n3(r.pending) + '</td></tr>';
+        });
+      });
+      h += '</tbody></table>';
+      setBody('pending', h);
+    }
+  };
   var VIEWS = {
-    trial: trialView, aging: agingView, pl: plView, statement: statementView, stockledger: stockLedgerView,
-    matcons: matConsumptionView, matprofit: matProfitView, mataudit: matAuditView
+    trial: trialView, aging: agingView, pl: plView, statement: statementView, due: dueView, stockledger: stockLedgerView,
+    pending: pendView, matcons: matConsumptionView, matprofit: matProfitView, mataudit: matAuditView
   };
 
   async function render() {
