@@ -202,6 +202,14 @@
   table.reg tfoot tr.closing td { border-top:none; background:#EDE7D8; font-size:1em; }
   table.reg tfoot tr.closing td.m { color:#8A6425; }
   .party-chip { display:block; font-size:9px; color:var(--accent); font-weight:600; padding:3px 8px 0; letter-spacing:.2px; }
+  /* Linked party: its own badge in front of the remarks box (✕ unlinks). */
+  .cell-in.has-party { display:flex; align-items:center; gap:6px; padding-left:6px; }
+  .cell-in.has-party .cell { flex:1; min-width:60px; }
+  .pbadge { display:inline-flex; align-items:center; gap:4px; max-width:60%; background:#EAF0F6; color:var(--cash);
+    border:1px solid #C9D7E6; border-radius:999px; padding:2px 4px 2px 8px; font-size:11.5px; font-weight:700; white-space:nowrap; }
+  .pbadge .nm { overflow:hidden; text-overflow:ellipsis; }
+  .pbadge .unlinkParty { border:0; background:#C9D7E6; color:var(--cash); border-radius:50%; width:16px; height:16px;
+    font-size:10px; line-height:16px; padding:0; cursor:pointer; flex:none; }
 
   .dl-reg .ft {
     display:flex; align-items:center; gap:8px; padding:9px 14px; border-top:1px solid var(--hair);
@@ -223,7 +231,18 @@
     border-radius:var(--radius-md); max-height:190px; overflow:auto; z-index:75;
     min-width:210px; box-shadow:0 8px 24px rgba(31,25,20,.18);
   }
+  .partylist { min-width:280px; max-height:260px; }
   .partylist div { padding:8px 11px; cursor:pointer; font-size:13px; border-bottom:1px solid var(--hair); }
+  .partylist .po { display:flex; justify-content:space-between; gap:10px; align-items:center; }
+  .partylist .po .main { font-weight:600; }
+  .partylist .po .cat { font-size:11px; color:var(--mute); margin-top:1px; border:0; padding:0; }
+  .partylist .po .rt { text-align:right; font-size:11px; font-family:var(--mono, ui-monospace, monospace); color:var(--slate); border:0; padding:0; }
+  .partylist .po .tag { display:inline-block; font-family:inherit; font-size:10px; font-weight:700; border-radius:999px; padding:1px 7px; margin-bottom:2px;
+    background:var(--panel); color:var(--slate); border:0; }
+  .partylist .po .tag.customer { background:var(--credit-wash, #EAF3EC); color:var(--credit); }
+  .partylist .po .tag.supplier { background:var(--debit-wash, #F7EEE7); color:var(--debit); }
+  .partylist .po .tag.bank { background:#EAF0F6; color:var(--cash); }
+  .partylist .po .tag.head { background:#EFE8F6; color:#6C4F93; }
   .partylist div:last-child { border-bottom:none; }
   .partylist div:hover,
   .partylist div.on { background:#EFE7D8; }
@@ -698,9 +717,26 @@
     return DAYS_LONG[dt.getDay()] + ', ' + Number(p[2]) + ' ' + MONTHS_LONG[Number(p[1]) - 1] + ' ' + p[0];
   }
 
+  var KIND_LABEL = { customer: 'Customer', supplier: 'Supplier', both: 'Customer & Supplier', expense: 'Expense head',
+    bank: 'Bank', head: 'Head / Owner', other: 'Other' };
   async function loadParties() {
-    var { data } = await sb.from('parties').select('id,name').is('deleted_at', null).order('name');
+    var [{ data }, { data: kinds }, tb] = await Promise.all([
+      sb.from('parties').select('id,name,kind,city,party_kind_id').is('deleted_at', null).order('name'),
+      sb.from('party_kinds').select('id,name').is('deleted_at', null),
+      // Balances for the picker: only users allowed to see reports get them.
+      sb.rpc('trial_balance', { p_as_of: new Date().toISOString().slice(0, 10) }).then(null, function () { return { data: null }; })
+    ]);
     state.parties = data || [];
+    state.partyKinds = kinds || [];
+    state.partyBal = {};
+    ((tb && tb.data) || []).forEach(function (r) { state.partyBal[r.party_id] = r; });
+  }
+  function partyCategory(p) {
+    if (p.party_kind_id) {
+      var k = (state.partyKinds || []).filter(function (x) { return x.id === p.party_kind_id; })[0];
+      if (k) return k.name;
+    }
+    return KIND_LABEL[p.kind] || 'Other';
   }
 
   // Registered firms, for the Firm dropdown (§2) — a free-text field let a
@@ -875,6 +911,12 @@
     return { received: received, paid: paid, inHand: received - paid };
   }
 
+  function partyBadge(idx, slot) {
+    var id = state.sheet.rows[idx][slot];
+    return '<span class="pbadge" title="' + esc(partyName(id)) + '"><span class="nm">&#128279; ' + esc(partyName(id)) + '</span>' +
+      '<button type="button" class="unlinkParty" data-idx="' + idx + '" data-slot="' + slot + '" aria-label="Unlink party" tabindex="-1">&#10005;</button></span>';
+  }
+
   function partyName(id) {
     if (!id) return '';
     var p = state.parties.filter(function (x) { return x.id === id; })[0];
@@ -950,15 +992,15 @@
       var d = Number(r.d_amt) || 0, c = Number(r.c_amt) || 0;
       totD += d; totC += c;
       running += d - c;
-      var dLinked = r.d_party ? '<span class="party-chip">&#128279; ' + esc(partyName(r.d_party)) + '</span>' : '';
-      var cLinked = r.c_party ? '<span class="party-chip">&#128279; ' + esc(partyName(r.c_party)) + '</span>' : '';
+      var dLinked = r.d_party ? partyBadge(idx, 'd_party') : '';
+      var cLinked = r.c_party ? partyBadge(idx, 'c_party') : '';
       html += '<tr data-idx="' + idx + '">' +
         '<td class="n">' + (idx + 1) + '</td>' +
         '<td class="cell-in"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="d_amt" value="' + (d ? esc(r.d_amt) : '') + '" aria-label="Debit amount line ' + (idx + 1) + '"></td>' +
-        '<td class="cell-in">' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="d_rem" data-partyslot="d_party" value="' + esc(r.d_rem) + '" aria-label="Debit particulars line ' + (idx + 1) + '"></td>' +
+        '<td class="cell-in' + (dLinked ? ' has-party' : '') + '">' + dLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="d_rem" data-partyslot="d_party" value="' + esc(r.d_rem) + '"' + (dLinked ? ' placeholder="remarks…"' : '') + ' aria-label="Debit particulars line ' + (idx + 1) + '"></td>' +
         '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="d_tick"' + (r.d_tick ? ' checked' : '') + ' aria-label="Debit was cash, line ' + (idx + 1) + '"></td>' +
         '<td class="cell-in split"><input type="number" step="0.01" class="cell" data-idx="' + idx + '" data-f="c_amt" value="' + (c ? esc(r.c_amt) : '') + '" aria-label="Credit amount line ' + (idx + 1) + '"></td>' +
-        '<td class="cell-in">' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="c_rem" data-partyslot="c_party" value="' + esc(r.c_rem) + '" aria-label="Credit particulars line ' + (idx + 1) + '"></td>' +
+        '<td class="cell-in' + (cLinked ? ' has-party' : '') + '">' + cLinked + '<input class="cell partyable" data-idx="' + idx + '" data-f="c_rem" data-partyslot="c_party" value="' + esc(r.c_rem) + '"' + (cLinked ? ' placeholder="remarks…"' : '') + ' aria-label="Credit particulars line ' + (idx + 1) + '"></td>' +
         '<td class="chk"><input type="checkbox" class="cellchk" data-idx="' + idx + '" data-f="c_tick"' + (r.c_tick ? ' checked' : '') + ' aria-label="Credit was cash, line ' + (idx + 1) + '"></td>' +
         '<td class="bal">' + fmtBal(running) + '</td>' +
         '<td class="act"><button type="button" class="rmRow" data-idx="' + idx + '" title="Remove row" aria-label="Remove row">&#10005;</button></td>' +
@@ -1157,6 +1199,15 @@
       state.sheet.side = this.value; markDirty(); refreshDerived(); autosaveNow();
     });
 
+    Array.prototype.forEach.call(document.querySelectorAll('.unlinkParty'), function (btn) {
+      btn.addEventListener('click', function () {
+        var row = state.sheet.rows[Number(btn.dataset.idx)];
+        if (!row) return;
+        row[btn.dataset.slot] = null;
+        markDirty(); render(); scheduleAutosave();
+        focusCell(Number(btn.dataset.idx), btn.dataset.slot === 'd_party' ? 'd_rem' : 'c_rem', 'end');
+      });
+    });
     Array.prototype.forEach.call(document.querySelectorAll('.rmRow'), function (btn) {
       btn.addEventListener('click', function () {
         state.sheet.rows.splice(Number(btn.dataset.idx), 1);
@@ -1171,14 +1222,11 @@
         var row = state.sheet.rows[idx];
         if (!row) return;
         row[f] = (f === 'd_amt' || f === 'c_amt') ? (Number(el.value) || 0) : el.value;
-        // Re-derive party link: keep it only if the remarks text still starts with the linked party's name.
-        if (el.dataset.partyslot) {
-          var slot = el.dataset.partyslot;
-          var linkedName = partyName(row[slot]);
-          if (linkedName && String(row[f]).toLowerCase().indexOf(linkedName.toLowerCase()) !== 0) {
-            row[slot] = null;
-          }
-          showPartyPicker(el); // keep the suggestions in step with what is typed
+        // Once a party is linked the box holds remarks only (cheque #, advance…)
+        // — the link lives in the badge and only its ✕ removes it. Without a
+        // link, typing searches parties.
+        if (el.dataset.partyslot && !row[el.dataset.partyslot]) {
+          showPartyPicker(el);
         }
         markDirty();
         scheduleAutosave();
@@ -1342,10 +1390,9 @@
     var idx = Number(inputEl.dataset.idx), f = inputEl.dataset.f, slot = inputEl.dataset.partyslot;
     var row = state.sheet.rows[idx];
     if (!row) { hidePartyPicker(); return; }
-    var term = pickerTerm;
-    var cur = String(row[f] == null ? '' : row[f]);
-    var rest = term ? cur.replace(new RegExp('^' + term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'), '').trim() : cur.trim();
-    row[f] = p.name + (rest ? ' ' + rest : ' ');
+    // What was typed was only the search for the party: the name now lives
+    // in the badge, and the box is left for remarks.
+    row[f] = '';
     row[slot] = p.id;
     markDirty();
     hidePartyPicker();
@@ -1360,8 +1407,11 @@
   function showPartyPicker(inputEl) {
     hidePartyPicker();
     if (suppressPicker) return;
-    var term = String(inputEl.value == null ? '' : inputEl.value).toLowerCase();
-    var matches = state.parties.filter(function (p) { return p.name.toLowerCase().indexOf(term) >= 0; }).slice(0, 8);
+    var term = String(inputEl.value == null ? '' : inputEl.value).toLowerCase().trim();
+    if (!term) return;
+    var matches = state.parties.filter(function (p) { return p.name.toLowerCase().indexOf(term) >= 0; })
+      .sort(function (a, b) { return (a.name.toLowerCase().indexOf(term) === 0 ? 0 : 1) - (b.name.toLowerCase().indexOf(term) === 0 ? 0 : 1); })
+      .slice(0, 8);
     if (!matches.length) return;
     pickerEl = document.createElement('div');
     pickerEl.className = 'partylist';
@@ -1374,7 +1424,14 @@
     pickerEl.style.top = (rect.bottom + window.scrollY) + 'px';
     matches.forEach(function (p, i) {
       var opt = document.createElement('div');
-      opt.textContent = p.name;
+      var cat = partyCategory(p);
+      var bal = state.partyBal && state.partyBal[p.id];
+      var tagCls = p.party_kind_id ? '' : (p.kind === 'both' ? 'customer' : p.kind);
+      opt.className = 'po';
+      opt.innerHTML = '<span><span class="main">' + esc(p.name) + '</span><span class="cat" style="display:block">' +
+          esc([cat, p.city].filter(Boolean).join(' · ')) + '</span></span>' +
+        '<span class="rt"><span class="tag ' + tagCls + '">' + esc(cat) + '</span><br>' +
+          (bal ? fmtNum(bal.balance) + ' ' + (bal.side === 'dr' ? 'Dr' : 'Cr') : '—') + '</span>';
       opt.addEventListener('mouseenter', function () { pickerHighlight(i); });
       opt.addEventListener('mousedown', function (ev) { ev.preventDefault(); choosePartyOption(inputEl, p); });
       pickerEl.appendChild(opt);

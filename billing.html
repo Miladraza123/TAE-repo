@@ -2665,10 +2665,7 @@
       html += '<div class="field"><label>Party</label>' +
         comboHtml({
           value: h.party_id,
-          options: partyComboOptions(null).filter(function (o) {
-            var p = state.parties.filter(function (x) { return x.id === o.id; })[0];
-            return p && p.kind !== 'expense';
-          }),
+          options: partyComboOptions(['customer', 'both', 'supplier']),
           placeholder: 'Search party…',
           empty: PARTY_EMPTY,
           onPick: function (id) { h.party_id = id || null; renderServiceDocEditor(); }

@@ -124,7 +124,7 @@
     }
     if (d.oht === 'goto' && (!d.app || d.app === 'masters')) {
       if (!d.arg || !VIEWS[d.arg]) return;
-      activeView = d.arg;
+      activeView = d.arg === 'partykinds' ? 'parties' : d.arg; // old Party Kinds page → Parties
       if (inited) { buildNav(); render(); }
       return;
     }
@@ -138,7 +138,7 @@
   });
   var REFRESH_VIEW_KIND = {
     parties: 'parties', items: 'items', services: 'services', companies: 'companies',
-    warehouses: 'warehouses', party_kinds: 'partykinds', period_lock: 'periodlock'
+    warehouses: 'warehouses', party_kinds: 'parties', period_lock: 'periodlock'
   };
 
   function broadcastRefresh(kind) {
@@ -258,8 +258,7 @@
     { key: 'items', label: 'Items', table: 'items', icon: ICON.items },
     { key: 'services', label: 'Services', table: 'services', icon: ICON.services },
     { key: 'companies', label: 'Firms', table: 'companies', icon: ICON.companies },
-    { key: 'warehouses', label: 'Warehouses', table: 'warehouses', icon: ICON.warehouses },
-    { key: 'partykinds', label: 'Party Kinds', table: 'party_kinds', icon: ICON.partykinds }
+    { key: 'warehouses', label: 'Warehouses', table: 'warehouses', icon: ICON.warehouses }
   ];
   var NAV_TOOLS = [
     { key: 'backup', label: 'Backup / Restore', icon: ICON.backup },
@@ -513,9 +512,110 @@
       '</span></button>';
   }
   function kindBadge(kind) {
-    var map = { customer: 'b', supplier: 'a', both: 'a', expense: 'n' };
+    var map = { customer: 'b', supplier: 'a', both: 'a', expense: 'n', bank: 'n', head: 'n', other: 'n' };
     if (!map[kind]) return '';
-    return pill(kind, map[kind]);
+    return pill(KIND_LABEL[kind] || kind, map[kind]);
+  }
+
+  // ---- Party categories -------------------------------------------------
+  // Fixed categories are parties.kind values. A user-made category is a
+  // party_kinds row: the party gets kind = its base_kind (how it behaves in
+  // the books) and party_kind_id = the category. Order everywhere: fixed,
+  // then user-made, then Other last.
+  var FIXED_CATS = [['customer', 'Customer'], ['supplier', 'Supplier'], ['both', 'Customer & Supplier'],
+    ['expense', 'Expense head'], ['bank', 'Bank'], ['head', 'Head / Owner']];
+  var KIND_LABEL = { customer: 'Customer', supplier: 'Supplier', both: 'Customer & Supplier', expense: 'Expense head',
+    bank: 'Bank', head: 'Head / Owner', other: 'Other' };
+  var BASE_KIND_CHOICES = [['customer', 'Customer ki tarah (lena)'], ['supplier', 'Supplier ki tarah (dena)'],
+    ['both', 'Customer & Supplier ki tarah'], ['expense', 'Expense ki tarah (kharcha)'], ['other', 'Other']];
+  function catKey(p) { return p.party_kind_id ? 'pk:' + p.party_kind_id : (p.kind || 'other'); }
+  function catLabel(p, kinds) {
+    if (p.party_kind_id) {
+      var k = (kinds || []).filter(function (x) { return x.id === p.party_kind_id; })[0];
+      if (k) return k.name;
+    }
+    return KIND_LABEL[p.kind] || p.kind || 'Other';
+  }
+  function canManageCats() { return me.isAdmin || !!me.perms.masters_categories; }
+  function categoryOptionsHtml(selKey, kinds) {
+    var o = FIXED_CATS.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === selKey ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; });
+    (kinds || []).forEach(function (k) {
+      o.push('<option value="pk:' + k.id + '"' + ('pk:' + k.id === selKey ? ' selected' : '') + '>' + esc(k.name) + '</option>');
+    });
+    o.push('<option value="other"' + (selKey === 'other' ? ' selected' : '') + '>Other</option>');
+    if (canManageCats()) o.push('<option value="__add__">+ Add new category…</option>');
+    return o.join('');
+  }
+
+  // Small form dialog (same look as confirmDialog): name + "behaves like".
+  function newCategoryDialog() {
+    return new Promise(function (resolve) {
+      var scrim = document.createElement('div'); scrim.className = 'confirm-scrim on';
+      scrim.innerHTML = '<div class="confirm-card"><h4>New category</h4>' +
+        '<div class="field"><label for="nc_name">Name</label><input id="nc_name" placeholder="e.g. Landlord, Contractor"></div>' +
+        '<div class="field"><label for="nc_base">Hisaab mein kis tarah ginein?</label><select id="nc_base">' +
+          BASE_KIND_CHOICES.map(function (c) { return '<option value="' + c[0] + '"' + (c[0] === 'other' ? ' selected' : '') + '>' + esc(c[1]) + '</option>'; }).join('') +
+        '</select></div><div class="warn-txt" id="nc_err"></div>' +
+        '<div class="acts"><button type="button" class="btn" data-a="0">Cancel</button><button type="button" class="btn pri" data-a="1">Add</button></div></div>';
+      function close(v) { if (scrim.parentNode) scrim.parentNode.removeChild(scrim); resolve(v); }
+      scrim.addEventListener('click', function (e) {
+        if (e.target === scrim) return close(null);
+        var a = e.target.getAttribute && e.target.getAttribute('data-a');
+        if (a === '0') close(null);
+        if (a === '1') {
+          var name = scrim.querySelector('#nc_name').value.trim();
+          if (!name) { scrim.querySelector('#nc_err').textContent = 'Name likhein'; return; }
+          close({ name: name, base_kind: scrim.querySelector('#nc_base').value });
+        }
+      });
+      document.body.appendChild(scrim);
+      scrim.querySelector('#nc_name').focus();
+    });
+  }
+
+  // Lists user-made categories with how many parties use each; Delete
+  // moves those parties to Other first. Resolves true when something changed.
+  function manageCategoriesDialog(kinds, parties) {
+    return new Promise(function (resolve) {
+      var changed = false;
+      var scrim = document.createElement('div'); scrim.className = 'confirm-scrim on';
+      function paint() {
+        var rowsHtml = kinds.length ? kinds.map(function (k) {
+          var n = parties.filter(function (p) { return p.party_kind_id === k.id; }).length;
+          return '<div class="ln"><div class="ln-top"><div style="flex:1;min-width:0"><div style="font-weight:600">' + esc(k.name) + '</div>' +
+            '<div style="font-size:11.5px;color:var(--mute)">' + esc(KIND_LABEL[k.base_kind] || 'Other') + ' ki tarah · ' + n + (n === 1 ? ' party' : ' parties') + '</div></div>' +
+            '<button type="button" class="btn dgr rowbtn" data-del="' + k.id + '">Delete</button></div></div>';
+        }).join('') : '<p style="color:var(--mute);font-size:13px">Abhi koi apni category nahi. Fixed categories (Customer, Supplier, …) delete nahi hotin.</p>';
+        scrim.innerHTML = '<div class="confirm-card"><h4>Manage categories</h4><div class="lines">' + rowsHtml + '</div>' +
+          '<div class="warn-txt" id="mc_err"></div><div class="acts"><button type="button" class="btn pri" data-a="0">Done</button></div></div>';
+      }
+      paint();
+      scrim.addEventListener('click', async function (e) {
+        if (e.target === scrim || (e.target.getAttribute && e.target.getAttribute('data-a') === '0')) {
+          if (scrim.parentNode) scrim.parentNode.removeChild(scrim); resolve(changed); return;
+        }
+        var delId = e.target.getAttribute && e.target.getAttribute('data-del');
+        if (!delId) return;
+        var k = kinds.filter(function (x) { return x.id === delId; })[0];
+        var users = parties.filter(function (p) { return p.party_kind_id === delId; });
+        var ok = await confirmDialog('Delete "' + k.name + '"?',
+          users.length ? users.length + (users.length === 1 ? ' party' : ' parties') + ' is category mein hain — wo "Other" mein chali jayengi.' : 'Is category mein koi party nahi.',
+          'Delete', true);
+        if (!ok) return;
+        if (users.length) {
+          var r1 = await sb.from('parties').update({ kind: 'other', party_kind_id: null }).eq('party_kind_id', delId);
+          if (r1.error) { scrim.querySelector('#mc_err').textContent = r1.error.message; return; }
+          users.forEach(function (p) { p.kind = 'other'; p.party_kind_id = null; });
+        }
+        var r2 = await sb.from('party_kinds').update({ deleted_at: new Date().toISOString() }).eq('id', delId);
+        if (r2.error) { scrim.querySelector('#mc_err').textContent = r2.error.message; return; }
+        kinds.splice(kinds.indexOf(k), 1);
+        changed = true;
+        broadcastRefresh('party_kinds'); broadcastRefresh('parties');
+        paint();
+      });
+      document.body.appendChild(scrim);
+    });
   }
 
   // ===================================================================
@@ -744,18 +844,20 @@
     async render() {
       var { data } = await sb.from('parties').select('*').is('deleted_at', null).order('name');
       var all = data || [];
-      var { data: partyKindsData } = await sb.from('party_kinds').select('id,name').is('deleted_at', null).order('name');
+      var { data: partyKindsData } = await sb.from('party_kinds').select('id,name,base_kind').is('deleted_at', null).order('name');
       var partyKindOptions = partyKindsData || [];
       var kindFilter = '';
+      var catChips = [{ k: '', label: 'All' }].concat(FIXED_CATS.map(function (c) { return { k: c[0], label: c[1] }; }))
+        .concat(partyKindOptions.map(function (k) { return { k: 'pk:' + k.id, label: k.name }; }))
+        .concat([{ k: 'other', label: 'Other' }]);
       document.getElementById('content').innerHTML =
-        toolbarHtml('Search parties…', '+ Add Party',
-          chipsHtml([{ k: '', label: 'All' }, { k: 'customer', label: 'Customers' }, { k: 'supplier', label: 'Suppliers' }, { k: 'both', label: 'Both' }, { k: 'expense', label: 'Expense' }], kindFilter));
+        toolbarHtml('Search parties…', '+ Add Party', chipsHtml(catChips, kindFilter));
 
       var rows = [];
       function paint() {
         var term = (searchTerm || '').toLowerCase();
         rows = all.filter(function (p) {
-          if (kindFilter && p.kind !== kindFilter) return false;
+          if (kindFilter && catKey(p) !== kindFilter) return false;
           return !term || p.name.toLowerCase().indexOf(term) >= 0;
         });
         var recv = 0, pay = 0;
@@ -769,14 +871,15 @@
           { label: 'Opening payable', val: pay, cls: 'cr', ring: 'CR' }
         ]);
         setPgCount(rows.length, rows.length === 1 ? 'party' : 'parties');
-        setPgSub(rows.length + ' of ' + all.length + (kindFilter ? ' · ' + kindFilter : '') + ' · customers, suppliers and expense heads');
+        var chipLabel = (catChips.filter(function (c) { return c.k === kindFilter; })[0] || {}).label;
+        setPgSub(rows.length + ' of ' + all.length + (kindFilter ? ' · ' + chipLabel : '') + ' · all party categories');
         var html = rows.map(function (p) {
           return rowHtml({
             id: p.id,
             initials: initials(p.name),
             name: p.name,
             sub: [p.phone, p.city].filter(Boolean).join(' · ') || '—',
-            badge: kindBadge(p.kind),
+            badge: p.party_kind_id ? pill(catLabel(p, partyKindOptions), 'n') : kindBadge(p.kind),
             amt: fmt(p.opening || 0),
             tag: (p.opening_side || '').toUpperCase(),
             inactive: p.active === false
@@ -799,19 +902,15 @@
         var body =
           '<div class="field"><label for="f_name">Name</label><input id="f_name" value="' + esc(rec.name) + '"></div>' +
           '<div class="f2">' +
-            '<div class="field"><label for="f_kind">Kind</label><select id="f_kind">' +
-              ['customer', 'supplier', 'both', 'expense'].map(function (k) { return '<option value="' + k + '"' + (k === rec.kind ? ' selected' : '') + '>' + k + '</option>'; }).join('') +
-            '</select></div>' +
+            '<div class="field"><label for="f_kind">Category</label><select id="f_kind">' + categoryOptionsHtml(catKey(rec), partyKindOptions) + '</select>' +
+              (canManageCats() ? '<div class="hint"><a href="#" id="manageCatsLink" style="color:var(--cash)">Manage categories…</a></div>' : '') +
+            '</div>' +
             '<div class="field"><label for="f_phone">Phone</label><input id="f_phone" value="' + esc(rec.phone) + '"></div>' +
           '</div>' +
           '<div class="f2">' +
             '<div class="field"><label for="f_city">City</label><input id="f_city" value="' + esc(rec.city) + '"></div>' +
             '<div class="field"><label for="f_ntn">NTN</label><input id="f_ntn" value="' + esc(rec.ntn) + '"></div>' +
           '</div>' +
-          '<div class="field"><label for="f_party_kind_id">Party kind <span style="font-weight:400;color:var(--mute)">(optional)</span></label><select id="f_party_kind_id">' +
-            '<option value="">— None —</option>' +
-            partyKindOptions.map(function (k) { return '<option value="' + k.id + '"' + (k.id === rec.party_kind_id ? ' selected' : '') + '>' + esc(k.name) + '</option>'; }).join('') +
-          '</select></div>' +
           '<div class="field"><label for="f_address">Address</label><input id="f_address" value="' + esc(rec.address) + '"></div>' +
           '<div class="f2">' +
             '<div class="field"><label for="f_opening">Opening</label><input class="num" type="number" step="0.01" id="f_opening" value="' + (rec.opening || 0) + '"></div>' +
@@ -827,14 +926,54 @@
 
         openSheet((id ? 'Edit ' : 'New ') + 'Party', body, editorFtr(!!id));
 
-        document.getElementById('f_kind').addEventListener('change', function () {
-          document.getElementById('expenseTypeWrap').style.display = this.value === 'expense' ? 'block' : 'none';
+        var lastCat = catKey(rec);
+        function effectiveKind(v) {
+          if (v.indexOf('pk:') === 0) {
+            var k = partyKindOptions.filter(function (x) { return 'pk:' + x.id === v; })[0];
+            return k ? k.base_kind : 'other';
+          }
+          return v;
+        }
+        function refreshCatSelect(selKey) {
+          var sel = document.getElementById('f_kind');
+          sel.innerHTML = categoryOptionsHtml(selKey, partyKindOptions);
+          lastCat = selKey;
+          document.getElementById('expenseTypeWrap').style.display = effectiveKind(selKey) === 'expense' ? 'block' : 'none';
+        }
+        document.getElementById('f_kind').addEventListener('change', async function () {
+          var sel = this;
+          if (sel.value !== '__add__') {
+            lastCat = sel.value;
+            document.getElementById('expenseTypeWrap').style.display = effectiveKind(sel.value) === 'expense' ? 'block' : 'none';
+            return;
+          }
+          sel.value = lastCat;
+          var nc = await newCategoryDialog();
+          if (!nc) return;
+          var clash = partyKindOptions.filter(function (k) { return normName(k.name) === normName(nc.name); })[0] ||
+            FIXED_CATS.concat([['other', 'Other']]).filter(function (c) { return normName(c[1]) === normName(nc.name); })[0];
+          if (clash) { document.getElementById('formErr').textContent = 'Ye category pehle se hai.'; return; }
+          var res = await sb.from('party_kinds').insert({ name: nc.name, base_kind: nc.base_kind }).select('id,name,base_kind').single();
+          if (res.error) { document.getElementById('formErr').textContent = res.error.message; return; }
+          partyKindOptions.push(res.data);
+          partyKindOptions.sort(function (a, b) { return a.name.localeCompare(b.name); });
+          refreshCatSelect('pk:' + res.data.id);
+          broadcastRefresh('party_kinds');
+        });
+        var mcl = document.getElementById('manageCatsLink');
+        if (mcl) mcl.addEventListener('click', async function (ev) {
+          ev.preventDefault();
+          var changed = await manageCategoriesDialog(partyKindOptions, all);
+          if (changed) {
+            var cur = document.getElementById('f_kind').value;
+            refreshCatSelect(cur.indexOf('pk:') === 0 && !partyKindOptions.some(function (k) { return 'pk:' + k.id === cur; }) ? 'other' : cur);
+          }
         });
         document.getElementById('cancelBtn').addEventListener('click', closeSheet);
         document.getElementById('saveBtn').addEventListener('click', async function () {
           var payload = {
             name: document.getElementById('f_name').value,
-            kind: document.getElementById('f_kind').value,
+            kind: effectiveKind(document.getElementById('f_kind').value),
             phone: document.getElementById('f_phone').value || null,
             city: document.getElementById('f_city').value || null,
             address: document.getElementById('f_address').value || null,
@@ -844,7 +983,7 @@
             opening_date: document.getElementById('f_opening_date').value || null,
             credit_days: Number(document.getElementById('f_credit_days').value) || 0,
             expense_type: document.getElementById('f_expense_type') ? (document.getElementById('f_expense_type').value || null) : null,
-            party_kind_id: document.getElementById('f_party_kind_id').value || null,
+            party_kind_id: document.getElementById('f_kind').value.indexOf('pk:') === 0 ? document.getElementById('f_kind').value.slice(3) : null,
             notes: document.getElementById('f_notes').value || null
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
@@ -1682,7 +1821,9 @@
 
   var VIEWS = {
     parties: partiesView, items: itemsView, services: servicesCrud, companies: companiesCrud,
-    warehouses: warehousesCrud, partykinds: partyKindsCrud, users: usersView,
+    // Party categories are managed from the party form itself now; the old
+    // "Party Kinds" page link (bookmarks, last-open screen) lands on Parties.
+    warehouses: warehousesCrud, partykinds: partiesView, users: usersView,
     recyclebin: recycleBinView, backup: backupView, periodlock: periodLockView, changepw: changePwView
   };
 
