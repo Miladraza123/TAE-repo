@@ -3616,6 +3616,17 @@
     if (!h.dc_date) { errEl.textContent = 'Pick the date'; return; }
     var valid = t.lines.filter(dcLineValid);
     if (!valid.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
+    // Never more than the quotation still has pending for that line.
+    for (var vi = 0; vi < valid.length; vi++) {
+      var vl = valid[vi], qi = vl.quotation_line_id && t.qinfo ? t.qinfo[vl.quotation_line_id] : null;
+      if (!qi) continue;
+      var pend = Math.max(0, qi.ordered - qi.deliveredElsewhere);
+      if (Number(vl.qty) > pend + 0.0005) {
+        errEl.textContent = "'" + dcLineName(vl) + "' — quotation mein " + qtyStr(qi.ordered) + ' order hai, doosre challans par ' +
+          qtyStr(qi.deliveredElsewhere) + ' ja chuka, sirf ' + qtyStr(pend) + ' pending hai. Zyada dena ho to pehle quotation mein qty barhayein.';
+        return;
+      }
+    }
     var headerPayload = { dc_date: h.dc_date, party_id: h.party_id, company_id: h.company_id || null,
       quotation_id: h.quotation_id || null, narration: String(h.narration || '').trim() || null };
     function done(msg) {
