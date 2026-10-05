@@ -1835,9 +1835,27 @@
     recyclebin: recycleBinView, backup: backupView, periodlock: periodLockView, changepw: changePwView
   };
 
-  async function render() {
-    var v = VIEWS[activeView];
-    if (v) await v.render();
+  // One render at a time. A save and the refresh it broadcasts (which comes
+  // back to this window too) used to render in parallel, and whichever
+  // fetch finished last painted the screen — sometimes the older data, so
+  // e.g. a party just moved to a new category reopened showing the old one.
+  // A render asked for while one is running now runs again right after it,
+  // so the screen always ends on the newest data.
+  var rendering = null, renderAgain = false;
+  function render() {
+    if (rendering) { renderAgain = true; return rendering; }
+    rendering = (async function () {
+      try {
+        do {
+          renderAgain = false;
+          var v = VIEWS[activeView];
+          if (v) await v.render();
+        } while (renderAgain);
+      } finally {
+        rendering = null;
+      }
+    })();
+    return rendering;
   }
 
   (async function init() {
