@@ -1031,13 +1031,32 @@
     // Lightweight running balance hint (full ledger logic lives in reports.html/§11).
     var el = document.getElementById('partyHint');
     if (!el) return;
-    var { data: p } = await sb.from('parties').select('opening,opening_side').eq('id', partyId).single();
-    var { data: vs } = await sb.from('vouchers').select('vtype,grand_total,paid').eq('party_id', partyId).is('deleted_at', null);
-    var bal = p ? (p.opening_side === 'dr' ? p.opening : -p.opening) : 0;
+    // Same pieces as the Trial Balance: opening, sales/purchases, sales
+    // returns, service invoices and Daily Ledger cash linked to the party
+    // (Debit · Received = d_amt/d_party, Credit · Paid = c_amt/c_party).
+    var [{ data: p }, { data: vs }, { data: rets }, { data: svcs }, { data: rows }, { data: liveSheets }] = await Promise.all([
+      sb.from('parties').select('opening,opening_side').eq('id', partyId).single(),
+      sb.from('vouchers').select('vtype,grand_total,paid').eq('party_id', partyId).is('deleted_at', null),
+      sb.from('sales_returns').select('grand_total').eq('party_id', partyId).is('deleted_at', null),
+      sb.from('service_invoices').select('grand_total,paid,status').eq('party_id', partyId).is('deleted_at', null),
+      sb.from('sheet_rows').select('sheet_id,d_amt,c_amt,d_party,c_party').or('d_party.eq.' + partyId + ',c_party.eq.' + partyId),
+      sb.from('sheets').select('id').is('deleted_at', null)
+    ]);
+    var bal = p ? (p.opening_side === 'dr' ? Number(p.opening) || 0 : -(Number(p.opening) || 0)) : 0;
     (vs || []).forEach(function (v) {
       if (v.vtype === 'sale') bal += v.grand_total - v.paid;
       else bal -= v.grand_total - v.paid;
     });
+    (rets || []).forEach(function (r) { bal -= Number(r.grand_total) || 0; });
+    (svcs || []).forEach(function (si) { if (si.status !== 'cancelled') bal += (Number(si.grand_total) || 0) - (Number(si.paid) || 0); });
+    var live = {}; (liveSheets || []).forEach(function (sh) { live[sh.id] = true; });
+    (rows || []).forEach(function (r) {
+      if (!live[r.sheet_id]) return;
+      if (r.d_party === partyId) bal -= Number(r.d_amt) || 0;
+      if (r.c_party === partyId) bal += Number(r.c_amt) || 0;
+    });
+    el = document.getElementById('partyHint'); // the editor may have re-rendered while loading
+    if (!el) return;
     el.textContent = 'Current balance: ' + fmtMoney(Math.abs(bal)) + ' ' + (bal >= 0 ? 'Dr' : 'Cr');
   }
 
