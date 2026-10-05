@@ -860,6 +860,14 @@
       var all = data || [];
       var { data: partyKindsData } = await sb.from('party_kinds').select('id,name,base_kind').is('deleted_at', null).order('name');
       var partyKindOptions = partyKindsData || [];
+      // The category list is read again whenever a party form opens, so a
+      // category just added (here or by someone else) is always offered.
+      async function freshKinds() {
+        try {
+          var res = await sb.from('party_kinds').select('id,name,base_kind').is('deleted_at', null).order('name');
+          if (res && res.data) { partyKindOptions.length = 0; Array.prototype.push.apply(partyKindOptions, res.data); }
+        } catch (e) { /* offline: keep what we have */ }
+      }
       var kindFilter = '';
       var catChips = [{ k: '', label: 'All' }].concat(FIXED_CATS.map(function (c) { return { k: c[0], label: c[1] }; }))
         .concat(partyKindOptions.map(function (k) { return { k: 'pk:' + k.id, label: k.name }; }))
@@ -902,13 +910,13 @@
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No parties yet', term ? 'Nothing matches “' + term + '”.' : 'Add your first customer or supplier to get started.');
         Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-          el.addEventListener('click', function () { freshRow('parties', el.dataset.id, rows).then(function () { openForm(el.dataset.id, rows); }); });
+          el.addEventListener('click', function () { Promise.all([freshRow('parties', el.dataset.id, rows), freshKinds()]).then(function () { openForm(el.dataset.id, rows); }); });
         });
       }
       paint();
       wireToolbar(paint);
       wireChips(function (k) { kindFilter = k; paint(); });
-      document.getElementById('addBtn').addEventListener('click', function () { openForm(null, rows); });
+      document.getElementById('addBtn').addEventListener('click', function () { freshKinds().then(function () { openForm(null, rows); }); });
 
       function openForm(id, rows) {
         var rec = id ? rows.filter(function (r) { return r.id === id; })[0] : { kind: 'customer', opening_side: 'dr', credit_days: 0, active: true };
