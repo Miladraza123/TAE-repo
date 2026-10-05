@@ -3479,7 +3479,8 @@
       '</div>';
     if (h.quotation_id) html += '<div class="hint">Against quotation <b>' + esc(t.qno || '') + '</b></div>';
     html += '<div class="hint">No rates on a challan — rates go on the Sales Invoice. <b>General supply</b> lines take stock out now; ' +
-      '<b>Manufactured</b> lines don\'t — their raw material goes out through Material Issue on the quotation.</div>';
+      '<b>Manufactured</b> lines don\'t — their raw material goes out through <b>Material Issue</b> ' +
+      (h.quotation_id ? 'on the quotation (or the button below).' : (t.isNew ? '— Save this challan first, then use the Material Issue button.' : '— the Material Issue button below.')) + '</div>';
     html += '<div class="group-lbl">Items delivered</div>';
     html += '<div class="lines" id="dcLinesWrap"></div>';
     html += '<button type="button" class="btn add-more" id="dcAddLineBtn">+ Add line</button>';
@@ -3488,6 +3489,7 @@
 
     var ftr = (!t.isNew ? '<button type="button" class="btn dgr" id="dcDeleteBtn">Delete</button>' : '') +
       (!t.isNew ? '<button type="button" class="btn" id="dcPrintBtn">Print</button>' : '') +
+      (!t.isNew ? '<button type="button" class="btn" id="dcMiBtn">Material Issue</button>' : '') +
       (!t.isNew && dcUnbilledLeft(t) ? '<button type="button" class="btn" id="dcInvoiceBtn">Make Sales Invoice</button>' : '') +
       '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
       '<button type="button" class="btn pri" id="dcSaveBtn">Save</button>';
@@ -3504,6 +3506,7 @@
     var del = document.getElementById('dcDeleteBtn'); if (del) del.addEventListener('click', deleteDc);
     var pr = document.getElementById('dcPrintBtn'); if (pr) pr.addEventListener('click', printDc);
     var inv = document.getElementById('dcInvoiceBtn'); if (inv) inv.addEventListener('click', makeInvoiceFromDc);
+    var mib = document.getElementById('dcMiBtn'); if (mib) mib.addEventListener('click', openMaterialIssuesForDc);
     wireCombos(document.getElementById('editorCard'));
   }
 
@@ -3582,7 +3585,10 @@
       if (item && !String(l.description || '').trim()) l.description = specsSummary(item.id);
     }
     if (f === 'custom_name' || f === 'custom_unit' || f === 'description') return;
-    renderDcLines();
+    // A change often fires on blur, when the user has just clicked another
+    // control; rebuilding the lines inside that blur throws ("node to be
+    // removed is no longer a child"). Redraw on the next tick instead.
+    setTimeout(function () { if (dcEditing && document.getElementById('dcLinesWrap')) renderDcLines(); }, 0);
   }
 
   function dcLinePayload(l, i, dcId) {
@@ -3866,17 +3872,40 @@
     else toast('Pending qty filled in — change it for a partial delivery, then Save.');
   }
 
+  // An issue belongs to a quotation (the order's pool, shared by all its
+  // challans) or to a direct DC (made without a quotation).
+  // miEditing.target is { quotation_id } or { dc_id }; .back() reopens
+  // whichever editor the sheet was opened from.
   var miEditing = null;
+  function openMiSheet(target, label, hint, backLabel, back) {
+    miEditing = { target: target, label: label, hint: hint, backLabel: backLabel, back: back, list: [],
+      draft: { issue_date: todayStr(), item_id: null, qty: 0, warehouse_id: defaultWarehouseId(), notes: '' } };
+    return reloadMaterialIssues();
+  }
   async function openMaterialIssues() {
     var d = docEditing;
-    miEditing = { doc: d, quoteId: d.id, qno: d.header.qno, list: [],
-      draft: { issue_date: todayStr(), item_id: null, qty: 0, warehouse_id: defaultWarehouseId(), notes: '' } };
-    await reloadMaterialIssues();
+    await openMiSheet({ quotation_id: d.id }, d.header.qno,
+      'the total is shared over the manufactured items delivered on its challans.', 'Back to quotation',
+      function () { docEditing = d; d.progress = null; renderDocEditor(); });
+  }
+  async function openMaterialIssuesForDc() {
+    var t = dcEditing, h = t.header;
+    var back = function () { dcEditing = t; renderDcEditor(); };
+    if (h.quotation_id) {
+      // A DC made from a quotation uses that order's pool.
+      await openMiSheet({ quotation_id: h.quotation_id }, (t.qno || 'Quotation') + ' (from ' + h.dcno + ')',
+        'this challan came from ' + (t.qno || 'a quotation') + ', so material goes to that order and is shared over all its challans.',
+        'Back to challan', back);
+    } else {
+      await openMiSheet({ dc_id: t.id }, h.dcno,
+        'the total is shared over this challan\'s Manufactured lines, by qty.', 'Back to challan', back);
+    }
   }
   async function reloadMaterialIssues() {
     var m = miEditing;
     if (!m) return; // the user went back to the quotation meanwhile
-    var { data, error } = await sb.from('material_issues').select('*').eq('quotation_id', m.quoteId).is('deleted_at', null)
+    var key = Object.keys(m.target)[0];
+    var { data, error } = await sb.from('material_issues').select('*').eq(key, m.target[key]).is('deleted_at', null)
       .order('issue_date').order('created_at');
     if (error) { toast(error.message, true); return; }
     if (miEditing !== m) return;
@@ -3894,8 +3923,8 @@
       byItem[r.item_id].cost += Number(r.cost_amount || 0);
       totalCost += Number(r.cost_amount || 0);
     });
-    var html = '<div class="hint">Raw material taken out for this order. Stock goes out on the issue date — issue as many times as needed; ' +
-      'the total is shared over the manufactured items delivered on its challans.</div>';
+    var html = '<div class="hint">Raw material taken out for this job. Stock goes out on the issue date — issue as many times as needed; ' +
+      esc(m.hint) + '</div>';
     html += '<div class="group-lbl">Total issued</div>';
     html += order.length ? order.map(function (id) {
       var it = itemById(id);
@@ -3937,8 +3966,8 @@
     }).join('');
     html += '</div>';
 
-    var ftr = '<button type="button" class="btn" id="miBackBtn">Back to quotation</button>';
-    renderSheet('Material Issue — ' + (m.qno || 'Quotation'), html, ftr);
+    var ftr = '<button type="button" class="btn" id="miBackBtn">' + esc(m.backLabel) + '</button>';
+    renderSheet('Material Issue — ' + (m.label || ''), html, ftr);
     wireCombos(document.getElementById('editorCard'));
     document.getElementById('mi_date').addEventListener('input', function () { dr.issue_date = this.value; });
     document.getElementById('mi_qty').addEventListener('input', function () { dr.qty = Number(this.value) || 0; });
@@ -3946,11 +3975,8 @@
     var wh = document.getElementById('mi_wh'); if (wh) wh.addEventListener('change', function () { dr.warehouse_id = this.value || null; });
     document.getElementById('miAddBtn').addEventListener('click', addMaterialIssue);
     document.getElementById('miBackBtn').addEventListener('click', function () {
-      var d = m.doc;
       miEditing = null;
-      docEditing = d;
-      d.progress = null;
-      renderDocEditor();
+      m.back();
     });
     Array.prototype.forEach.call(document.querySelectorAll('.miSave'), function (btn) {
       btn.addEventListener('click', function () { saveMaterialIssueRow(btn.dataset.id); });
@@ -3972,7 +3998,7 @@
     if (!(Number(dr.qty) > 0)) { errEl.textContent = 'Qty must be more than 0'; return; }
     if (!dr.issue_date) { errEl.textContent = 'Pick the date'; return; }
     var { error } = await sb.from('material_issues').insert({
-      quotation_id: m.quoteId, issue_date: dr.issue_date, item_id: dr.item_id, qty: Number(dr.qty),
+      quotation_id: m.target.quotation_id || null, dc_id: m.target.dc_id || null, issue_date: dr.issue_date, item_id: dr.item_id, qty: Number(dr.qty),
       warehouse_id: dr.warehouse_id || null, notes: String(dr.notes || '').trim() || null
     });
     if (error) { errEl.textContent = error.message; return; }
