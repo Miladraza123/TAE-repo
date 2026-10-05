@@ -175,6 +175,7 @@
     { key: 'aging', label: 'Receivable Aging' },
     { key: 'pl', label: 'Profit & Loss' },
     { key: 'statement', label: 'Statement of Account' },
+    { key: 'due', label: 'Payments Due' },
     { key: 'stockledger', label: 'Item Stock Ledger' },
     { key: 'matcons', label: 'Material Consumption' },
     { key: 'matprofit', label: 'Material Cost & Profit' },
@@ -692,6 +693,7 @@
         stParties = data || []; stKinds = kinds || [];
       }
       var prev = document.getElementById('st_party') ? document.getElementById('st_party').value : '';
+      if (stPreselect) { prev = stPreselect; stPreselect = null; }
       var prevFrom = document.getElementById('st_from') ? document.getElementById('st_from').value : '';
       var prevTo = document.getElementById('st_to') ? document.getElementById('st_to').value : todayStr();
       var cats = [['', 'All']].concat(ST_FIXED).concat(stKinds.map(function (k) { return ['pk:' + k.id, k.name]; })).concat([['other', 'Other']]);
@@ -762,6 +764,110 @@
       if (!events.length) h += '<tr><td colspan="5" style="color:var(--mute)">No entries in this period.</td></tr>';
       h += '</tbody><tfoot><tr><td colspan="4">Closing balance</td><td class="num mono">' + bal(closing) + '</td></tr></tfoot></table>';
       setBody('st', h);
+    }
+  };
+
+  // ===================================================================
+  // Payments Due — suppliers to pay / customers to collect from, bill by
+  // bill with due dates (payable_aging / receivable_aging), soonest first.
+  // ===================================================================
+  var dueTab = 'pay';
+  var stPreselect = null; // party to open in Statement of Account
+  var dueView = {
+    async render() {
+      await loadFirm();
+      document.getElementById('content').innerHTML = pageShell('due', {
+        crumb: 'Reports / Lena – Dena', title: 'Payments Due',
+        sub: 'Due date = bill due date, warna party ke credit days', cardTitle: 'Bills',
+        actions: '<button type="button" class="pg-hb" id="due_reload">Refresh</button>',
+        ctl: chip('due_t_pay', 'Mujhe dene hain (Suppliers)', dueTab === 'pay') + chip('due_t_recv', 'Mujhe lene hain (Customers)', dueTab === 'recv'),
+        empty: 'Loading…'
+      });
+      wirePrint('due');
+      document.getElementById('due_reload').addEventListener('click', dueView.run);
+      document.getElementById('due_t_pay').addEventListener('click', function () { dueTab = 'pay'; dueView.render(); });
+      document.getElementById('due_t_recv').addEventListener('click', function () { dueTab = 'recv'; dueView.render(); });
+      dueView.run();
+    },
+    async run() {
+      var asOf = todayStr();
+      var isPay = dueTab === 'pay';
+      var [pay, recv] = await Promise.all([
+        sb.rpc('payable_aging', { p_as_of: asOf }),
+        sb.rpc('receivable_aging', { p_as_of: asOf })
+      ]);
+      var err = (isPay ? pay : recv).error;
+      if (err) { setBody('due', emptyCard('Could not load', err.message)); return; }
+      var billsOf = function (res, payables) {
+        return (res.data || []).filter(function (r) {
+          return payables ? r.doc_kind !== 'advance' : (r.doc_kind !== 'advance' && r.doc_kind !== 'payable');
+        });
+      };
+      var payBills = billsOf(pay, true), recvBills = billsOf(recv, false);
+      var sum = function (a) { return a.reduce(function (t, r) { return t + (Number(r.outstanding) || 0); }, 0); };
+      document.getElementById('due_t_pay').textContent = 'Mujhe dene hain · ' + fmt(sum(payBills));
+      document.getElementById('due_t_recv').textContent = 'Mujhe lene hain · ' + fmt(sum(recvBills));
+
+      var bills = isPay ? payBills : recvBills;
+      var week = new Date(); week.setDate(week.getDate() + 7);
+      var weekStr = week.toISOString().slice(0, 10);
+      var groups = { over: [], week: [], later: [] };
+      bills.forEach(function (r) {
+        var d = r.due_date;
+        if (d && d < asOf) groups.over.push(r);
+        else if (d && d <= weekStr) groups.week.push(r);
+        else groups.later.push(r);
+      });
+      Object.keys(groups).forEach(function (k) {
+        groups[k].sort(function (a, b) { return String(a.due_date || '9999').localeCompare(String(b.due_date || '9999')); });
+      });
+      setSub('due', (isPay ? 'Suppliers ko' : 'Customers se') + ' · as of ' + asOf + ' · due date = bill due date, warna party ke credit days');
+      setKpis('due', [
+        { cls: 'dr', label: 'Overdue', val: sum(groups.over), ring: '!' },
+        { cls: 'wn', label: 'Is hafte', val: sum(groups.week), ring: '7d' },
+        { cls: 'cr', label: 'Baad mein', val: sum(groups.later), ring: '…' }
+      ]);
+      setCount('due', bills.length, bills.length === 1 ? 'bill' : 'bills');
+      if (!bills.length) { setBody('due', emptyCard(isPay ? 'Koi payment baqi nahi' : 'Kisi customer se kuch lena baqi nahi', 'Sab clear hai.')); return; }
+
+      var kindLabel = { purchase: 'Bill', sale: 'Invoice', service_invoice: 'Service invoice', opening: 'Opening', cash_paid: 'Cash paid' };
+      var section = function (title, cls, rows) {
+        if (!rows.length) return '';
+        var h = '<tr class="due-grp"><td colspan="5" class="' + cls + '" style="font-weight:700;letter-spacing:.06em;font-size:11px">' + title +
+          ' · ' + fmt(sum(rows)) + '</td></tr>';
+        rows.forEach(function (r) {
+          var late = r.due_date && r.due_date < asOf;
+          var days = r.due_date ? Math.round((new Date(r.due_date) - new Date(asOf)) / 86400000) : null;
+          var when = days == null ? 'no due date' : late ? '<b class="dr">' + (-days) + ' din late</b>' : (days === 0 ? 'aaj due' : days + ' din baqi');
+          h += '<tr><td><a href="#" class="due-party" data-id="' + r.party_id + '" style="font-weight:700;color:inherit">' + esc(r.party_name) + '</a>' +
+            '<div style="font-size:11px;color:var(--mute)">' + esc((kindLabel[r.doc_kind] || r.doc_kind) + ' ' + (r.doc_kind === 'opening' ? '' : (r.doc_no || ''))) + '</div></td>' +
+            '<td class="mono">' + esc(r.due_date || '—') + '</td><td>' + when + '</td>' +
+            '<td class="num mono">' + fmt(r.outstanding) + '</td>' +
+            '<td class="num"><button type="button" class="pg-hb due-act" data-id="' + r.party_id + '">' + (isPay ? 'Pay' : 'Receive') + '</button></td></tr>';
+        });
+        return h;
+      };
+      var h = '<table class="doc-table"><thead><tr><th>Party / Bill</th><th>Due date</th><th>Status</th><th class="num">Baqi</th><th></th></tr></thead><tbody>' +
+        section('OVERDUE', 'dr', groups.over) + section('IS HAFTE DUE', 'wn', groups.week) + section('BAAD MEIN', 'cr', groups.later) +
+        '</tbody><tfoot><tr><td colspan="3">Total</td><td class="num mono">' + fmt(sum(bills)) + '</td><td></td></tr></tfoot></table>';
+      var adv = ((isPay ? pay : recv).data || []).filter(function (r) { return r.doc_kind === 'advance'; });
+      if (adv.length) {
+        h += '<div class="rpt-note" style="margin-top:10px">Advance ' + (isPay ? 'jo humne suppliers ko diya' : 'jo customers ne diya') + ': ' +
+          adv.map(function (r) { return esc(r.party_name) + ' ' + fmt(r.outstanding); }).join(' · ') + '</div>';
+      }
+      setBody('due', h);
+      Array.prototype.forEach.call(document.querySelectorAll('#due_body .due-act'), function (b) {
+        b.addEventListener('click', function () {
+          window.parent.postMessage({ oht: 'open', app: 'ledger', arg: (isPay ? 'pay:' : 'recv:') + b.getAttribute('data-id') }, '*');
+        });
+      });
+      Array.prototype.forEach.call(document.querySelectorAll('#due_body .due-party'), function (a) {
+        a.addEventListener('click', function (ev) {
+          ev.preventDefault();
+          stPreselect = a.getAttribute('data-id'); stCat = '';
+          window.parent.postMessage({ oht: 'open', app: 'reports', arg: 'statement' }, '*');
+        });
+      });
     }
   };
 
@@ -1249,7 +1355,7 @@
   };
 
   var VIEWS = {
-    trial: trialView, aging: agingView, pl: plView, statement: statementView, stockledger: stockLedgerView,
+    trial: trialView, aging: agingView, pl: plView, statement: statementView, due: dueView, stockledger: stockLedgerView,
     matcons: matConsumptionView, matprofit: matProfitView, mataudit: matAuditView
   };
 

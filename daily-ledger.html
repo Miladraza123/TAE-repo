@@ -472,6 +472,13 @@
     // added/edited in Masters shows up in the Firm dropdown (§2) and its
     // print letterhead (the per-name firmCache is cleared so a changed
     // logo/signature/stamp isn't served stale on the next print).
+    // Payments Due → "Pay"/"Receive": open today's sheet with a new line
+    // already linked to that party, cursor in the amount.
+    if (d.oht === 'goto' && d.app === 'ledger' && /^(pay|recv):/.test(d.arg || '')) {
+      pendingPrefill = { side: d.arg.indexOf('pay:') === 0 ? 'c' : 'd', party: d.arg.slice(d.arg.indexOf(':') + 1) };
+      if (state.sheet) applyPrefill();
+      return;
+    }
     if (d.oht === 'refresh' && state.sheet) {
       // renderSafely: a refresh arriving mid-typing must not wipe the cell.
       if (d.kind === 'parties' || d.kind === 'party_kinds') loadParties().then(renderSafely);
@@ -2466,6 +2473,25 @@
     try { window.top.postMessage({ oht: 'signOut' }, '*'); } catch (e) {}
   });
 
+  var pendingPrefill = null;
+  async function applyPrefill() {
+    if (!pendingPrefill) return;
+    var pf = pendingPrefill; pendingPrefill = null;
+    var today = new Date().toISOString().slice(0, 10);
+    if (state.date !== today) { state.date = today; await loadSheet(today); }
+    if (!state.sheet) return;
+    var slot = pf.side + '_party', amtF = pf.side + '_amt';
+    var idx = -1;
+    state.sheet.rows.forEach(function (r, i) {
+      if (idx < 0 && !Number(r[amtF]) && !r[slot] && !r[pf.side + '_rem']) idx = i;
+    });
+    if (idx < 0) { state.sheet.rows.push(emptyRow()); idx = state.sheet.rows.length - 1; }
+    state.sheet.rows[idx][slot] = pf.party;
+    markDirty();
+    render();
+    focusCell(idx, amtF, 'end');
+  }
+
   (async function init() {
     updateNetStatus();
     var { data: userData } = await sb.auth.getUser();
@@ -2475,6 +2501,7 @@
     }
     await Promise.all([loadParties(), loadCompanies()]);
     await loadSheet(state.date);
+    applyPrefill();
     loadRecentSheets();
     syncNow();
   })();

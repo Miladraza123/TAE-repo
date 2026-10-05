@@ -324,6 +324,7 @@
       { app: 'reports', arg: 'aging', label: 'Receivable Aging' },
       { app: 'reports', arg: 'pl', label: 'Profit & Loss' },
       { app: 'reports', arg: 'statement', label: 'Statement of Account' },
+      { app: 'reports', arg: 'due', label: 'Payments Due' },
       { app: 'reports', arg: 'stockledger', label: 'Item Stock Ledger' },
       { app: 'reports', arg: 'matcons', label: 'Material Consumption' },
       { app: 'reports', arg: 'matprofit', label: 'Material Cost & Profit' },
@@ -560,7 +561,9 @@
     var label = navLabelFor(app, arg || null);
     document.getElementById('shellTitle').textContent = label;
     document.getElementById('appbarTitle').textContent = label;
-    try { if (currentUserId) localStorage.setItem('oht:lastNav:' + currentUserId, JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
+    // A one-off action (Payments Due → Pay) must not replay on the next sign-in.
+    var remember = !(typeof arg === 'string' && /^(pay|recv):/.test(arg));
+    try { if (currentUserId && remember) localStorage.setItem('oht:lastNav:' + currentUserId, JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
     if (arg === undefined || arg === null) return;
     var msg = { oht: 'goto', app: app, arg: arg };
     if (existed && frameReady[app]) {
