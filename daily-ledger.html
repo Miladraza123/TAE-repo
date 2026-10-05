@@ -842,7 +842,14 @@
       render();
     }
 
-    var { data } = await sb.from('sheets').select('*').eq('sheet_date', date).is('deleted_at', null).maybeSingle();
+    var { data, error: loadErr } = await sb.from('sheets').select('*').eq('sheet_date', date).is('deleted_at', null).maybeSingle();
+    if (!data && !loadErr && cached && cached.id) {
+      // The server answered and this day has no live sheet, yet the cached
+      // copy was saved once: that sheet was deleted (here or on another
+      // device). Its copy must not come back and be saved into the bin.
+      try { localStorage.removeItem(LOCAL_KEY_PREFIX + date); } catch (e) {}
+      cached = null;
+    }
     if (data) {
       // The server's row is the merge baseline (§27) for this browser's
       // NEXT save — captured fresh here so a second user's changes made
@@ -2148,6 +2155,12 @@
       'Delete sheet', true
     );
     if (!ok) return;
+
+    // Clicking Delete blurs the cell and starts an auto-save; let it land
+    // first, or it finishes after the delete and writes the deleted sheet
+    // back into this browser's cache (and onto the screen).
+    if (inflightSave) { try { await inflightSave; } catch (e) {} }
+    if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
 
     var { error } = await sb.from('sheets')
       .update({ deleted_at: new Date().toISOString() })

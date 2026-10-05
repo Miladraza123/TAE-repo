@@ -136,6 +136,18 @@
       render();
     }
   });
+  // A form opens from the record as it is in the database NOW, not from the
+  // list's copy, which can be a moment old (e.g. clicked right after a save,
+  // before the list re-rendered). Offline, the list's copy is used.
+  async function freshRow(table, id, rows) {
+    try {
+      var res = await sb.from(table).select('*').eq('id', id).maybeSingle();
+      if (res && res.data) {
+        var i = rows.findIndex(function (r) { return r.id === id; });
+        if (i >= 0) rows[i] = res.data;
+      }
+    } catch (e) { /* offline: keep the list's copy */ }
+  }
   var REFRESH_VIEW_KIND = {
     parties: 'parties', items: 'items', services: 'services', companies: 'companies',
     warehouses: 'warehouses', party_kinds: 'parties', period_lock: 'periodlock'
@@ -656,7 +668,7 @@
           setPgCount(rows.length, opts.title.toLowerCase());
           setPgSub(rows.length + ' of ' + all.length + (opts.subline ? ' · ' + opts.subline : ''));
           Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-            el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+            el.addEventListener('click', function () { freshRow(opts.table, el.dataset.id, rows).then(function () { openForm(el.dataset.id, rows); }); });
           });
         }
         paint();
@@ -888,7 +900,7 @@
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No parties yet', term ? 'Nothing matches “' + term + '”.' : 'Add your first customer or supplier to get started.');
         Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+          el.addEventListener('click', function () { freshRow('parties', el.dataset.id, rows).then(function () { openForm(el.dataset.id, rows); }); });
         });
       }
       paint();
@@ -1271,7 +1283,7 @@
         document.getElementById('listWrap').innerHTML = html ||
           emptyState('No items yet', term ? 'Nothing matches “' + term + '”.' : 'Add the goods or raw materials you buy and sell.');
         Array.prototype.forEach.call(document.querySelectorAll('#listWrap .pg-lrow'), function (el) {
-          el.addEventListener('click', function () { openForm(el.dataset.id, rows); });
+          el.addEventListener('click', function () { freshRow('items', el.dataset.id, rows).then(function () { openForm(el.dataset.id, rows); }); });
         });
       }
       paint();
