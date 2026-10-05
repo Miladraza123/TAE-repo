@@ -457,6 +457,12 @@
       });
     });
   }
+  // Same name ignoring case and extra spaces, among the live rows of this list.
+  function normName(n) { return String(n || '').trim().toLowerCase().replace(/\s+/g, ' '); }
+  function sameNameRow(rows, name, selfId) {
+    var key = normName(name);
+    return (rows || []).filter(function (r) { return r.id !== selfId && !r.deleted_at && normName(r.name) === key; })[0] || null;
+  }
   function pill(text, tone) { return '<span class="pg-pill ' + (tone || 'n') + '">' + esc(text) + '</span>'; }
 
   // List screen: hero with search (+ optional chips) and "+ Add", card with #listWrap.
@@ -842,6 +848,8 @@
             notes: document.getElementById('f_notes').value || null
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
+          var dupName = sameNameRow(all, payload.name, id);
+          if (dupName) { document.getElementById('formErr').textContent = '"' + dupName.name.trim() + '" naam pehle se mojood hai — thora alag naam likhein (jaise shehar ya nickname saath).'; return; }
           if (id) {
             function queuePartyEdit() {
               OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'parties', headerId: id, headerOriginal: originalSnapshot, headerNew: payload });
@@ -1189,6 +1197,8 @@
             hs_code: document.getElementById('f_hs_code').value || null
           };
           if (!payload.name) { document.getElementById('formErr').textContent = 'Name is required'; return; }
+          var dupName = sameNameRow(all, payload.name, id);
+          if (dupName) { document.getElementById('formErr').textContent = '"' + dupName.name.trim() + '" naam pehle se mojood hai — thora alag naam likhein (jaise shehar ya nickname saath).'; return; }
           if (id) {
             function queueItemEdit() {
               OfflineQueue.enqueue({ kind: 'doc_edit_merge', headerTable: 'items', headerId: id, headerOriginal: originalSnapshot, headerNew: payload });

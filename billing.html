@@ -274,6 +274,13 @@
   }
   // A line's rate is always per BASE unit (amount = base qty × rate), while a
   // Masters unit rate is per THAT unit — e.g. Bundle(10 pcs) @ 950 → 95/pcs.
+  // What a line's Rate box and print show: per the chosen sale unit when
+  // there is one (Bundle @ 950), otherwise the stored per-base rate.
+  function shownRate(l) {
+    var r = Number(l.rate) || 0;
+    if (!l.sale_unit) return l.rate;
+    return Math.round(r * (Number(l.unit_factor) || 1) * 100) / 100;
+  }
   function unitRateToBase(u) {
     return Number(u.rate) / (Number(u.factor) || 1);
   }
@@ -524,6 +531,12 @@
       if (el && el.focus) {
         el.focus();
         if (keep.s != null) { try { el.setSelectionRange(keep.s, keep.e); } catch (ex) { /* ignore */ } }
+        else if (el.type === 'number') {
+          // Number inputs have no caret API and refocus with the caret at the
+          // START, so the next digit landed in front ("1" then "5" -> "51").
+          // Re-setting the value puts the caret back at the end.
+          var v = el.value; el.value = ''; el.value = v;
+        }
       }
     }
   }
@@ -949,6 +962,7 @@
   }
 
   function renderEditor() {
+    lastEditorRender = renderEditor;
     var e = state.editing;
     var h = e.header;
     var totals = computeTotals();
@@ -1074,7 +1088,7 @@
       var rows = '';
       rows += '<div class="f2">' +
         '<div class="field"><label>Qty</label><input type="number" step="0.001" class="lf num" data-i="' + idx + '" data-f="qty" value="' + (l.sale_unit ? (l.sale_qty != null ? l.sale_qty : '') : l.qty) + '"></div>' +
-        '<div class="field"><label>Rate</label><input type="number" step="0.01" class="lf num" data-i="' + idx + '" data-f="rate" value="' + l.rate + '"></div>' +
+        '<div class="field"><label>Rate' + (l.sale_unit ? ' per ' + esc(l.sale_unit) : '') + '</label><input type="number" step="0.01" class="lf num" data-i="' + idx + '" data-f="rate" value="' + shownRate(l) + '"></div>' +
         '</div>';
 
       if (isSale) {
@@ -1178,6 +1192,12 @@
       return;
     }
 
+    if (field === 'rate' && line.sale_unit) {
+      // The box shows the rate per chosen unit; the line keeps it per base unit.
+      line.rate = (Number(val) || 0) / (Number(line.unit_factor) || 1);
+      refreshTotalsDisplay();
+      return;
+    }
     if (field === 'qty') {
       // qty is ALWAYS the base-unit, stock/cost-affecting quantity. When an
       // alt sale unit is active, what the user types is sale_qty, and
@@ -1628,7 +1648,8 @@
         errEl.textContent = "'" + e.originalHeader.vno + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
       }
-      var { data: finalLines } = await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+      var { data: finalLines, error: applyErr } = await sb.rpc('apply_merged_lines', { p_line_table: 'voucher_lines', p_fk_col: 'voucher_id', p_fk_id: e.id, p_result_lines: lineMerge.lines });
+      if (applyErr) return OfflineQueue.isNetworkError(applyErr) ? queueVoucherEdit() : handleSaveError(applyErr, errEl);
       if (state.vtype === 'sale') {
         // Raw-material sync needs real line ids — not queued offline (§
         // known limitation: dynamic consumption requires a live connection
@@ -1740,6 +1761,7 @@
   }
 
   async function renderReturnEditor() {
+    lastEditorRender = renderReturnEditor;
     var r = returnEditing;
 
     if (r.isNew) {
@@ -2131,6 +2153,7 @@
   }
 
   function renderDocEditor() {
+    lastEditorRender = renderDocEditor;
     var d = docEditing, cfg = DOC_CONFIG[d.type], h = d.header;
     var totals = docTotals();
 
@@ -2409,7 +2432,8 @@
         errEl.textContent = "'" + d.originalHeader[cfg.numField] + "' mein '" + lineMerge.conflicts.join(', ') + "' kisi aur ne bhi isi waqt badla — taaza dekh kar dobara karein";
         return;
       }
-      await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      var { error: applyErr } = await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      if (applyErr) return OfflineQueue.isNetworkError(applyErr) ? queueDocEdit() : handleSaveError(applyErr, errEl);
 
       toast("'" + d.originalHeader[cfg.numField] + "' saved");
       closeEditor(); loadDocsList(d.type); broadcastRefresh(d.type === 'quotation' ? 'quotations' : 'purchase_orders');
@@ -2615,6 +2639,7 @@
   }
 
   function renderServiceDocEditor() {
+    lastEditorRender = renderServiceDocEditor;
     var d = svcEditing, cfg = SVC_CONFIG[d.type], h = d.header;
     var totals = svcDisplayTotals();
 
@@ -2839,7 +2864,8 @@
       var { data: lineMerge, error: lmErr } = await sb.rpc('smart_merge_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_original_lines: d.originalLines, p_new_lines: validLines });
       if (lmErr) return OfflineQueue.isNetworkError(lmErr) ? queueSvcDocEdit() : handleSaveError(lmErr, errEl);
       if (lineMerge.status === 'conflict') { errEl.textContent = 'Kisi aur ne isi waqt lines mein "' + lineMerge.conflicts.join(', ') + '" badal diya'; return; }
-      await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      var { error: applyErr } = await sb.rpc('apply_merged_lines', { p_line_table: cfg.lineTable, p_fk_col: cfg.fk, p_fk_id: d.id, p_result_lines: lineMerge.lines });
+      if (applyErr) return OfflineQueue.isNetworkError(applyErr) ? queueSvcDocEdit() : handleSaveError(applyErr, errEl);
 
       toast("'" + d.originalHeader[cfg.numField] + "' saved");
       closeEditor(); loadServiceDocsList(d.type); broadcastRefresh(d.type === 'sinvoice' ? 'service_invoices' : 'service_quotations');
@@ -2994,6 +3020,7 @@
   }
 
   function renderTransferEditor() {
+    lastEditorRender = renderTransferEditor;
     var t = transferEditing, h = t.header;
     var html = '<div class="field"><label>Date</label><input type="date" id="t_date" value="' + h.tdate + '"></div>' +
       '<div class="f2">' +
@@ -3357,7 +3384,7 @@
       return '<tr><td class="idx mono">' + (i + 1) + '</td><td>' + esc(item ? item.name : '') + descHtml(l.description) +
         (l.sale_unit && item && item.unit && l.sale_unit !== item.unit ? '<div style="font-size:10px;color:#6B6357">= ' + esc(l.qty) + ' ' + esc(item.unit) + '</div>' : '') +
         '</td><td class="num">' + esc(qty) + '</td><td>' + esc(unit) + '</td>' +
-        '<td class="num">' + fmtMoney(l.rate) + '</td>' +
+        '<td class="num">' + fmtMoney(shownRate(l)) + '</td>' +
         (showTax ? '<td class="num">' + esc(Number(l.tax_pct) || 0) + '%</td>' : '') +
         '<td class="num">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td></tr>';
     }).join('');
@@ -3432,12 +3459,31 @@
     else if (state.mode === 'transfer') loadTransfersList();
     else loadList();
   }
-  var MASTER_REFRESH_KINDS = ['parties', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
+  var MASTER_REFRESH_KINDS = ['parties', 'party_kinds', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || d.oht !== 'refresh' || MASTER_REFRESH_KINDS.indexOf(d.kind) < 0) return;
-    (d.kind === 'services' ? loadServices() : loadMasters().then(fillFilterSelects)).then(reloadCurrentList);
+    (d.kind === 'services' ? loadServices() : loadMasters().then(fillFilterSelects))
+      .then(reloadCurrentList).then(rerenderOpenEditor);
   });
+
+  // A form already open keeps its own copy of the party/item/service lists
+  // inside its search boxes, so a change in Masters only showed after the
+  // form was reopened. Re-render it from its (unchanged) draft — but never
+  // while the user is typing in a search box; then wait until they leave it.
+  function rerenderOpenEditor() {
+    if (!document.getElementById('editorSheet').classList.contains('on')) return;
+    var act = document.activeElement;
+    if (act && act.closest && act.closest('.combo')) {
+      act.addEventListener('blur', function once() {
+        act.removeEventListener('blur', once);
+        setTimeout(rerenderOpenEditor, 0);
+      });
+      return;
+    }
+    if (lastEditorRender) lastEditorRender();
+  }
+  var lastEditorRender = null; // set by each editor's render function
 
   // ---------------------------------------------------------------
   // Boot

@@ -89,6 +89,11 @@
     // re-runs whichever tab is currently on screen — except kinds no report
     // tab reads at all (Daily Ledger's own cash-book sheets, period locks).
     if (d.oht === 'refresh' && inited && REPORTS_IGNORE_KINDS.indexOf(d.kind) < 0) {
+      // Master lists are cached per page load — drop them so the next render
+      // re-reads (a party added in Masters shows up without a reload).
+      if (d.kind === 'parties' || d.kind === 'party_kinds') partiesCache = [];
+      if (d.kind === 'items' || d.kind === 'item_units' || d.kind === 'item_specs') itemsCache = [];
+      if (d.kind === 'warehouses') warehousesCache = [];
       if (d.kind === 'companies') { firm = null; loadFirm().then(render); }
       else render();
     }

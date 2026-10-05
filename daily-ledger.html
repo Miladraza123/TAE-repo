@@ -454,8 +454,9 @@
     // print letterhead (the per-name firmCache is cleared so a changed
     // logo/signature/stamp isn't served stale on the next print).
     if (d.oht === 'refresh' && state.sheet) {
-      if (d.kind === 'parties') loadParties().then(render);
-      else if (d.kind === 'companies') { firmCache = {}; loadCompanies().then(render); }
+      // renderSafely: a refresh arriving mid-typing must not wipe the cell.
+      if (d.kind === 'parties' || d.kind === 'party_kinds') loadParties().then(renderSafely);
+      else if (d.kind === 'companies') { firmCache = {}; loadCompanies().then(renderSafely); }
     }
   });
 
@@ -1130,6 +1131,7 @@
     if (!el) return;
     el.focus();
     if (key.selStart != null) { try { el.setSelectionRange(key.selStart, key.selEnd); } catch (e) {} }
+    else if (el.type === 'number') { var v = el.value; el.value = ''; el.value = v; } // caret to the end, not the start
   }
 
   function prevDateStr(date) {
