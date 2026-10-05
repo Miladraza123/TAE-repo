@@ -554,11 +554,8 @@
   // group and the header title in sync — called both by sidebar clicks and
   // by a module's own { oht:'open', ... } deep-link (e.g. Masters' report
   // links), so either origin ends up in the same, consistent state.
-  function openModule(app, arg) {
-    var m = MODULES.filter(function (x) { return x.key === app; })[0];
-    if (!m) return;
-    var existed = !!frames[app];
-    activate(app);
+  // Sidebar highlight, titles and last-open screen for app/arg.
+  function markNav(app, arg) {
     updateSidebarActive(app, arg || null);
     var label = navLabelFor(app, arg || null);
     document.getElementById('shellTitle').textContent = label;
@@ -566,6 +563,14 @@
     // A one-off action (Payments Due → Pay) must not replay on the next sign-in.
     var remember = !(typeof arg === 'string' && /^(pay|recv):/.test(arg));
     try { if (currentUserId && remember) localStorage.setItem('oht:lastNav:' + currentUserId, JSON.stringify({ app: app, arg: arg || null })); } catch (e) {}
+  }
+
+  function openModule(app, arg) {
+    var m = MODULES.filter(function (x) { return x.key === app; })[0];
+    if (!m) return;
+    var existed = !!frames[app];
+    activate(app);
+    markNav(app, arg);
     if (arg === undefined || arg === null) return;
     var msg = { oht: 'goto', app: app, arg: arg };
     if (existed && frameReady[app]) {
@@ -584,6 +589,9 @@
     var d = ev.data;
     if (!d || !d.oht) return;
     if (d.oht === 'open') { openModule(d.app, d.arg); return; }
+    // A module moved to another of its own screens by itself (e.g. Billing:
+    // Quotation → Delivery Challan → Sale) — keep the sidebar and title in step.
+    if (d.oht === 'navigated') { if (MODULES.some(function (x) { return x.key === d.app; })) markNav(d.app, d.arg); return; }
     if (d.oht === 'installPrompt') { installBtn.click(); return; }
     if (d.oht === 'signOut') { document.getElementById('signOutBtn').click(); return; }
     if (d.oht === 'refresh' || d.oht === 'goto') {

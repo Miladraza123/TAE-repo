@@ -659,6 +659,7 @@
   // List view
   // ---------------------------------------------------------------
   async function loadList() {
+    var listVtype = state.vtype;
     var q = sb.from('vouchers')
       .select('id,vno,vdate,party_id,company_id,grand_total,paid,deleted_at')
       .eq('vtype', state.vtype)
@@ -667,6 +668,7 @@
       .order('vno', { ascending: false })
       .limit(500);
     var { data, error } = await q;
+    if (state.mode !== 'voucher' || state.vtype !== listVtype) return; // the user moved to another tab meanwhile
     if (error) { showListError(error); return; }
     state.vouchers = data || [];
     renderList();
@@ -814,6 +816,9 @@
 
   function switchTab(vt) {
     parkCurrentEditor();
+    // Tell the shell, so its sidebar and title follow when this module moves
+    // to another tab by itself (Quotation → DC → Sale, conversions).
+    try { if (window.parent !== window) window.parent.postMessage({ oht: 'navigated', app: 'billing', arg: vt }, '*'); } catch (e) {}
     Object.keys(ALL_TABS).forEach(function (k) { document.getElementById(ALL_TABS[k]).classList.toggle('on', k === vt); });
     document.getElementById('appTitle').textContent = TAB_TITLES[vt] || 'Billing';
     document.getElementById('blTitle').textContent = TAB_TITLES[vt] || 'Billing';
@@ -1806,6 +1811,7 @@
   async function loadReturnsList() {
     var { data, error } = await sb.from('sales_returns').select('id,rno,rdate,party_id,grand_total,sale_id').is('deleted_at', null)
       .order('rdate', { ascending: false }).order('rno', { ascending: false }).limit(500);
+    if (state.mode !== 'return') return; // the user moved to another tab meanwhile
     if (error) { showListError(error); return; }
     returnsState.returns = data || [];
     renderReturnsList();
@@ -2132,6 +2138,7 @@
     var cfg = DOC_CONFIG[type];
     var { data, error } = await sb.from(cfg.table).select('*').is('deleted_at', null)
       .order(cfg.dateField, { ascending: false }).limit(500);
+    if (state.mode !== type) return; // the user moved to another tab meanwhile
     if (error) { showListError(error); return; }
     docsState.list = data || [];
     renderDocsList(type);
@@ -2626,9 +2633,15 @@
     var skippedCustom = d.lines.filter(function (l) { return isCustomDocLine(l) && String(l.custom_name).trim() && Number(l.qty) > 0; }).length;
     var wasWalkin = !d.header.party_id && d.header.walkin_name;
     if (!newLines.length) newLines.push(blankLine());
+    var editing = { isNew: true, id: null, header: newHeader, lines: newLines, originalHeader: null, originalLines: [], convertingFrom: { type: d.type, id: d.id } };
+    // Open the new bill on its own tab (Sale / Purchase), so after saving
+    // the list on screen is that tab's list.
+    closeEditor();
+    switchTab(cfg.convertVtype);
     state.vtype = cfg.convertVtype;
-    state.editing = { isNew: true, id: null, header: newHeader, lines: newLines, originalHeader: null, originalLines: [], convertingFrom: { type: d.type, id: d.id } };
+    state.editing = editing;
     renderEditor();
+    showSheet();
     if (wasWalkin) {
       toast('This quotation was for walk-in customer "' + d.header.walkin_name + '" — pick a real party (Masters) for the sale.', true);
     }
@@ -2661,6 +2674,7 @@
   async function loadServiceDocsList(type) {
     var cfg = SVC_CONFIG[type];
     var { data, error } = await sb.from(cfg.table).select('*').is('deleted_at', null).order(cfg.dateField, { ascending: false }).limit(500);
+    if (state.mode !== type) return; // the user moved to another tab meanwhile
     if (error) { showListError(error); return; }
     svcState.list = data || [];
     renderServiceDocsList(type);
@@ -3055,6 +3069,7 @@
     }));
     await sb.from('service_quotations').update({ status: 'converted', converted_invoice_id: inserted.id, converted_at: new Date().toISOString() }).eq('id', d.id);
     closeEditor();
+    switchTab('sinvoice');
     openServiceDocEditor('sinvoice', inserted.id);
   }
 
@@ -3066,6 +3081,7 @@
 
   async function loadTransfersList() {
     var { data, error } = await sb.from('stock_transfers').select('*').is('deleted_at', null).order('tdate', { ascending: false }).limit(500);
+    if (state.mode !== 'transfer') return; // the user moved to another tab meanwhile
     if (error) { showListError(error); return; }
     transferState.list = data || [];
     renderTransfersList();
@@ -3321,6 +3337,7 @@
       sb.from('voucher_lines').select('dc_line_id,qty,vouchers!inner(deleted_at)').not('dc_line_id', 'is', null).is('vouchers.deleted_at', null).range(0, 4999),
       sb.from('quotations').select('id,qno').range(0, 4999)
     ]);
+    if (state.mode !== 'dc') return; // the user moved to another tab meanwhile
     if (error) { showListError(error); return; }
     dcState.list = data || [];
     var billedByLine = {};
