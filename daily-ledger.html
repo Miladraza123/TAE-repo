@@ -302,6 +302,7 @@
     body.pd-on .pd-sum .v { font-size:14px; }
     body.pd-on .pd-sum { grid-template-columns:repeat(5, 1fr); }
   }
+  #ledgerArea.dl-loading{opacity:.6; pointer-events:none;}
 </style>
 </head>
 <body>
@@ -827,7 +828,33 @@
     return (res.data || []).map(normRow);
   }
 
+  // Clicking through days quickly starts several loads; only the newest may
+  // touch the screen. An older one finishing last used to put its day's
+  // sheet under the newer day's title — and what was typed next was saved
+  // into the wrong day.
+  var loadSeq = 0;
   async function loadSheet(date) {
+    var myLoad = ++loadSeq;
+    function stale() { return myLoad !== loadSeq; }
+    // The cached copy shows at once, but the server's copy replaces it a
+    // moment later — anything typed in between was silently lost. The
+    // register stays visible but can't be typed into until this load ends.
+    // On a hanging network it unlocks after 8 s; whatever is typed after
+    // that is kept when the server's copy finally arrives (see editedSince).
+    var area = document.getElementById('ledgerArea');
+    function unlock() { if (!stale() && area) { area.inert = false; area.classList.remove('dl-loading'); } }
+    if (area) { area.inert = true; area.classList.add('dl-loading'); }
+    var unlockTimer = setTimeout(unlock, 8000);
+    try {
+      await loadSheetInner(date, stale);
+    } finally {
+      clearTimeout(unlockTimer);
+      unlock();
+    }
+  }
+  async function loadSheetInner(date, stale) {
+    var editsAtStart = state.editSeq;
+    function editedSince() { return state.editSeq !== editsAtStart; }
     // An explicit (re)load is the ONLY thing allowed to replace what is on
     // screen (§5), so it is also the point where a standing conflict is
     // considered dealt with and auto-save is re-armed.
@@ -843,6 +870,7 @@
     }
 
     var { data, error: loadErr } = await sb.from('sheets').select('*').eq('sheet_date', date).is('deleted_at', null).maybeSingle();
+    if (stale()) return;
     if (!data && !loadErr && cached && cached.id) {
       // The server answered and this day has no live sheet, yet the cached
       // copy was saved once: that sheet was deleted (here or on another
@@ -856,18 +884,34 @@
       // before this load are never mistaken for this session's own edits.
       var rows = [];
       try { rows = await fetchRows(data.id); } catch (e) { rows = cached && cached.id === data.id ? cached.rows : []; }
+      if (stale()) return;
       data.rows = rowsOrEmpty(rows);
-      state.sheet = data;
+      if (editedSince() && state.sheet && state.sheet.sheet_date === date) {
+        // Typed while the server was slow: keep the user's copy, merge the
+        // next save against what the server has.
+        state.sheet.id = data.id;
+      } else {
+        state.sheet = data;
+      }
       state.originalSheet = JSON.parse(JSON.stringify(data));
       state.originalRows = snapshotRows(data.rows);
     } else if (!cached) {
-      state.sheet = { sheet_date: date, opening: 0, side: 'dr', firm: '', page: '', rows: [emptyRow()] };
-      state.originalSheet = null; // never persisted yet — first save bootstraps the row
-      state.originalRows = [];
+      var fresh = { sheet_date: date, opening: 0, side: 'dr', firm: '', page: '', rows: [emptyRow()] };
       // Firm name carries forward silently (§2). Unlike the opening
       // balance it is not a figure that needs verifying every morning, so
       // re-typing it on every new day is pure friction.
-      state.sheet.firm = await latestFirmBefore(date);
+      fresh.firm = await latestFirmBefore(date);
+      if (stale()) return;
+      if (editedSince() && state.sheet && state.sheet.sheet_date === date) {
+        // Typed into a cached copy of a sheet that no longer exists: keep
+        // the typing, save it as a new sheet.
+        delete state.sheet.id;
+        state.sheet.rows = (state.sheet.rows || []).map(function (r) { var o = Object.assign({}, r); delete o.id; return o; });
+      } else {
+        state.sheet = fresh;
+      }
+      state.originalSheet = null; // never persisted yet — first save bootstraps the row
+      state.originalRows = [];
     } else {
       // Offline (or the fetch failed) with only a locally-cached copy —
       // use it as the merge baseline only if it was ever actually saved.
@@ -879,8 +923,10 @@
     // Previous day's closing, for display continuity.
     var prevDate = new Date(date); prevDate.setDate(prevDate.getDate() - 1);
     var { data: prevSheet } = await sb.from('sheets').select('*').eq('sheet_date', prevDate.toISOString().slice(0, 10)).is('deleted_at', null).maybeSingle();
+    if (stale()) return;
     if (prevSheet) {
       var pr = await sb.from('sheet_rows').select('d_amt,c_amt').eq('sheet_id', prevSheet.id);
+      if (stale()) return;
       prevSheet.rows = (pr.data || []).map(normRow);
       state.prevClosing = computeClosing(prevSheet);
     } else {
@@ -2023,8 +2069,15 @@
       );
       if (!ok) return;
     }
+    // Let a save already running for the old day land first, then take the
+    // old day's rows off the screen at once: until the new day has loaded,
+    // anything typed went into the OLD day's sheet under the new day's title.
+    if (inflightSave) { try { await inflightSave; } catch (e) {} }
+    if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
     state.date = d;
     state.dirty = false;
+    state.sheet = null;
+    render();
     await loadSheet(d);
     renderSheetsList();
     loadStripDates();
@@ -2137,6 +2190,9 @@
     closeDrawer();
     var errEl = document.getElementById('ledgerErr');
     errEl.textContent = '';
+    // A save still running (e.g. Save day clicked a moment ago) gives the
+    // sheet its id — wait for it before deciding it was never saved.
+    if (inflightSave) { try { await inflightSave; } catch (e) {} }
     if (!state.sheet || !state.sheet.id) {
       toast('This day has never been saved, so there is no sheet to delete.', true);
       return;
@@ -2491,7 +2547,11 @@
     if (!pendingPrefill) return;
     var pf = pendingPrefill; pendingPrefill = null;
     var today = new Date().toISOString().slice(0, 10);
-    if (state.date !== today) { state.date = today; await loadSheet(today); }
+    if (state.date !== today) {
+      if (inflightSave) { try { await inflightSave; } catch (e) {} }
+      state.date = today; state.sheet = null; render();
+      await loadSheet(today);
+    }
     if (!state.sheet) return;
     var slot = pf.side + '_party', amtF = pf.side + '_amt';
     var idx = -1;
