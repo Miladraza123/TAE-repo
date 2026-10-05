@@ -908,7 +908,8 @@
   // Items
   // ===================================================================
   async function loadItemUnits(itemId) {
-    var { data } = await sb.from('item_units').select('*').eq('item_id', itemId).is('deleted_at', null).order('unit');
+    var { data } = await sb.from('item_units').select('*').eq('item_id', itemId).is('deleted_at', null)
+      .order('line_no').order('unit');
     var units = data || [];
     var wrap = document.getElementById('unitsWrap');
     if (!wrap) return;
@@ -917,8 +918,11 @@
     if (!units.length) html += '<div class="ln"><span class="sub" style="color:var(--mute);font-size:12px">Only the base unit so far.</span></div>';
     units.forEach(function (u) {
       html += '<div class="ln"><div class="ln-top">' +
-        '<div style="flex:1;min-width:0"><div style="font-weight:600">' + esc(u.unit) + '</div>' +
-        '<div style="font-size:11.5px;color:var(--mute)">1 ' + esc(u.unit) + ' = <span class="mono">' + u.factor + '</span> base units</div></div>' +
+        '<div style="flex:1;min-width:0"><div style="font-weight:600">' + esc(u.unit) +
+          (u.is_default ? ' ' + pill('default', 'n') : '') + '</div>' +
+        '<div style="font-size:11.5px;color:var(--mute)">1 ' + esc(u.unit) + ' = <span class="mono">' + u.factor + '</span> base units' +
+          (u.rate != null ? ' · rate <span class="mono">' + fmt(u.rate) + '</span> per ' + esc(u.unit) : '') + '</div></div>' +
+        (u.is_default ? '' : '<button type="button" class="btn rowbtn defUnitBtn" data-id="' + u.id + '">Make default</button>') +
         '<button type="button" class="icb rmUnitBtn" data-id="' + u.id + '" aria-label="Remove unit" style="color:var(--debit)">✕</button>' +
         '</div></div>';
     });
@@ -926,21 +930,90 @@
     html += '<div class="f2" style="margin-top:10px;align-items:flex-end">' +
       '<div class="field"><label for="newUnitName">Unit name</label><input id="newUnitName"></div>' +
       '<div class="field"><label for="newUnitFactor">Factor</label><input class="num" type="number" step="0.0001" id="newUnitFactor" value="1"></div>' +
-      '</div><button type="button" class="btn" id="addUnitBtn">+ Add unit</button>';
+      '</div>' +
+      '<div class="field"><label for="newUnitRate">Rate per this unit <span style="font-weight:400;color:var(--mute)">(optional — Sale bills use it when this unit is picked)</span></label>' +
+      '<input class="num" type="number" step="0.01" id="newUnitRate">' +
+      '<div class="hint">Use “Make default” on a unit to have new Sale bill lines for this item start in that unit.</div></div>' +
+      '<button type="button" class="btn" id="addUnitBtn">+ Add unit</button>';
     wrap.innerHTML = html;
     Array.prototype.forEach.call(wrap.querySelectorAll('.rmUnitBtn'), function (btn) {
       btn.addEventListener('click', async function () {
-        await sb.from('item_units').update({ deleted_at: new Date().toISOString() }).eq('id', btn.dataset.id);
+        var res = await sb.from('item_units').update({ deleted_at: new Date().toISOString() }).eq('id', btn.dataset.id);
+        if (res.error) { toast(res.error.message, true); return; }
+        broadcastRefresh('item_units');
+        loadItemUnits(itemId);
+      });
+    });
+    Array.prototype.forEach.call(wrap.querySelectorAll('.defUnitBtn'), function (btn) {
+      btn.addEventListener('click', async function () {
+        // Only one default per item: clear the old one first, then set the new one.
+        var old = units.filter(function (u) { return u.is_default; });
+        for (var i = 0; i < old.length; i++) {
+          var r1 = await sb.from('item_units').update({ is_default: false }).eq('id', old[i].id);
+          if (r1.error) { toast(r1.error.message, true); return; }
+        }
+        var r2 = await sb.from('item_units').update({ is_default: true }).eq('id', btn.dataset.id);
+        if (r2.error) { toast(r2.error.message, true); return; }
+        broadcastRefresh('item_units');
         loadItemUnits(itemId);
       });
     });
     document.getElementById('addUnitBtn').addEventListener('click', async function () {
       var unitName = document.getElementById('newUnitName').value.trim();
       var factor = Number(document.getElementById('newUnitFactor').value) || 1;
+      var rateRaw = document.getElementById('newUnitRate').value.trim();
       if (!unitName) return;
-      var res = await sb.from('item_units').insert({ item_id: itemId, unit: unitName, factor: factor });
+      if (factor <= 0) { toast('Factor must be more than 0', true); return; }
+      var nextNo = units.reduce(function (m, u) { return Math.max(m, u.line_no || 0); }, 0) + 1;
+      var res = await sb.from('item_units').insert({ item_id: itemId, unit: unitName, factor: factor,
+        rate: rateRaw === '' ? null : Number(rateRaw), line_no: nextNo });
       if (res.error) { toast(res.error.message, true); return; }
+      broadcastRefresh('item_units');
       loadItemUnits(itemId);
+    });
+  }
+
+  // Item specifications (Grade, Size, Brand…) — label/value pairs kept in
+  // item_specs. Billing pre-fills a new line's Description with them; the
+  // bill's own copy can then be edited without touching the item here.
+  async function loadItemSpecs(itemId) {
+    var { data } = await sb.from('item_specs').select('*').eq('item_id', itemId).is('deleted_at', null)
+      .order('line_no');
+    var specs = data || [];
+    var wrap = document.getElementById('specsWrap');
+    if (!wrap) return;
+    var html = '<div class="group-lbl">Specifications</div>';
+    html += '<div class="lines" style="margin-top:8px">';
+    if (!specs.length) html += '<div class="ln"><span class="sub" style="color:var(--mute);font-size:12px">No specifications yet — e.g. Grade: 60, Size: 12mm.</span></div>';
+    specs.forEach(function (sp) {
+      html += '<div class="ln"><div class="ln-top">' +
+        '<div style="flex:1;min-width:0"><span style="font-weight:600">' + esc(sp.label) + ':</span> ' + esc(sp.value) + '</div>' +
+        '<button type="button" class="icb rmSpecBtn" data-id="' + sp.id + '" aria-label="Remove specification" style="color:var(--debit)">✕</button>' +
+        '</div></div>';
+    });
+    html += '</div>';
+    html += '<div class="f2" style="margin-top:10px;align-items:flex-end">' +
+      '<div class="field"><label for="newSpecLabel">Label</label><input id="newSpecLabel" placeholder="Grade"></div>' +
+      '<div class="field"><label for="newSpecValue">Value</label><input id="newSpecValue" placeholder="60"></div>' +
+      '</div><button type="button" class="btn" id="addSpecBtn">+ Add specification</button>';
+    wrap.innerHTML = html;
+    Array.prototype.forEach.call(wrap.querySelectorAll('.rmSpecBtn'), function (btn) {
+      btn.addEventListener('click', async function () {
+        var res = await sb.from('item_specs').update({ deleted_at: new Date().toISOString() }).eq('id', btn.dataset.id);
+        if (res.error) { toast(res.error.message, true); return; }
+        broadcastRefresh('item_specs');
+        loadItemSpecs(itemId);
+      });
+    });
+    document.getElementById('addSpecBtn').addEventListener('click', async function () {
+      var label = document.getElementById('newSpecLabel').value.trim();
+      var value = document.getElementById('newSpecValue').value.trim();
+      if (!label || !value) { toast('Enter both a label and a value', true); return; }
+      var nextNo = specs.reduce(function (m, x) { return Math.max(m, x.line_no || 0); }, 0) + 1;
+      var res = await sb.from('item_specs').insert({ item_id: itemId, label: label, value: value, line_no: nextNo });
+      if (res.error) { toast(res.error.message, true); return; }
+      broadcastRefresh('item_specs');
+      loadItemSpecs(itemId);
     });
   }
 
@@ -1091,11 +1164,13 @@
             (id ? 'Live stock ' + rec.stock_qty + ' @ avg cost ' + rec.avg_cost + ' — computed by the costing engine, not editable directly.' : 'Stock and average cost are computed by the costing engine once this item starts trading.') +
           '</div></div>' +
           (id ? '<div id="unitsWrap"></div>' : '') +
+          (id ? '<div id="specsWrap"></div>' : '<div class="hint">Save the item first — then reopen it to add alternate units and specifications.</div>') +
           (id ? '<div id="whStockWrap"></div>' : '') +
           '<div class="warn-txt" id="formErr"></div>';
 
         openSheet((id ? 'Edit ' : 'New ') + 'Item', body, editorFtr(!!id));
         if (id) loadItemUnits(id);
+        if (id) loadItemSpecs(id);
         if (id) loadItemWarehouseStock(id, rec, warehouseOptions);
 
         document.getElementById('cancelBtn').addEventListener('click', closeSheet);
@@ -1496,10 +1571,10 @@
   // an accidental change without risking a wider wipe.
   // ===================================================================
   var BACKUP_TABLES = ['app_users', 'companies', 'warehouses', 'period_lock', 'party_kinds', 'parties',
-    'items', 'item_units', 'services', 'vouchers', 'voucher_lines', 'sales_returns', 'sales_return_lines',
+    'items', 'item_units', 'item_specs', 'services', 'vouchers', 'voucher_lines', 'sales_returns', 'sales_return_lines',
     'stock_adjustments', 'quotations', 'quotation_lines', 'purchase_orders', 'po_lines',
     'service_invoices', 'service_invoice_lines', 'service_quotations', 'service_quotation_lines',
-    'recurring_service_templates', 'stock_transfers', 'stock_transfer_lines', 'sheets'];
+    'recurring_service_templates', 'stock_transfers', 'stock_transfer_lines', 'sheets', 'sheet_rows'];
 
   var backupView = {
     async render() {

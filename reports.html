@@ -592,7 +592,7 @@
       ]);
       var sheetIdsInRange = (sheetsInRange || []).map(function (s) { return s.id; });
       var { data: expenseRows } = sheetIdsInRange.length
-        ? await sb.from('sheet_rows').select('d_amt,c_party').in('sheet_id', sheetIdsInRange)
+        ? await sb.from('sheet_rows').select('c_amt,c_party').in('sheet_id', sheetIdsInRange)
         : { data: [] };
 
       var grossSales = (sales || []).reduce(function (s, v) { return s + Number(v.sub_total); }, 0);
@@ -622,14 +622,15 @@
       var serviceRevenue = (serviceInv || []).reduce(function (s, si) { return s + (Number(si.sub_total) - Number(si.discount)); }, 0);
       var totalRevenue = netSales + serviceRevenue;
 
-      // Operating expenses / finance charges: cash-book DEBIT rows linked to an expense-kind party.
+      // Operating expenses / finance charges: cash-book CREDIT · Paid rows linked to an expense-kind party.
       var { data: expenseParties } = await sb.from('parties').select('id,expense_type').eq('kind', 'expense').is('deleted_at', null);
       var expenseMap = {}; (expenseParties || []).forEach(function (p) { expenseMap[p.id] = p.expense_type; });
       var opEx = 0, financeCharges = 0;
       (expenseRows || []).forEach(function (r) {
+        // Paid out to an expense party = Credit · Paid column (c_amt with c_party).
         var partyId = r.c_party;
         if (partyId && expenseMap.hasOwnProperty(partyId)) {
-          var amt = Number(r.d_amt) || 0;
+          var amt = Number(r.c_amt) || 0;
           if (expenseMap[partyId] === 'bank_charges') financeCharges += amt; else opEx += amt;
         }
       });
@@ -751,13 +752,16 @@
     var normName = party.name.trim().toLowerCase().replace(/\s+/g, ' ');
     (sheetRowsData || []).forEach(function (r) {
       var sheetDate = sheetDateById[r.sheet_id];
-      if (r.d_party === partyId) { // credit-side link: cash received FROM them
-        var remark = stripOwnName(r.c_rem || '', normName);
-        events.push({ date: sheetDate, desc: remark || 'Cash received', dr: 0, cr: Number(r.c_amt) || 0 });
+      // Daily Ledger pairs each party slot with its OWN column: d_party is
+      // linked from the Debit · Received column (d_amt/d_rem), c_party from
+      // the Credit · Paid column (c_amt/c_rem). Never mix the two sides.
+      if (r.d_party === partyId) { // cash received FROM them → credits the party
+        var remark = stripOwnName(r.d_rem || '', normName);
+        events.push({ date: sheetDate, desc: remark || 'Cash received', dr: 0, cr: Number(r.d_amt) || 0 });
       }
-      if (r.c_party === partyId) { // debit-side link: cash paid TO them
-        var remark2 = stripOwnName(r.d_rem || '', normName);
-        events.push({ date: sheetDate, desc: remark2 || 'Cash paid', dr: Number(r.d_amt) || 0, cr: 0 });
+      if (r.c_party === partyId) { // cash paid TO them → debits the party
+        var remark2 = stripOwnName(r.c_rem || '', normName);
+        events.push({ date: sheetDate, desc: remark2 || 'Cash paid', dr: Number(r.c_amt) || 0, cr: 0 });
       }
     });
 

@@ -230,7 +230,8 @@
     items: [],
     companies: [],
     warehouses: [],
-    itemUnits: {}, // item_id -> [{unit,factor}]
+    itemUnits: {}, // item_id -> [{unit,factor,rate,is_default}] in line_no order
+    itemSpecs: {}, // item_id -> [{label,value}] in line_no order
     editing: null, // { isNew, original, header, lines, originalLines }
   };
 
@@ -238,12 +239,13 @@
   // Master-data cache (needed by the editor)
   // ---------------------------------------------------------------
   async function loadMasters() {
-    var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }] = await Promise.all([
+    var [{ data: parties }, { data: items }, { data: companies }, { data: warehouses }, { data: units }, { data: specs }] = await Promise.all([
       sb.from('parties').select('id,name,kind,city,credit_days').is('deleted_at', null).order('name'),
       sb.from('items').select('id,name,unit,sale_rate,buy_rate,tax_pct,stock_qty,item_type').is('deleted_at', null).order('name'),
       sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('name'),
       sb.from('warehouses').select('id,name,is_default').eq('active', true).is('deleted_at', null).order('name'),
-      sb.from('item_units').select('id,item_id,unit,factor').is('deleted_at', null)
+      sb.from('item_units').select('id,item_id,unit,factor,rate,is_default,line_no').is('deleted_at', null).order('line_no'),
+      sb.from('item_specs').select('item_id,label,value,line_no').is('deleted_at', null).order('line_no')
     ]);
     state.parties = parties || [];
     state.items = items || [];
@@ -253,6 +255,30 @@
     (units || []).forEach(function (u) {
       (state.itemUnits[u.item_id] = state.itemUnits[u.item_id] || []).push(u);
     });
+    state.itemSpecs = {};
+    (specs || []).forEach(function (sp) {
+      (state.itemSpecs[sp.item_id] = state.itemSpecs[sp.item_id] || []).push(sp);
+    });
+  }
+
+  // "Grade: 60, Size: 12mm" — an item's Masters specifications, used as the
+  // starting text of a new line's Description. Editing that text on the bill
+  // never changes the item itself.
+  function specsSummary(itemId) {
+    return (state.itemSpecs[itemId] || []).map(function (sp) { return sp.label + ': ' + sp.value; }).join(', ');
+  }
+  // A line's Description on a printed document: small text under the name.
+  function descHtml(d) {
+    d = String(d || '').trim();
+    return d ? '<div style="font-size:10px;color:#6B6357;white-space:pre-line">' + esc(d) + '</div>' : '';
+  }
+  // A line's rate is always per BASE unit (amount = base qty × rate), while a
+  // Masters unit rate is per THAT unit — e.g. Bundle(10 pcs) @ 950 → 95/pcs.
+  function unitRateToBase(u) {
+    return Number(u.rate) / (Number(u.factor) || 1);
+  }
+  function defaultUnitOf(itemId) {
+    return (state.itemUnits[itemId] || []).filter(function (u) { return u.is_default; })[0] || null;
   }
 
   function fmtMoney(n) {
@@ -633,6 +659,10 @@
     var p = state.parties.filter(function (x) { return x.id === id; })[0];
     return p ? p.name : '—';
   }
+  // Quotations / service quotations can be for a walk-in customer (no party).
+  function docPartyLabel(d) {
+    return (!d.party_id && d.walkin_name) ? d.walkin_name + ' (walk-in)' : partyName(d.party_id);
+  }
 
   function renderList() {
     var term = (document.getElementById('search').value || '').toLowerCase();
@@ -817,7 +847,7 @@
   }
 
   function blankLine() {
-    return { id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0,
+    return { id: null, item_id: null, description: '', qty: 0, rate: 0, tax_pct: 0, amount: 0,
       pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1,
       consumption_type: 'general_goods', materials: [] };
   }
@@ -827,7 +857,7 @@
   // that goes to voucher_line_material_consumption via syncAllLineMaterials,
   // never to this table) that PostgREST rejects outright if sent in an
   // insert ("Could not find the '<field>' column … in the schema cache").
-  var VOUCHER_LINE_COLS = ['item_id', 'qty', 'rate', 'tax_pct', 'amount', 'pcs_on', 'pcs',
+  var VOUCHER_LINE_COLS = ['item_id', 'description', 'qty', 'rate', 'tax_pct', 'amount', 'pcs_on', 'pcs',
     'warehouse_id', 'sale_unit', 'sale_qty', 'unit_factor', 'consumption_type'];
   function sanitizeVoucherLine(l) {
     var o = {};
@@ -1001,13 +1031,32 @@
     // Lightweight running balance hint (full ledger logic lives in reports.html/§11).
     var el = document.getElementById('partyHint');
     if (!el) return;
-    var { data: p } = await sb.from('parties').select('opening,opening_side').eq('id', partyId).single();
-    var { data: vs } = await sb.from('vouchers').select('vtype,grand_total,paid').eq('party_id', partyId).is('deleted_at', null);
-    var bal = p ? (p.opening_side === 'dr' ? p.opening : -p.opening) : 0;
+    // Same pieces as the Trial Balance: opening, sales/purchases, sales
+    // returns, service invoices and Daily Ledger cash linked to the party
+    // (Debit · Received = d_amt/d_party, Credit · Paid = c_amt/c_party).
+    var [{ data: p }, { data: vs }, { data: rets }, { data: svcs }, { data: rows }, { data: liveSheets }] = await Promise.all([
+      sb.from('parties').select('opening,opening_side').eq('id', partyId).single(),
+      sb.from('vouchers').select('vtype,grand_total,paid').eq('party_id', partyId).is('deleted_at', null),
+      sb.from('sales_returns').select('grand_total').eq('party_id', partyId).is('deleted_at', null),
+      sb.from('service_invoices').select('grand_total,paid,status').eq('party_id', partyId).is('deleted_at', null),
+      sb.from('sheet_rows').select('sheet_id,d_amt,c_amt,d_party,c_party').or('d_party.eq.' + partyId + ',c_party.eq.' + partyId),
+      sb.from('sheets').select('id').is('deleted_at', null)
+    ]);
+    var bal = p ? (p.opening_side === 'dr' ? Number(p.opening) || 0 : -(Number(p.opening) || 0)) : 0;
     (vs || []).forEach(function (v) {
       if (v.vtype === 'sale') bal += v.grand_total - v.paid;
       else bal -= v.grand_total - v.paid;
     });
+    (rets || []).forEach(function (r) { bal -= Number(r.grand_total) || 0; });
+    (svcs || []).forEach(function (si) { if (si.status !== 'cancelled') bal += (Number(si.grand_total) || 0) - (Number(si.paid) || 0); });
+    var live = {}; (liveSheets || []).forEach(function (sh) { live[sh.id] = true; });
+    (rows || []).forEach(function (r) {
+      if (!live[r.sheet_id]) return;
+      if (r.d_party === partyId) bal -= Number(r.d_amt) || 0;
+      if (r.c_party === partyId) bal += Number(r.c_amt) || 0;
+    });
+    el = document.getElementById('partyHint'); // the editor may have re-rendered while loading
+    if (!el) return;
     el.textContent = 'Current balance: ' + fmtMoney(Math.abs(bal)) + ' ' + (bal >= 0 ? 'Dr' : 'Cr');
   }
 
@@ -1051,6 +1100,8 @@
       }
       if (extra) rows += '<div class="f2">' + extra + '</div>';
 
+      rows += '<div class="field"><label>Description</label><textarea class="lf" rows="2" data-i="' + idx + '" data-f="description" ' +
+        'placeholder="Prints under the item name on the bill">' + esc(l.description || '') + '</textarea></div>';
       rows += '<div class="doc-sum-row"><span>Amount</span><span class="v">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</span></div>';
 
       // The raw-material sub-panel lives INSIDE its own line's card now
@@ -1149,6 +1200,15 @@
         if (!line.tax_pct) line.tax_pct = item.tax_pct;
       }
       line.sale_unit = null; line.sale_qty = null; line.unit_factor = 1;
+      if (item && !String(line.description || '').trim()) line.description = specsSummary(item.id);
+      // Sale: the item's default unit (Masters) is picked automatically,
+      // with that unit's own rate when one is set. Both can still be changed.
+      var du = item && state.vtype === 'sale' ? defaultUnitOf(item.id) : null;
+      if (du) {
+        line.sale_unit = du.unit; line.unit_factor = Number(du.factor) || 1;
+        line.sale_qty = Number(line.qty) || 0; line.qty = line.sale_qty * line.unit_factor;
+        if (du.rate != null) line.rate = unitRateToBase(du);
+      }
       // The item changed, so any raw materials entered were against the OLD
       // final product — they no longer make sense here (§ item master's own
       // type is always the default for a newly-picked item).
@@ -1159,6 +1219,11 @@
     if (field === 'sale_unit') {
       var u = (state.itemUnits[line.item_id] || []).filter(function (x) { return x.unit === val; })[0];
       line.unit_factor = u ? u.factor : 1;
+      if (u && u.rate != null) line.rate = unitRateToBase(u);
+      if (!val) {
+        var baseItem = state.items.filter(function (x) { return x.id === line.item_id; })[0];
+        if (baseItem && (state.itemUnits[line.item_id] || []).some(function (x) { return x.rate != null; })) line.rate = baseItem.sale_rate;
+      }
       if (!val) { line.sale_qty = null; } // reverted to base unit: qty typed directly from now on
       else { line.sale_qty = line.sale_qty != null ? line.sale_qty : line.qty; line.qty = (Number(line.sale_qty) || 0) * line.unit_factor; }
       renderLines();
@@ -1494,7 +1559,8 @@
           if (OfflineQueue.isNetworkError(lineErr)) {
             OfflineQueue.enqueue({ kind: 'insert', table: 'voucher_lines', payload: linesPayload });
           } else {
-            errEl.textContent = lineErr.message; return;
+            errEl.textContent = await undoHeaderAfterLineError('vouchers', inserted, inserted && inserted.vno, lineErr);
+            return;
           }
         } else if (state.vtype === 'sale') {
           // Raw-material sync needs real line ids — not queued offline (§
@@ -1576,6 +1642,21 @@
     } catch (ex) {
       errEl.textContent = ex.message || String(ex);
     }
+  }
+
+  // A new document is saved as header first, then lines. If the lines are
+  // refused (not a network error), the header alone would stay behind as
+  // an empty document and a second Save would create a duplicate — so the
+  // header is moved to the Recycle Bin again and the user is told plainly.
+  async function undoHeaderAfterLineError(table, inserted, docNo, lineErr) {
+    var msg = 'Not saved — the item lines were refused: ' + lineErr.message;
+    if (!inserted || !inserted.id) return msg;
+    var { error: undoErr } = await sb.from(table).update({ deleted_at: new Date().toISOString() }).eq('id', inserted.id);
+    if (undoErr) {
+      return msg + ' — and ' + (docNo || 'the document') + ' was saved without lines (could not remove it: ' +
+        undoErr.message + '). Delete it from the list before saving again.';
+    }
+    return msg;
   }
 
   function handleSaveError(error, errEl) {
@@ -1868,7 +1949,10 @@
   // so the firm printed is the original sale's.
   async function printReturn() {
     var r = returnEditing, h = r.header;
-    var saleRes = await sb.from('vouchers').select('vno,company_id').eq('id', h.sale_id).maybeSingle().catch(function () { return { data: null }; });
+    // Supabase query builders are thenables without .catch — pass the
+    // rejection handler to .then() instead.
+    var saleRes = await sb.from('vouchers').select('vno,company_id').eq('id', h.sale_id).maybeSingle()
+      .then(null, function () { return { data: null }; });
     var saleInfo = (saleRes && saleRes.data) || {};
     var company = await firmForPrint(saleInfo.company_id);
     var sigLabels = ['Issued by', 'Approved by'];
@@ -1943,7 +2027,7 @@
     var term = (document.getElementById('search').value || '').toLowerCase();
     var rows = docsState.list.filter(function (d) {
       if (!passesFilter(d[cfg.dateField], d.company_id, 0)) return false;
-      return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0;
+      return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || docPartyLabel(d).toLowerCase().indexOf(term) >= 0;
     });
     var html = rows.length ? '' : emptyStateHtml('No ' + cfg.title.toLowerCase() + 's yet',
       term ? 'Nothing matches “' + term + '”.' : 'It is only a document until you convert it.');
@@ -1952,7 +2036,7 @@
       total += Number(d.grand_total) || 0;
       if (d.status === 'converted') converted++; else open++;
       html += listRowHtml({
-        id: d.id, code: type === 'po' ? 'PO' : 'QT', name: d[cfg.numField], sub: partyName(d.party_id) + ' · ' + d[cfg.dateField],
+        id: d.id, code: type === 'po' ? 'PO' : 'QT', name: d[cfg.numField], sub: docPartyLabel(d) + ' · ' + d[cfg.dateField],
         badge: d.status, badgeCls: d.status === 'converted' ? 'b-ok' : 'b-neutral',
         amount: fmtMoney(d.grand_total)
       });
@@ -1966,6 +2050,32 @@
     ]);
     setListCount(rows.length, rows.length === 1 ? 'document' : 'documents');
     setListSub(rows.length + ' of ' + docsState.list.length + ' · ' + rangeLabel() + firmLabel());
+  }
+
+  // custom_name !== null marks a custom (non-stock) line, typed by name —
+  // quotations and purchase orders only. Such lines never reach stock: a
+  // conversion to Sale/Purchase leaves them out and says so.
+  function blankDocLine() {
+    return { id: null, item_id: null, description: '', qty: 0, rate: 0, tax_pct: 0, amount: 0 };
+  }
+  function isCustomDocLine(l) { return !l.item_id && l.custom_name != null; }
+  // What gets saved: custom lines keep their trimmed name/unit; stock lines
+  // send no custom_* keys at all, so a database without those columns still
+  // saves ordinary lines.
+  function cleanDocLine(l) {
+    var c = Object.assign({}, l);
+    c.description = String(l.description || '').trim() || null;
+    if (isCustomDocLine(l)) {
+      c.item_id = null;
+      c.custom_name = String(l.custom_name).trim();
+      c.custom_unit = String(l.custom_unit || '').trim() || null;
+    } else {
+      delete c.custom_name; delete c.custom_unit;
+    }
+    return c;
+  }
+  function docLineValid(l) {
+    return (l.item_id || (isCustomDocLine(l) && String(l.custom_name).trim())) && Number(l.qty) > 0;
   }
 
   function blankDocHeader(type) {
@@ -1984,7 +2094,7 @@
     await loadMasters();
     var cfg = DOC_CONFIG[type];
     if (!id) {
-      docEditing = { type: type, isNew: true, id: null, header: blankDocHeader(type), lines: [{ id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0 }], originalHeader: null, originalLines: [] };
+      docEditing = { type: type, isNew: true, id: null, header: blankDocHeader(type), lines: [blankDocLine()], originalHeader: null, originalLines: [] };
     } else {
       var [{ data: header }, { data: lines }] = await Promise.all([
         sb.from(cfg.table).select('*').eq('id', id).single(),
@@ -2029,15 +2139,28 @@
       '<div class="field"><label>Discount</label><input type="number" step="0.01" class="num" id="d_discount" value="' + h.discount + '"></div>' +
       '</div>';
 
-    html += '<div class="field"><label>Party</label>' +
-      comboHtml({
-        value: h.party_id,
-        options: partyComboOptions(cfg.partyRoles),
-        placeholder: 'Search party…',
-        empty: PARTY_EMPTY,
-        onPick: function (id) { h.party_id = id || null; renderDocEditor(); }
-      }) +
-      '<div class="hint">This is only a document — it never affects the party\'s account balance.</div></div>';
+    var isWalkin = d.type === 'quotation' && h.walkin_name != null;
+    if (d.type === 'quotation') {
+      html += '<div class="sw-row">' +
+        '<span class="sw-lbl">Walk-in customer<span class="sw-sub">Quote someone who is not a party in Masters</span></span>' +
+        '<label class="sw"><input type="checkbox" id="d_walkin"' + (isWalkin ? ' checked' : '') + '><span class="trk"></span></label>' +
+        '</div>';
+    }
+    if (isWalkin) {
+      html += '<div class="field"><label for="d_walkin_name">Customer name</label>' +
+        '<input id="d_walkin_name" value="' + esc(h.walkin_name) + '" placeholder="e.g. Ahmed Traders">' +
+        '<div class="hint">Converting to a Sale will ask you to pick a real party first.</div></div>';
+    } else {
+      html += '<div class="field"><label>Party</label>' +
+        comboHtml({
+          value: h.party_id,
+          options: partyComboOptions(cfg.partyRoles),
+          placeholder: 'Search party…',
+          empty: PARTY_EMPTY,
+          onPick: function (id) { h.party_id = id || null; renderDocEditor(); }
+        }) +
+        '<div class="hint">This is only a document — it never affects the party\'s account balance.</div></div>';
+    }
 
     html += '<div class="sw-row">' +
       '<span class="sw-lbl">Sales tax</span>' +
@@ -2086,6 +2209,13 @@
     document.getElementById('d_taxon').addEventListener('change', function () { h.tax_on = this.checked; renderDocEditor(); });
     document.getElementById('d_discount').addEventListener('input', function () { h.discount = Number(this.value) || 0; renderDocEditor(); });
     document.getElementById('d_narration').addEventListener('input', function () { h.narration = this.value; });
+    var walkSw = document.getElementById('d_walkin');
+    if (walkSw) walkSw.addEventListener('change', function () {
+      if (this.checked) { h.walkin_name = h.walkin_name || ''; h.party_id = null; } else { h.walkin_name = null; }
+      renderDocEditor();
+    });
+    var walkName = document.getElementById('d_walkin_name');
+    if (walkName) walkName.addEventListener('input', function () { h.walkin_name = this.value; });
     if (cfg.hasCharges) {
       ['loading', 'cartage', 'cutting'].forEach(function (k) {
         document.getElementById('d_' + k + '_on').addEventListener('change', function () { h[k + '_on'] = this.checked; renderDocEditor(); });
@@ -2095,7 +2225,7 @@
       document.getElementById('d_other_charge_on').addEventListener('change', function () { h.other_charge_on = this.checked; renderDocEditor(); });
       document.getElementById('d_other_charge_amt').addEventListener('input', function () { h.other_charge_amt = Number(this.value) || 0; renderDocEditor(); });
     }
-    document.getElementById('docAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, item_id: null, qty: 0, rate: 0, tax_pct: 0, amount: 0 }); renderDocLines(); });
+    document.getElementById('docAddLineBtn').addEventListener('click', function () { d.lines.push(blankDocLine()); renderDocLines(); });
     document.getElementById('docSaveBtn').addEventListener('click', saveDoc);
     var delBtn = document.getElementById('docDeleteBtn'); if (delBtn) delBtn.addEventListener('click', deleteDoc);
     var printBtnDoc = document.getElementById('docPrintBtn'); if (printBtnDoc) printBtnDoc.addEventListener('click', printDoc);
@@ -2114,16 +2244,26 @@
       if (h.tax_on) {
         rows += '<div class="field"><label>Tax %</label><input type="number" step="0.01" data-i="' + idx + '" data-f="tax_pct" class="dlf num" value="' + l.tax_pct + '"></div>';
       }
+      var custom = isCustomDocLine(l);
+      if (custom) {
+        rows += '<div class="field"><label>Unit</label><input data-i="' + idx + '" data-f="custom_unit" class="dlf" value="' + esc(l.custom_unit || '') + '" placeholder="pcs"></div>';
+      }
+      rows += '<div class="field"><label>Description</label><textarea rows="2" data-i="' + idx + '" data-f="description" class="dlf" ' +
+        'placeholder="Prints under the item name">' + esc(l.description || '') + '</textarea></div>';
       rows += '<div class="doc-sum-row"><span>Amount</span><span class="v">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</span></div>';
+      rows += '<button type="button" class="btn rowbtn dCustomToggle" data-i="' + idx + '">' +
+        (custom ? 'Pick a stock item instead' : 'Custom item (not in stock)') + '</button>';
 
-      return '<div class="ln"><div class="ln-top">' +
-        comboHtml({
-          value: l.item_id,
-          options: itemComboOptions(d.type === 'quotation' ? 'sale_rate' : 'buy_rate'),
-          placeholder: 'Search item…',
-          empty: ITEM_EMPTY,
-          onPick: (function (i) { return function (id) { applyDocLineField(i, 'item_id', id || ''); }; })(idx)
-        }) +
+      var picker = custom
+        ? '<div class="combo"><input data-i="' + idx + '" data-f="custom_name" class="dlf" value="' + esc(l.custom_name) + '" placeholder="Custom item name…" aria-label="Custom item name"></div>'
+        : comboHtml({
+            value: l.item_id,
+            options: itemComboOptions(d.type === 'quotation' ? 'sale_rate' : 'buy_rate'),
+            placeholder: 'Search item…',
+            empty: ITEM_EMPTY,
+            onPick: (function (i) { return function (id) { applyDocLineField(i, 'item_id', id || ''); }; })(idx)
+          });
+      return '<div class="ln"><div class="ln-top">' + picker +
         '<button type="button" data-i="' + idx + '" class="icb dRmLine" aria-label="Remove line">' +
           '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" width="16" height="16"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>' +
         '</button></div>' +
@@ -2133,6 +2273,14 @@
     Array.prototype.forEach.call(body.querySelectorAll('.dlf'), function (el) {
       el.addEventListener('change', function () {
         applyDocLineField(Number(el.dataset.i), el.dataset.f, el.type === 'number' ? Number(el.value) : el.value);
+      });
+    });
+    Array.prototype.forEach.call(body.querySelectorAll('.dCustomToggle'), function (btn) {
+      btn.addEventListener('click', function () {
+        var l = d.lines[Number(btn.dataset.i)];
+        if (isCustomDocLine(l)) { l.custom_name = null; l.custom_unit = null; }
+        else { l.item_id = null; l.custom_name = ''; l.custom_unit = ''; }
+        renderDocEditor();
       });
     });
     Array.prototype.forEach.call(body.querySelectorAll('.dRmLine'), function (btn) {
@@ -2152,8 +2300,11 @@
       if (item) {
         if (!line.rate) line.rate = d.type === 'quotation' ? item.sale_rate : item.buy_rate;
         if (!line.tax_pct) line.tax_pct = item.tax_pct;
+        if (!String(line.description || '').trim()) line.description = specsSummary(item.id);
       }
     }
+    // Text fields are typed in place — re-rendering would only move the cursor.
+    if (f === 'custom_name' || f === 'custom_unit' || f === 'description') return;
     renderDocEditor();
   }
 
@@ -2161,12 +2312,18 @@
     var d = docEditing, cfg = DOC_CONFIG[d.type];
     var errEl = document.getElementById('editorErr');
     errEl.textContent = '';
-    if (!d.header.party_id) { errEl.textContent = 'Pick a party first'; return; }
-    var validLines = d.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; });
+    var walkin = d.type === 'quotation' && d.header.walkin_name != null;
+    if (walkin && !String(d.header.walkin_name).trim()) { errEl.textContent = 'Enter the walk-in customer\'s name'; return; }
+    if (!walkin && !d.header.party_id) { errEl.textContent = 'Pick a party first'; return; }
+    var validLines = d.lines.filter(docLineValid).map(cleanDocLine);
     if (!validLines.length) { errEl.textContent = 'Add at least one item with a quantity'; return; }
 
     var totals = docTotals();
     var payload = Object.assign({}, d.header, { subtotal: totals.sub, tax_total: totals.tax, grand_total: totals.grand });
+    if (d.type === 'quotation') {
+      payload.walkin_name = walkin ? String(d.header.walkin_name).trim() : null;
+      if (walkin) payload.party_id = null;
+    }
 
     try {
       if (d.isNew) {
@@ -2200,7 +2357,8 @@
           if (OfflineQueue.isNetworkError(lineErr)) {
             OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
           } else {
-            errEl.textContent = lineErr.message; return;
+            errEl.textContent = await undoHeaderAfterLineError(cfg.table, inserted, inserted && inserted[cfg.numField], lineErr);
+            return;
           }
         }
 
@@ -2269,12 +2427,15 @@
     var po = await askPrintOptions(company, sigLabels);
     if (!po) return;
     var party = state.parties.filter(function (p) { return p.id === h.party_id; })[0];
+    var walkinName = !h.party_id && h.walkin_name ? h.walkin_name : null;
     var totals = docTotals();
     var showTax = !!h.tax_on;
-    var rows = d.lines.filter(function (l) { return l.item_id; }).map(function (l) {
+    var rows = d.lines.filter(function (l) { return l.item_id || isCustomDocLine(l); }).map(function (l) {
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
-      var cells = ['<td>' + esc(item ? item.name : '') + '</td>',
-        '<td class="num">' + esc(l.qty) + '</td>', '<td class="num">' + fmtMoney(l.rate) + '</td>'];
+      var name = item ? item.name : (l.custom_name || '');
+      var unit = item ? (item.unit || '') : (l.custom_unit || 'pcs');
+      var cells = ['<td>' + esc(name) + descHtml(l.description) + '</td>',
+        '<td class="num">' + esc(l.qty) + (unit ? ' ' + esc(unit) : '') + '</td>', '<td class="num">' + fmtMoney(l.rate) + '</td>'];
       if (showTax) cells.push('<td class="num">' + esc(Number(l.tax_pct) || 0) + '%</td>');
       cells.push('<td class="num">' + fmtMoney((Number(l.qty) || 0) * (Number(l.rate) || 0)) + '</td>');
       return cells;
@@ -2297,7 +2458,7 @@
       docTitle: cfg.title, sub: h[cfg.numField] + ' · ' + h[cfg.dateField],
       metaRows: [[d.type === 'quotation' ? 'Quote no' : 'PO no', h[cfg.numField]], ['Date', h[cfg.dateField]], ['Status', h.status || 'open'], ['Printed', printStamp()]],
       parties: [
-        { label: d.type === 'quotation' ? 'Quoted to' : 'Supplier', name: party ? party.name : null, sub: party ? party.city : '' },
+        { label: d.type === 'quotation' ? 'Quoted to' : 'Supplier', name: party ? party.name : walkinName, sub: party ? party.city : (walkinName ? 'Walk-in customer' : '') },
         { label: 'From', name: company.name, sub: firmAddrText(company) }
       ],
       cols: cols, rows: rows, totals: totalsRows,
@@ -2333,11 +2494,23 @@
       other_charge_amt: cfg.hasCharges ? d.header.other_charge_amt : 0
     };
     var newLines = d.lines.filter(function (l) { return l.item_id && Number(l.qty) > 0; }).map(function (l) {
-      return { id: null, item_id: l.item_id, qty: l.qty, rate: l.rate, tax_pct: l.tax_pct, amount: l.amount, pcs_on: false, pcs: null, warehouse_id: defaultWarehouseId(), sale_unit: null, sale_qty: null, unit_factor: 1 };
+      return Object.assign(blankLine(), { item_id: l.item_id, description: l.description || '', qty: l.qty, rate: l.rate, tax_pct: l.tax_pct, amount: l.amount });
     });
+    // A bill line must be a real stock item, so custom lines stay behind —
+    // say so instead of dropping them silently.
+    var skippedCustom = d.lines.filter(function (l) { return isCustomDocLine(l) && String(l.custom_name).trim() && Number(l.qty) > 0; }).length;
+    var wasWalkin = !d.header.party_id && d.header.walkin_name;
+    if (!newLines.length) newLines.push(blankLine());
     state.vtype = cfg.convertVtype;
     state.editing = { isNew: true, id: null, header: newHeader, lines: newLines, originalHeader: null, originalLines: [], convertingFrom: { type: d.type, id: d.id } };
     renderEditor();
+    if (wasWalkin) {
+      toast('This quotation was for walk-in customer "' + d.header.walkin_name + '" — pick a real party (Masters) for the sale.', true);
+    }
+    if (skippedCustom) {
+      toast(skippedCustom + ' custom item' + (skippedCustom > 1 ? 's were' : ' was') +
+        ' left out — a ' + cfg.convertVtype + ' line must be a stock item. Add ' + (skippedCustom > 1 ? 'them' : 'it') + ' in Masters first.', true);
+    }
   }
 
   // ---------------------------------------------------------------
@@ -2375,7 +2548,7 @@
     function balOf(d) { return isInv ? (Number(d.grand_total) || 0) - (Number(d.paid) || 0) : 0; }
     var rows = svcState.list.filter(function (d) {
       if (!passesFilter(d[cfg.dateField], d.company_id, balOf(d))) return false;
-      return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || partyName(d.party_id).toLowerCase().indexOf(term) >= 0;
+      return !term || (d[cfg.numField] || '').toLowerCase().indexOf(term) >= 0 || docPartyLabel(d).toLowerCase().indexOf(term) >= 0;
     });
     var html = rows.length ? '' : emptyStateHtml('No ' + cfg.title.toLowerCase() + 's yet',
       term ? 'Nothing matches “' + term + '”.' : 'Tap + New to write the first one.');
@@ -2386,7 +2559,7 @@
       if (bal > 0.004) due += bal;
       if (d.status === 'converted') converted++;
       html += listRowHtml({
-        id: d.id, code: isInv ? 'SI' : 'SQ', name: d[cfg.numField], sub: partyName(d.party_id) + ' · ' + d[cfg.dateField],
+        id: d.id, code: isInv ? 'SI' : 'SQ', name: d[cfg.numField], sub: docPartyLabel(d) + ' · ' + d[cfg.dateField],
         badge: isInv ? (bal > 0.004 ? 'Due ' + fmtMoney(bal) : 'Paid') : d.status,
         badgeCls: isInv ? (bal > 0.004 ? 'b-warn' : 'b-ok') : (d.status === 'converted' ? 'b-ok' : 'b-neutral'),
         amount: fmtMoney(d.grand_total),
@@ -2452,17 +2625,30 @@
         : '<div class="field"><label>Valid till</label><input type="date" id="s_validtill" value="' + (h.valid_till || '') + '"></div>') +
       '</div>';
 
-    html += '<div class="field"><label>Party</label>' +
-      comboHtml({
-        value: h.party_id,
-        options: partyComboOptions(null).filter(function (o) {
-          var p = state.parties.filter(function (x) { return x.id === o.id; })[0];
-          return p && p.kind !== 'expense';
-        }),
-        placeholder: 'Search party…',
-        empty: PARTY_EMPTY,
-        onPick: function (id) { h.party_id = id || null; renderServiceDocEditor(); }
-      }) + '</div>';
+    var isWalkin = d.type === 'squote' && h.walkin_name != null;
+    if (d.type === 'squote') {
+      html += '<div class="sw-row">' +
+        '<span class="sw-lbl">Walk-in customer<span class="sw-sub">Quote someone who is not a party in Masters</span></span>' +
+        '<label class="sw"><input type="checkbox" id="s_walkin"' + (isWalkin ? ' checked' : '') + '><span class="trk"></span></label>' +
+        '</div>';
+    }
+    if (isWalkin) {
+      html += '<div class="field"><label for="s_walkin_name">Customer name</label>' +
+        '<input id="s_walkin_name" value="' + esc(h.walkin_name) + '" placeholder="e.g. Ahmed Traders">' +
+        '<div class="hint">To convert it to a Service Invoice, switch this off and pick a real party first.</div></div>';
+    } else {
+      html += '<div class="field"><label>Party</label>' +
+        comboHtml({
+          value: h.party_id,
+          options: partyComboOptions(null).filter(function (o) {
+            var p = state.parties.filter(function (x) { return x.id === o.id; })[0];
+            return p && p.kind !== 'expense';
+          }),
+          placeholder: 'Search party…',
+          empty: PARTY_EMPTY,
+          onPick: function (id) { h.party_id = id || null; renderServiceDocEditor(); }
+        }) + '</div>';
+    }
 
     html += '<div class="sw-row">' +
       '<span class="sw-lbl">Tax</span>' +
@@ -2503,6 +2689,13 @@
     document.getElementById('s_discount').addEventListener('input', function () { h.discount = Number(this.value) || 0; renderServiceDocEditor(); });
     document.getElementById('s_billinglabel').addEventListener('input', function () { h.billing_label = this.value; });
     document.getElementById('s_notes').addEventListener('input', function () { h.notes = this.value; });
+    var sWalkSw = document.getElementById('s_walkin');
+    if (sWalkSw) sWalkSw.addEventListener('change', function () {
+      if (this.checked) { h.walkin_name = h.walkin_name || ''; h.party_id = null; } else { h.walkin_name = null; }
+      renderServiceDocEditor();
+    });
+    var sWalkName = document.getElementById('s_walkin_name');
+    if (sWalkName) sWalkName.addEventListener('input', function () { h.walkin_name = this.value; });
     if (d.type === 'sinvoice') document.getElementById('s_paid').addEventListener('input', function () { h.paid = Number(this.value) || 0; renderServiceDocEditor(); });
     else document.getElementById('s_validtill').addEventListener('input', function () { h.valid_till = this.value || null; });
     document.getElementById('svcAddLineBtn').addEventListener('click', function () { d.lines.push({ id: null, service_id: null, description: '', qty: 1, rate: 0, tax_pct: 0 }); renderSvcLines(); });
@@ -2572,7 +2765,13 @@
     var d = svcEditing, cfg = SVC_CONFIG[d.type];
     var errEl = document.getElementById('editorErr');
     errEl.textContent = '';
-    if (!d.header.party_id) { errEl.textContent = 'Pick a party first'; return; }
+    var walkin = d.type === 'squote' && d.header.walkin_name != null;
+    if (walkin && !String(d.header.walkin_name).trim()) { errEl.textContent = 'Enter the walk-in customer\'s name'; return; }
+    if (!walkin && !d.header.party_id) { errEl.textContent = 'Pick a party first'; return; }
+    if (d.type === 'squote') {
+      d.header.walkin_name = walkin ? String(d.header.walkin_name).trim() : null;
+      if (walkin) d.header.party_id = null;
+    }
     var validLines = d.lines.filter(function (l) { return (l.service_id || l.description) && Number(l.qty) > 0; });
     if (!validLines.length) { errEl.textContent = 'Add at least one line with a quantity'; return; }
 
@@ -2606,7 +2805,8 @@
           if (OfflineQueue.isNetworkError(lineErr)) {
             OfflineQueue.enqueue({ kind: 'insert', table: cfg.lineTable, payload: linesPayload });
           } else {
-            errEl.textContent = lineErr.message; return;
+            errEl.textContent = await undoHeaderAfterLineError(cfg.table, inserted, inserted && inserted[cfg.numField], lineErr);
+            return;
           }
         }
         toast((inserted && inserted[cfg.numField] ? inserted[cfg.numField] : cfg.title) + ' saved');
@@ -2689,7 +2889,7 @@
       docTitle: cfg.title, sub: h[cfg.numField] + ' · ' + h[cfg.dateField],
       metaRows: metaRows,
       parties: [
-        { label: 'Bill to', name: party ? party.name : null, sub: party ? party.city : '' },
+        { label: 'Bill to', name: party ? party.name : (h.walkin_name || null), sub: party ? party.city : (h.walkin_name ? 'Walk-in customer' : '') },
         { label: 'From', name: company.name, sub: firmAddrText(company) }
       ],
       cols: cols, rows: rows, totals: totalsRows,
@@ -2713,6 +2913,11 @@
 
   async function convertServiceDoc() {
     var d = svcEditing;
+    // A service invoice goes to the party's ledger, so it needs a real party.
+    if (!d.header.party_id) {
+      document.getElementById('editorErr').textContent = 'This quotation is for a walk-in customer — switch Walk-in off, pick a party, Save, then convert.';
+      return;
+    }
     var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
     var { data: inserted, error: insErr } = await sb.from('service_invoices').insert({
       party_id: d.header.party_id, company_id: d.header.company_id || (defCompany ? defCompany.id : null),
@@ -2971,7 +3176,9 @@
     if (firmCache[key]) return firmCache[key];
     var q = sb.from('companies').select('id,name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null);
     q = companyId ? q.eq('id', companyId) : q.order('is_default', { ascending: false }).limit(1);
-    var res = await q.maybeSingle().catch(function () { return { data: null }; });
+    // .then(null, …), not .catch — query builders have no .catch, and the
+    // TypeError used to abort every Print before anything was shown.
+    var res = await q.maybeSingle().then(null, function () { return { data: null }; });
     var row = (res && res.data) || state.companies.filter(function (c) { return c.id === companyId; })[0] ||
       state.companies.filter(function (c) { return c.is_default; })[0] || { name: 'OHT Accounting System' };
     firmCache[key] = row;
@@ -3147,7 +3354,7 @@
       var item = state.items.filter(function (x) { return x.id === l.item_id; })[0];
       var qty = l.sale_unit ? (l.sale_qty != null ? l.sale_qty : l.qty) : l.qty;
       var unit = l.sale_unit || (item ? item.unit : '') || '';
-      return '<tr><td class="idx mono">' + (i + 1) + '</td><td>' + esc(item ? item.name : '') +
+      return '<tr><td class="idx mono">' + (i + 1) + '</td><td>' + esc(item ? item.name : '') + descHtml(l.description) +
         (l.sale_unit && item && item.unit && l.sale_unit !== item.unit ? '<div style="font-size:10px;color:#6B6357">= ' + esc(l.qty) + ' ' + esc(item.unit) + '</div>' : '') +
         '</td><td class="num">' + esc(qty) + '</td><td>' + esc(unit) + '</td>' +
         '<td class="num">' + fmtMoney(l.rate) + '</td>' +
@@ -3225,7 +3432,7 @@
     else if (state.mode === 'transfer') loadTransfersList();
     else loadList();
   }
-  var MASTER_REFRESH_KINDS = ['parties', 'items', 'companies', 'warehouses', 'services'];
+  var MASTER_REFRESH_KINDS = ['parties', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || d.oht !== 'refresh' || MASTER_REFRESH_KINDS.indexOf(d.kind) < 0) return;
