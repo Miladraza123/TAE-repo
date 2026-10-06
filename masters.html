@@ -1652,15 +1652,31 @@
         document.getElementById('content').innerHTML = pgShell({ crumb: 'Tools', title: 'Period Lock', body: '<div class="pad"><p class="warn-txt">' + esc(error.message) + '</p></div>' });
         return;
       }
-      var current = (data && data.locked_before) || '';
+      // The database stores locked_before (dates BEFORE it are locked). People
+      // think "lock up to and including 5 Oct", so the screen shows and takes
+      // the last locked day, and stores the day after it.
+      function shiftDay(iso, n) {
+        if (!iso) return '';
+        var d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() + n);
+        return d.toISOString().slice(0, 10);
+      }
+      function nice(iso) {
+        if (!iso) return '';
+        return new Date(iso + 'T00:00:00Z').toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+      }
+      var stored = (data && data.locked_before) || '';
+      var current = shiftDay(stored, -1); // last locked day, inclusive
       var html = pgShell({
         crumb: 'Tools', title: 'Period Lock',
-        sub: current ? 'Locked before ' + current : 'No period is locked right now',
+        sub: current ? 'Locked up to and including ' + nice(current) : 'No period is locked right now',
         cardTitle: 'Lock date', body: '<div class="pad">' +
-        '<p class="page-sub">Entries dated <strong>before</strong> this date are frozen: they can no longer be edited or deleted, by anyone, on any device — the database itself refuses the change. Soft-delete and restore from the Recycle Bin still work. Leave the date empty to leave every period open.</p>' +
-        '<div class="field" style="max-width:280px"><label for="pl_date">Locked before</label>' +
+        '<p class="page-sub">Every entry dated <strong>on or before</strong> this date is frozen: sales and purchase bills, sales returns, service invoices, ' +
+        'stock adjustments and transfers, delivery challans, material issues and Daily Ledger sheets — with all their lines. ' +
+        'They can\'t be added, edited, deleted or restored from the Recycle Bin, by anyone (admins too), on any device: the database itself refuses. ' +
+        'Leave the date empty to leave every period open.</p>' +
+        '<div class="field" style="max-width:280px"><label for="pl_date">Lock up to and including</label>' +
         '<input type="date" id="pl_date" value="' + esc(current) + '"' + (canEdit ? '' : ' disabled') + '>' +
-        '<div class="hint">' + (current ? 'Currently locked before ' + esc(current) + '.' : 'No period is locked right now.') + '</div></div>' +
+        '<div class="hint">' + (current ? 'Currently locked up to and including ' + esc(nice(current)) + '.' : 'No period is locked right now.') + '</div></div>' +
         (canEdit
           ? '<div style="display:flex;gap:8px"><button type="button" class="btn pri" id="pl_save">Save lock date</button>' +
             (current ? '<button type="button" class="btn" id="pl_clear">Clear lock</button>' : '') + '</div>'
@@ -1669,12 +1685,12 @@
       document.getElementById('content').innerHTML = html;
       if (!canEdit) return;
 
-      async function save(value, title, bodyText) {
+      async function save(lastDay, title, bodyText) {
         var ok = await confirmDialog(title, bodyText, 'Save', true);
         if (!ok) return;
-        var res = await sb.from('period_lock').update({ locked_before: value || null }).eq('id', 1);
+        var res = await sb.from('period_lock').update({ locked_before: lastDay ? shiftDay(lastDay, 1) : null }).eq('id', 1);
         if (res.error) { toast(res.error.message, true); return; }
-        toast(value ? 'Period locked before ' + value + '.' : 'Period lock cleared.');
+        toast(lastDay ? 'Locked up to and including ' + nice(lastDay) + '.' : 'Period lock cleared.');
         broadcastRefresh('period_lock');
         periodLockView.render();
       }
@@ -1684,8 +1700,8 @@
           save('', 'Clear the period lock?', 'Every period becomes editable again for anyone with the right permissions.');
           return;
         }
-        save(val, 'Lock everything before ' + val + '?',
-          'Invoices, returns and cash-book sheets dated before ' + val + ' can no longer be edited or deleted by anyone, including admins, until the lock is changed.');
+        save(val, 'Lock everything up to ' + nice(val) + '?',
+          'Every bill, return, challan, material issue and Daily Ledger sheet dated ' + nice(val) + ' or earlier can no longer be added, edited, deleted or restored by anyone, including admins, until the lock is changed.');
       });
       var clearBtn = document.getElementById('pl_clear');
       if (clearBtn) clearBtn.addEventListener('click', function () {
