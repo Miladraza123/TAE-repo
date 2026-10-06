@@ -251,6 +251,8 @@
       sb.from('item_units').select('id,item_id,unit,factor,rate,is_default,line_no').is('deleted_at', null).order('line_no'),
       sb.from('item_specs').select('item_id,label,value,line_no').is('deleted_at', null).order('line_no')
     ]);
+    var lockRes = await sb.from('period_lock').select('locked_before').eq('id', 1).maybeSingle().then(null, function () { return {}; });
+    lockedBefore = (lockRes && lockRes.data && lockRes.data.locked_before) || null;
     state.parties = parties || [];
     state.items = items || [];
     state.companies = companies || [];
@@ -530,6 +532,7 @@
     document.getElementById('editorErr').textContent = '';
     document.getElementById('editorCard').innerHTML = bodyHtml;
     document.getElementById('sheetFtr').innerHTML = footerHtml || '';
+    setTimeout(applyLockedView, 0);
     if (keep) {
       var el = document.getElementById(keep.id);
       if (el && el.focus) {
@@ -965,9 +968,89 @@
         originalHeader: JSON.parse(JSON.stringify(header)),
         originalLines: JSON.parse(JSON.stringify(lines || []))
       };
+      state.editing.locked = isLockedDate(header.vdate);
     }
     renderEditor();
+    markSaved('voucher', state.editing);
     showSheet();
+  }
+
+  // ---------------------------------------------------------------
+  // Print = the SAVED document only. Print used to paint whatever was on
+  // screen, so an unsaved (or refused) change printed as if it were the
+  // bill — a bill could be printed one way and saved another. Each editor
+  // keeps a snapshot of its saved fields when opened; Print refuses while
+  // the screen differs from it.
+  // Documents dated in a locked period open read-only (view / print).
+  // ---------------------------------------------------------------
+  var lockedBefore = null; // period_lock.locked_before: dates BEFORE it are locked
+  function isLockedDate(d) { return !!(lockedBefore && d && String(d).slice(0, 10) < lockedBefore); }
+  function lastLockedDayText() {
+    if (!lockedBefore) return '';
+    var d = new Date(lockedBefore + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - 1);
+    return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' });
+  }
+  var PRINT_FIELDS = {
+    voucher: { h: ['vdate', 'due_date', 'party_id', 'company_id', 'narration', 'tax_on', 'discount', 'paid', 'loading_on', 'loading_amt',
+      'cartage_on', 'cartage_amt', 'cutting_on', 'cutting_amt', 'other_charge_on', 'other_charge_name', 'other_charge_amt'],
+      l: ['item_id', 'custom_name', 'custom_unit', 'description', 'qty', 'rate', 'tax_pct', 'sale_unit', 'sale_qty', 'consumption_type', 'warehouse_id', 'dc_line_id'] },
+    doc: { h: ['qdate', 'podate', 'party_id', 'walkin_name', 'company_id', 'narration', 'tax_on', 'discount', 'loading_on', 'loading_amt',
+      'cartage_on', 'cartage_amt', 'cutting_on', 'cutting_amt', 'other_charge_on', 'other_charge_name', 'other_charge_amt'],
+      l: ['item_id', 'custom_name', 'custom_unit', 'description', 'qty', 'rate', 'tax_pct'] },
+    svc: { h: ['sidate', 'sqdate', 'party_id', 'walkin_name', 'company_id', 'billing_label', 'notes', 'tax_on', 'discount', 'paid', 'valid_till'],
+      l: ['service_id', 'description', 'qty', 'rate', 'tax_pct'] },
+    transfer: { h: ['tdate', 'from_warehouse', 'to_warehouse', 'narration'], l: ['item_id', 'qty'] },
+    dc: { h: ['dc_date', 'party_id', 'company_id', 'narration'], l: ['item_id', 'custom_name', 'custom_unit', 'description', 'qty', 'consumption_type', 'warehouse_id'] }
+  };
+  function normVal(v) {
+    if (v == null || v === '') return '';
+    if (typeof v === 'number' || (typeof v === 'string' && /^-?\d+(\.\d+)?$/.test(v.trim()))) return String(Number(v));
+    return String(v).trim();
+  }
+  function lineMatters(l) {
+    return !!(l.item_id || l.service_id || String(l.custom_name || '').trim() || String(l.description || '').trim() || Number(l.qty));
+  }
+  function editorSnapshot(kind, o) {
+    var f = PRINT_FIELDS[kind], h = o.header || {};
+    return JSON.stringify({
+      h: f.h.map(function (k) { return normVal(h[k]); }),
+      l: (o.lines || []).filter(lineMatters).map(function (l) {
+        var row = f.l.map(function (k) { return normVal(l[k]); });
+        if (kind === 'voucher') row.push((l.materials || []).map(function (m) { return [normVal(m.raw_item_id), normVal(m.warehouse_id), normVal(m.qty)]; }));
+        return row;
+      })
+    });
+  }
+  function markSaved(kind, o) { if (o && !o.isNew) o.printBase = editorSnapshot(kind, o); }
+  async function printGuard(kind, o) {
+    if (!o || o.isNew || o.printBase == null) return true;
+    if (editorSnapshot(kind, o) === o.printBase) return true;
+    await confirmDialog('Pehle Save karein',
+      'Is document mein aise badlaav hain jo save nahi hue. Print hamesha SAVED copy ka hota hai — pehle Save karein, ' +
+      'ya Cancel karke dobara kholein (badlaav hat jayenge).', 'OK', false);
+    return false;
+  }
+  // Read-only view for a locked document: everything in the sheet is inert,
+  // only Print / Close (and actions that create NEW documents today) stay.
+  function applyLockedView() {
+    var o = null, keep = ['cancelBtn'];
+    if (lastEditorRender === renderEditor) { o = state.editing; keep.push('printBtn'); }
+    else if (lastEditorRender === renderServiceDocEditor) { o = svcEditing; keep.push('svcPrintBtn'); }
+    else if (lastEditorRender === renderTransferEditor) { o = transferEditing; keep.push('trPrintBtn'); }
+    else if (lastEditorRender === renderDcEditor) { o = dcEditing; keep.push('dcPrintBtn', 'dcInvoiceBtn', 'dcMiBtn'); }
+    if (!o || !o.locked) return;
+    var card = document.getElementById('editorCard');
+    Array.prototype.forEach.call(card.children, function (c) { if (!c.classList.contains('lock-banner')) c.inert = true; });
+    if (!card.querySelector('.lock-banner')) {
+      var b = document.createElement('div');
+      b.className = 'hint lock-banner';
+      b.style.cssText = 'background:#F7EEE7;border:1px solid #E5C9B5;color:#A0532E;border-radius:8px;padding:8px 10px;margin-bottom:10px;font-weight:600';
+      b.textContent = '🔒 Period Lock — ' + lastLockedDayText() + ' tak ki entries locked hain. Yeh document sirf dekha aur print kiya ja sakta hai.';
+      card.insertBefore(b, card.firstChild);
+    }
+    Array.prototype.forEach.call(document.querySelectorAll('#sheetFtr button'), function (btn) {
+      if (keep.indexOf(btn.id) < 0) btn.style.display = 'none';
+    });
   }
 
   // Shared Cancel handler for every editor type (§6/§25) — also the tail
@@ -2230,6 +2313,7 @@
       };
     }
     renderDocEditor();
+    markSaved('doc', docEditing);
     showSheet();
   }
 
@@ -2554,6 +2638,7 @@
   // line: neither table has stock or ledger effect until converted.
   async function printDoc() {
     var d = docEditing, cfg = DOC_CONFIG[d.type], h = d.header;
+    if (!(await printGuard('doc', d))) return;
     var company = await firmForPrint(h.company_id);
     var sigLabels = ['Prepared by', 'Approved by'];
     var po = await askPrintOptions(company, sigLabels);
@@ -2737,8 +2822,10 @@
       if (!header) { toast('This record was deleted by someone else.', true); loadServiceDocsList(type); return; }
       svcEditing = { type: type, isNew: false, id: id, header: JSON.parse(JSON.stringify(header)), lines: JSON.parse(JSON.stringify(lines || [])),
         originalHeader: JSON.parse(JSON.stringify(header)), originalLines: JSON.parse(JSON.stringify(lines || [])) };
+      svcEditing.locked = type === 'sinvoice' && isLockedDate(header.sidate);
     }
     renderServiceDocEditor();
+    markSaved('svc', svcEditing);
     showSheet();
   }
 
@@ -2991,6 +3078,7 @@
   // own name — the same precedence renderSvcLines already shows on screen.
   async function printServiceDoc() {
     var d = svcEditing, cfg = SVC_CONFIG[d.type], h = d.header;
+    if (!(await printGuard('svc', d))) return;
     var company = await firmForPrint(h.company_id);
     var isInv = d.type === 'sinvoice';
     var sigLabels = isInv ? ['Received by', 'Authorised by'] : ['Prepared by', 'Approved by'];
@@ -3127,9 +3215,10 @@
         sb.from('stock_transfer_lines').select('*').eq('transfer_id', id).order('line_no')
       ]);
       if (!header) { toast('This record was deleted by someone else.', true); loadTransfersList(); return; }
-      transferEditing = { isNew: false, id: id, header: header, lines: lines || [] };
+      transferEditing = { isNew: false, id: id, header: header, lines: lines || [], locked: isLockedDate(header.tdate) };
     }
     renderTransferEditor();
+    markSaved('transfer', transferEditing);
     showSheet();
   }
 
@@ -3268,6 +3357,7 @@
   // transfer moves no stock value or cost, only quantity between warehouses.
   async function printTransfer() {
     var t = transferEditing, h = t.header;
+    if (!(await printGuard('transfer', t))) return;
     var company = await firmForPrint(null);
     var sigLabels = ['Issued by', 'Received by'];
     var po = await askPrintOptions(company, sigLabels);
@@ -3462,8 +3552,10 @@
         dcEditing.qno = prog.quote ? prog.quote.qno : '';
         dcEditing.qinfo = dcQuoteInfo(prog, id);
       }
+      dcEditing.locked = isLockedDate(header.dc_date);
     }
     renderDcEditor();
+    markSaved('dc', dcEditing);
     showSheet();
   }
 
@@ -3714,6 +3806,7 @@
   // Classic A4 challan — item, qty and unit only (no rates on a DC).
   async function printDc() {
     var t = dcEditing, h = t.header;
+    if (!(await printGuard('dc', t))) return;
     var company = await firmForPrint(h.company_id);
     var sigLabels = ['Delivered by', 'Received by'];
     var po = await askPrintOptions(company, sigLabels);
@@ -4229,6 +4322,7 @@
 
   async function printVoucher() {
     var e = state.editing;
+    if (!(await printGuard('voucher', e))) return;
     var h = e.header;
     var totals = computeTotals();
     var company = await firmForPrint(h.company_id);
@@ -4324,7 +4418,7 @@
     else if (state.mode === 'dc') loadDcList();
     else loadList();
   }
-  var MASTER_REFRESH_KINDS = ['parties', 'party_kinds', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
+  var MASTER_REFRESH_KINDS = ['period_lock', 'parties', 'party_kinds', 'items', 'item_units', 'item_specs', 'companies', 'warehouses', 'services'];
   window.addEventListener('message', function (ev) {
     var d = ev.data;
     if (!d || d.oht !== 'refresh' || MASTER_REFRESH_KINDS.indexOf(d.kind) < 0) return;
