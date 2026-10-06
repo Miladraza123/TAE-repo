@@ -427,7 +427,7 @@ table.doc-table th {
   letter-spacing:.4px; color:var(--slate); padding:8px 10px; border-bottom:1px solid var(--line);
 }
 table.doc-table td { padding:8px 10px; border-bottom:1px solid var(--hair); font-size:13.5px; }
-table.doc-table td.num { text-align:right; }
+table.doc-table td.num, table.doc-table th.num { text-align:right; }
 table.doc-table tr.drill:hover { background:#F3EDE0; cursor:pointer; }
 table.doc-table tr.drill td:last-child::after { content:' \203A'; color:var(--mute); }
 table.doc-table tfoot td {
