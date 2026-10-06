@@ -413,6 +413,7 @@
         </div>
 
         <div class="pg-card dl-reg">
+          <div id="lockBanner" hidden style="background:#F7EEE7;border:1px solid #E5C9B5;color:#A0532E;border-radius:8px;padding:8px 10px;margin:0 0 10px;font-weight:600"></div>
           <div id="ledgerArea"><p class="loading">Loading…</p></div>
         </div>
       </div>
@@ -832,6 +833,31 @@
   // touch the screen. An older one finishing last used to put its day's
   // sheet under the newer day's title — and what was typed next was saved
   // into the wrong day.
+  // Period Lock: a day dated before locked_before opens read-only.
+  var lockedBefore = null;
+  async function refreshLock() {
+    try {
+      var r = await sb.from('period_lock').select('locked_before').eq('id', 1).maybeSingle();
+      if (r && !r.error) lockedBefore = (r.data && r.data.locked_before) || null;
+    } catch (e) { /* offline: keep the last known lock */ }
+  }
+  function dayLocked(d) { return !!(lockedBefore && d && d < lockedBefore); }
+  function applyDayLock() {
+    var locked = dayLocked(state.date);
+    var area = document.getElementById('ledgerArea');
+    if (locked && area) area.inert = true;
+    var b = document.getElementById('lockBanner');
+    if (b) {
+      b.hidden = !locked;
+      if (locked) {
+        var last = new Date(lockedBefore + 'T00:00:00Z'); last.setUTCDate(last.getUTCDate() - 1);
+        b.textContent = '🔒 Period Lock — ' + last.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) +
+          ' tak ki entries locked hain. Yeh din sirf dekha aur print kiya ja sakta hai.';
+      }
+    }
+    ['saveBtn', 'addRowBtn', 'deleteSheetBtn'].forEach(function (id) { var el = document.getElementById(id); if (el) el.disabled = locked; });
+  }
+
   var loadSeq = 0;
   async function loadSheet(date) {
     var myLoad = ++loadSeq;
@@ -844,12 +870,13 @@
     var area = document.getElementById('ledgerArea');
     function unlock() { if (!stale() && area) { area.inert = false; area.classList.remove('dl-loading'); } }
     if (area) { area.inert = true; area.classList.add('dl-loading'); }
-    var unlockTimer = setTimeout(unlock, 8000);
+    var unlockTimer = setTimeout(function () { unlock(); applyDayLock(); }, 8000);
     try {
-      await loadSheetInner(date, stale);
+      await Promise.all([loadSheetInner(date, stale), refreshLock()]);
     } finally {
       clearTimeout(unlockTimer);
       unlock();
+      if (!stale()) applyDayLock();
     }
   }
   async function loadSheetInner(date, stale) {
@@ -2353,6 +2380,15 @@
   // and the "Powered by" footer. Same figures as the screen, nothing more.
   async function printSheet() {
     closeDrawer();
+    // Print = the SAVED day only. An unsaved (or refused, e.g. locked)
+    // change on screen must never reach paper as if it were the record.
+    if (inflightSave) { try { await inflightSave; } catch (e) {} }
+    if (state.dirty || state.autosavePaused) {
+      await confirmDialog('Pehle Save karein',
+        'Is din mein aise badlaav hain jo save nahi hue (ya save nahi ho sakte). Print hamesha SAVED copy ka hota hai — ' +
+        'pehle "Save day" karein, ya din dobara kholein (badlaav hat jayenge).', 'OK', false);
+      return;
+    }
     var s = state.sheet;
     if (!s) return;
     var firmRow = await firmForPrint(s.firm);
