@@ -2382,7 +2382,15 @@
     closeDrawer();
     // Print = the SAVED day only. An unsaved (or refused, e.g. locked)
     // change on screen must never reach paper as if it were the record.
-    if (inflightSave) { try { await inflightSave; } catch (e) {} }
+    // Pending edits are saved first (typing during a save leaves the day
+    // dirty until the next autosave); a save the server refuses — a locked
+    // day, a conflict — leaves it dirty/paused and printing is refused.
+    for (var tries = 0; tries < 3; tries++) {
+      if (inflightSave) { try { await inflightSave; } catch (e) {} continue; }
+      if (!state.dirty || state.autosavePaused || !state.sheet || dayLocked(state.date)) break;
+      if (autosaveTimer) { clearTimeout(autosaveTimer); autosaveTimer = null; }
+      try { await saveSheet(); } catch (e) { noteStatus((e && e.message) || String(e)); break; }
+    }
     if (state.dirty || state.autosavePaused) {
       await confirmDialog('Pehle Save karein',
         'Is din mein aise badlaav hain jo save nahi hue (ya save nahi ho sakte). Print hamesha SAVED copy ka hota hai — ' +
