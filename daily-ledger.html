@@ -442,6 +442,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="offline-queue.js"></script>
+<script src="logo-trim.js"></script>
 <script>
 (function () {
   'use strict';
@@ -2301,11 +2302,12 @@
     }
     var row = rows.filter(function (c) { return (c.name || '').trim().toLowerCase() === key; })[0] ||
       (name ? { name: name } : (rows[0] || { name: 'OHT Accounting System' }));
+    if (row.logo && !row.logoTrim) row.logoTrim = await trimLogo(row.logo);
     firmCache[key] = row;
     return row;
   }
   function firmMarkHtml(f) {
-    if (f && f.logo) return '<img src="' + esc(f.logo) + '" alt="">';
+    if (f && f.logo) return '<img src="' + esc(f.logoTrim || f.logo) + '" alt="">';
     return esc(((f && f.name) || 'O').trim().charAt(0).toUpperCase() || 'O');
   }
   function firmAddrText(f) {

@@ -55,6 +55,7 @@
 <div class="confirm-scrim" id="confirmScrim"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="logo-trim.js"></script>
 <script>
 (function () {
   'use strict';
@@ -194,11 +195,13 @@
     if (firm) return firm;
     var res = await sb.from('companies').select('name,city,phone,ntn,logo,signature,stamp,is_default').is('deleted_at', null).order('is_default', { ascending: false });
     var rows = (res && res.data) || [];
-    firm = rows[0] || { name: 'OHT Accounting System', city: '', phone: '', ntn: '', logo: null };
+    var f = rows[0] || { name: 'OHT Accounting System', city: '', phone: '', ntn: '', logo: null };
+    if (f.logo) f.logoTrim = await trimLogo(f.logo);
+    firm = f;
     return firm;
   }
   function firmMark() {
-    if (firm && firm.logo) return '<img src="' + esc(firm.logo) + '" alt="">';
+    if (firm && firm.logo) return '<img src="' + esc(firm.logoTrim || firm.logo) + '" alt="">';
     var n = (firm && firm.name ? firm.name : 'OHT').trim();
     return esc(n.charAt(0).toUpperCase() || 'O');
   }
