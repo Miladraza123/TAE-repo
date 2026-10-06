@@ -189,6 +189,7 @@
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="offline-queue.js"></script>
+<script src="logo-trim.js"></script>
 <script>
 (function () {
   'use strict';
@@ -817,7 +818,12 @@
     else if (parked.kind === 'voucher') { state.editing = parked.data; renderEditor(); showSheet(); }
   }
 
+  // Bumped by every tab switch and every editor open: an open whose data
+  // arrives after the user has moved on must not paint over (or become the
+  // record behind Print/Save of) the screen they are on now.
+  var viewSeq = 0;
   function switchTab(vt) {
+    viewSeq++;
     parkCurrentEditor();
     // Tell the shell, so its sidebar and title follow when this module moves
     // to another tab by itself (Quotation → DC → Sale, conversions).
@@ -941,7 +947,9 @@
   }
 
   async function openEditor(id) {
+    var seq = ++viewSeq;
     await loadMasters();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     if (!id) {
       state.editing = { isNew: true, id: null, header: blankHeader(), lines: [blankLine()], originalHeader: null, originalLines: [] };
     } else {
@@ -960,6 +968,7 @@
       }
       (lines || []).forEach(function (l) { l.materials = materialsByLine[l.id] || []; });
       await loadDcLineInfo(lines, id);
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       // Snapshot captured ONCE, at open time — never re-derived at save time (§14/§25's critical rule).
       state.editing = {
         isNew: false, id: id,
@@ -1929,13 +1938,16 @@
   var returnEditing = null;
 
   async function openReturnEditor(id) {
+    var seq = ++viewSeq;
     await loadMasters();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     if (!id) {
       returnEditing = { isNew: true, id: null, sale: null, saleLines: [], picked: [] };
     } else {
       var { data: header } = await sb.from('sales_returns').select('*').eq('id', id).single();
       if (!header) { toast('This record was deleted by someone else.', true); loadReturnsList(); return; }
       var { data: lines } = await sb.from('sales_return_lines').select('*').eq('return_id', id);
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       returnEditing = { isNew: false, id: id, header: header, picked: lines || [] };
     }
     renderReturnEditor();
@@ -2296,7 +2308,9 @@
   }
 
   async function openDocEditor(type, id) {
+    var seq = ++viewSeq;
     await loadMasters();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     var cfg = DOC_CONFIG[type];
     if (!id) {
       docEditing = { type: type, isNew: true, id: null, header: blankDocHeader(type), lines: [blankDocLine()], originalHeader: null, originalLines: [] };
@@ -2305,6 +2319,7 @@
         sb.from(cfg.table).select('*').eq('id', id).single(),
         sb.from(cfg.lineTable).select('*').eq(cfg.fk, id).order('line_no')
       ]);
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       if (!header) { toast('This record was deleted by someone else.', true); loadDocsList(type); return; }
       docEditing = {
         type: type, isNew: false, id: id,
@@ -2806,7 +2821,9 @@
   }
 
   async function openServiceDocEditor(type, id) {
+    var seq = ++viewSeq;
     await loadMasters(); await loadServices();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     var cfg = SVC_CONFIG[type];
     if (!id) {
       var defCompany = state.companies.filter(function (c) { return c.is_default; })[0] || state.companies[0];
@@ -2819,6 +2836,7 @@
         sb.from(cfg.table).select('*').eq('id', id).single(),
         sb.from(cfg.lineTable).select('*').eq(cfg.fk, id).order('line_no')
       ]);
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       if (!header) { toast('This record was deleted by someone else.', true); loadServiceDocsList(type); return; }
       svcEditing = { type: type, isNew: false, id: id, header: JSON.parse(JSON.stringify(header)), lines: JSON.parse(JSON.stringify(lines || [])),
         originalHeader: JSON.parse(JSON.stringify(header)), originalLines: JSON.parse(JSON.stringify(lines || [])) };
@@ -3206,7 +3224,9 @@
   }
 
   async function openTransferEditor(id) {
+    var seq = ++viewSeq;
     await loadMasters();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     if (!id) {
       transferEditing = { isNew: true, id: null, header: { tdate: new Date().toISOString().slice(0, 10), from_warehouse: null, to_warehouse: null, narration: '' }, lines: [{ id: null, item_id: null, qty: 0 }] };
     } else {
@@ -3214,6 +3234,7 @@
         sb.from('stock_transfers').select('*').eq('id', id).single(),
         sb.from('stock_transfer_lines').select('*').eq('transfer_id', id).order('line_no')
       ]);
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       if (!header) { toast('This record was deleted by someone else.', true); loadTransfersList(); return; }
       transferEditing = { isNew: false, id: id, header: header, lines: lines || [], locked: isLockedDate(header.tdate) };
     }
@@ -3530,7 +3551,9 @@
   }
 
   async function openDcEditor(id, preset) {
+    var seq = ++viewSeq;
     await loadMasters();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
     if (preset) {
       dcEditing = preset;
     } else if (!id) {
@@ -3543,12 +3566,14 @@
         sb.from('delivery_challans').select('*').eq('id', id).single(),
         sb.from('dc_lines').select('*').eq('dc_id', id).order('line_no')
       ]);
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       if (!header) { toast('This record was deleted by someone else.', true); loadDcList(); return; }
       var billed = await billedByDcLine((lines || []).map(function (l) { return l.id; }));
+      var prog = header.quotation_id ? await quoteProgress(header.quotation_id) : null;
+      if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
       dcEditing = { isNew: false, id: id, header: header, lines: lines || [], billed: billed, qinfo: {},
         originalLines: JSON.parse(JSON.stringify(lines || [])) };
-      if (header.quotation_id) {
-        var prog = await quoteProgress(header.quotation_id);
+      if (prog) {
         dcEditing.qno = prog.quote ? prog.quote.qno : '';
         dcEditing.qinfo = dcQuoteInfo(prog, id);
       }
@@ -4164,11 +4189,12 @@
     var res = await q.maybeSingle().then(null, function () { return { data: null }; });
     var row = (res && res.data) || state.companies.filter(function (c) { return c.id === companyId; })[0] ||
       state.companies.filter(function (c) { return c.is_default; })[0] || { name: 'OHT Accounting System' };
+    if (row.logo && !row.logoTrim) row.logoTrim = await trimLogo(row.logo);
     firmCache[key] = row;
     return row;
   }
   function firmMarkHtml(f) {
-    if (f && f.logo) return '<img src="' + esc(f.logo) + '" alt="">';
+    if (f && f.logo) return '<img src="' + esc(f.logoTrim || f.logo) + '" alt="">';
     return esc(((f && f.name) || 'O').trim().charAt(0).toUpperCase() || 'O');
   }
   function firmAddrText(f) {
