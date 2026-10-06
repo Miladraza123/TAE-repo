@@ -712,6 +712,8 @@ button.list-row {
 .pg-card .pg-ch .pg-lh { display:flex; align-items:center; gap:8px; font-weight:500; color:var(--mute); font-size:11.5px; }
 .pg-card .pg-ch .pg-lh .mk { width:22px; height:22px; border:1.5px solid var(--accent); border-radius:5px; display:grid; place-items:center; font-family:'IBM Plex Serif', serif; font-weight:600; color:var(--accent); font-size:11px; overflow:hidden; }
 .pg-card .pg-ch .pg-lh .mk img { width:100%; height:100%; object-fit:contain; }
+.pg-card .pg-ch .pg-lh .mk:has(img) { width:auto; max-width:110px; border:none; border-radius:0; }
+.pg-card .pg-ch .pg-lh .mk:has(img) img { width:auto; max-width:110px; }
 .pg-card .pg-ch .pg-cnt { margin-left:auto; font-size:11px; background:var(--panel); border:1px solid var(--line); border-radius:20px; padding:2px 8px; color:var(--slate); font-weight:700; }
 .pg-card .pg-ch .pg-cnt:empty { display:none; }
 .pg-card table.doc-table { margin:0; box-shadow:none; }
@@ -781,6 +783,10 @@ button.pg-lrow { width:100%; text-align:left; font:inherit; color:inherit; borde
   body.pd-on .pd-lh { display:flex; align-items:flex-start; gap:14px; }
   body.pd-on .pd-lh .mk { width:54px; height:54px; border:1.5px solid #B0824A; border-radius:8px; display:grid; place-items:center; color:#B0824A; font-size:24px; overflow:hidden; flex:none; font-family:'IBM Plex Serif', serif; font-weight:600; background:#fff; }
   body.pd-on .pd-lh .mk img { width:100%; height:100%; object-fit:contain; }
+  /* A real logo prints at a readable size: no initial box, 80px tall and as
+     wide as its own shape needs (a 1488x351 logo was squeezed to ~54x13). */
+  body.pd-on .pd-lh .mk:has(img) { width:auto; height:80px; max-width:340px; border:none; border-radius:0; background:none; display:block; }
+  body.pd-on .pd-lh .mk:has(img) img { width:auto; height:100%; max-width:340px; object-fit:contain; display:block; }
   body.pd-on .pd-lh .fn { font-size:22px; line-height:1.05; font-family:'IBM Plex Serif', serif; font-weight:600; }
   body.pd-on .pd-lh .fa { font-size:11px; color:#6B6357; margin-top:4px; }
   body.pd-on .pd-lh .tag { display:inline-block; margin-top:6px; font-size:9.5px; letter-spacing:.9px; text-transform:uppercase; color:#B0824A; font-weight:700; }
