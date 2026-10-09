@@ -987,7 +987,7 @@
       var [{ data: lines }, { data: returnLines }, { data: adj }] = await Promise.all([
         sb.from('voucher_lines').select('qty,cost_amount,voucher_id,vouchers(vno,vtype,vdate)').eq('item_id', itemId),
         sb.from('sales_return_lines').select('qty,cost_amount,return_id,sales_returns(rno,rdate)').eq('item_id', itemId),
-        sb.from('stock_adjustments').select('qty,reason,adj_date').eq('item_id', itemId).is('deleted_at', null)
+        sb.from('stock_adjustments').select('adjno,qty,reason,adj_date').eq('item_id', itemId).is('deleted_at', null)
       ]);
 
       var events = [];
@@ -999,7 +999,7 @@
         if (!rl.sales_returns) return;
         events.push({ date: rl.sales_returns.rdate, desc: 'Return ' + rl.sales_returns.rno, qty: rl.qty });
       });
-      (adj || []).forEach(function (a) { events.push({ date: a.adj_date, desc: 'Adjustment: ' + (a.reason || ''), qty: a.qty }); });
+      (adj || []).forEach(function (a) { events.push({ date: a.adj_date, desc: 'Adjustment ' + (a.adjno ? a.adjno + ' ' : '') + '— ' + (a.reason || ''), qty: a.qty }); });
       events.sort(function (a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; });
 
       var running = 0, totalIn = 0, totalOut = 0;
