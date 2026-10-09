@@ -777,7 +777,7 @@
       var h = '<table class="doc-table"><thead><tr><th>Date</th><th>Description</th><th class="num">Dr</th><th class="num">Cr</th><th class="num">Balance</th></tr></thead><tbody>';
       if (from) h += '<tr><td class="mono">' + esc(from) + '</td><td>Opening balance (b/f)</td><td></td><td></td><td class="num mono">' + bal(opening) + '</td></tr>';
       events.forEach(function (e) {
-        h += '<tr><td class="mono">' + e.date + '</td><td>' + esc(e.desc) + '</td><td class="num mono">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
+        h += '<tr><td class="mono">' + (e.noDate ? '\u2014' : e.date) + '</td><td>' + esc(e.desc) + '</td><td class="num mono">' + (e.dr ? fmt(e.dr) : '') + '</td>' +
           '<td class="num mono">' + (e.cr ? fmt(e.cr) : '') + '</td><td class="num mono">' + bal(e.running) + '</td></tr>';
       });
       if (!events.length) h += '<tr><td colspan="5" style="color:var(--mute)">No entries in this period.</td></tr>';
@@ -895,7 +895,8 @@
     var { data: party } = await sb.from('parties').select('*').eq('id', partyId).single();
     var events = [];
     if (party.opening) {
-      events.push({ date: party.opening_date || '0000-01-01', desc: 'Opening balance', dr: party.opening_side === 'dr' ? party.opening : 0, cr: party.opening_side === 'cr' ? party.opening : 0 });
+      // No opening date: sort it first (and before any From date), but show a dash, not 0000-01-01.
+      events.push({ date: party.opening_date || '0000-01-01', noDate: !party.opening_date, desc: 'Opening balance', dr: party.opening_side === 'dr' ? party.opening : 0, cr: party.opening_side === 'cr' ? party.opening : 0 });
     }
     var { data: sales } = await sb.from('vouchers').select('vno,vdate,grand_total,paid').eq('party_id', partyId).eq('vtype', 'sale').is('deleted_at', null);
     (sales || []).forEach(function (v) {
