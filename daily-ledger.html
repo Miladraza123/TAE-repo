@@ -452,6 +452,11 @@
   var sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
     auth: { persistSession: true, autoRefreshToken: false }
   });
+  // Tell the shell when this module's login is gone, so it shows the
+  // sign-in screen instead of empty (anonymous) lists.
+  sb.auth.onAuthStateChange(function (event) {
+    if (event === 'SIGNED_OUT') { try { window.parent.postMessage({ oht: 'authLost' }, '*'); } catch (e) {} }
+  });
 
   // A number field defaulting to "0" (Opening balance on a brand-new day,
   // etc.) otherwise has to be selected and erased before the real figure
