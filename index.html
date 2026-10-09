@@ -662,6 +662,8 @@
     if (!email || !pass) { errEl.textContent = 'Enter email and password.'; return; }
     var { error } = await sb.auth.signInWithPassword({ email: email, password: pass });
     if (error) { errEl.textContent = error.message; return; }
+    // After a lost login, start every module fresh on the new one.
+    if (authLost) { location.reload(); return; }
     checkProfileAndEnter();
   });
 
@@ -672,7 +674,9 @@
       'Sign out', true
     );
     if (!ok) return;
+    signingOut = true;
     await sb.auth.signOut();
+    signingOut = false;
     Object.keys(frames).forEach(function (k) { frames[k].remove(); });
     frames = {};
     frameReady = {};
@@ -688,6 +692,41 @@
     toast('You are offline. Changes are saved in this browser and will sync later.', true);
   }
   checkProfileAndEnter();
+
+  // Session watchdog. A login can end while the app stays open (e.g. the
+  // account's password was reset from another computer). The modules then
+  // query as an anonymous visitor and every list comes back EMPTY, which
+  // looks exactly like lost data. So: whenever the app comes back to the
+  // front, every 5 minutes, and whenever a module reports its own sign-out,
+  // ask the server whether this login is still valid — and if it is not,
+  // show the sign-in screen with a clear message. Offline is skipped: the
+  // app must keep working without internet.
+  var authLost = false, verifying = false, signingOut = false;
+  async function verifySession() {
+    if (verifying || authLost || signingOut || !appShellEl.classList.contains('on') || !navigator.onLine) return;
+    verifying = true;
+    try {
+      var sess = (await sb.auth.getSession()).data.session;
+      var bad = !sess;
+      if (!bad) {
+        var r = await sb.auth.getUser();
+        var st = r.error && r.error.status;
+        bad = !!(st && st >= 400 && st < 500);
+      }
+      if (bad) {
+        authLost = true;
+        try { await sb.auth.signOut({ scope: 'local' }); } catch (e) {}
+        showAuth('Aap ka login khatam ho gaya hai (shayad password badla gaya). Dobara Sign in karein — aap ka data mehfooz hai.');
+      }
+    } catch (e) { /* network hiccup: try again next time */ }
+    verifying = false;
+  }
+  document.addEventListener('visibilitychange', function () { if (document.visibilityState === 'visible') verifySession(); });
+  window.addEventListener('focus', verifySession);
+  window.addEventListener('online', verifySession);
+  setInterval(verifySession, 5 * 60 * 1000);
+  sb.auth.onAuthStateChange(function (event) { if (event === 'SIGNED_OUT') verifySession(); });
+  window.addEventListener('message', function (ev) { if (ev.data && ev.data.oht === 'authLost') verifySession(); });
 
   // §26: sw.js already calls skipWaiting()/clients.claim() unconditionally,
   // so a new version activates itself in the background the moment it is
