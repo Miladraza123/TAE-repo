@@ -1528,8 +1528,19 @@
             var ok = await confirmDialog('Reset ' + rec.username + '’s password?',
               'They will need this new password to sign in next time — make sure you can give it to them.', 'Set password', false);
             if (!ok) return;
-            var { data, error } = await sb.functions.invoke('admin-user-ops', { body: { action: 'set_password', user_id: id, new_password: newPw } });
-            if (error || (data && data.error)) { pwErrEl.textContent = (data && data.error) || error.message; return; }
+            // Your OWN password goes through updateUser, which keeps this
+            // session. The admin reset ends every session of that account,
+            // so resetting yourself here used to sign you out silently and
+            // the next admin action failed with "Not signed in".
+            var me = (await sb.auth.getUser()).data;
+            if (me && me.user && me.user.id === id) {
+              var own = await sb.auth.updateUser({ password: newPw });
+              if (own.error) { pwErrEl.textContent = own.error.message; return; }
+            } else {
+              var { data, error } = await sb.functions.invoke('admin-user-ops', { body: { action: 'set_password', user_id: id, new_password: newPw } });
+              var msg = await fnErrorText(data, error);
+              if (msg) { pwErrEl.textContent = msg; return; }
+            }
             document.getElementById('f_newpw').value = '';
             toast('Password updated.');
           });
@@ -1556,7 +1567,8 @@
             if (!password || password.length < 8) { errEl.textContent = 'Password must be at least 8 characters'; return; }
             var { data, error } = await sb.functions.invoke('admin-user-ops',
               { body: Object.assign({ action: 'create_user', email: email, password: password }, payload) });
-            if (error || (data && data.error)) { errEl.textContent = (data && data.error) || error.message; return; }
+            var cmsg = await fnErrorText(data, error);
+            if (cmsg) { errEl.textContent = cmsg; return; }
           }
           toast('User saved.');
           closeSheet();
@@ -1565,6 +1577,19 @@
       }
     }
   };
+
+  // admin-user-ops errors: supabase-js only says "Edge Function returned a
+  // non-2xx status code" — the function's own message is in the response.
+  async function fnErrorText(data, error) {
+    if (data && data.error) return data.error;
+    if (!error) return '';
+    var status = error.context && error.context.status;
+    var body = null;
+    try { if (error.context && typeof error.context.json === 'function') body = await error.context.json(); } catch (e) {}
+    if (status === 401) return 'Aap ka login khatam ho chuka hai — Sign out kar ke dobara Sign in karein, phir koshish karein.';
+    if (status === 403) return 'Ye kaam sirf active admin kar sakta hai.';
+    return (body && (body.error || body.message)) || error.message;
+  }
 
   // ===================================================================
   // Recycle Bin (§22/§28: gated by the recycle_bin permission via the
