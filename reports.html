@@ -665,7 +665,14 @@
         }
       });
 
-      var operatingProfit = grossProfit + serviceRevenue + otherIncome - opEx;
+      // Stock written off / found through Stock Adjustments, at the average
+      // cost the engine stamped on each one (negative = stock removed). A
+      // write-off is a loss; stock found back reduces it.
+      var { data: adjRows } = await sb.from('stock_adjustments').select('cost_amount')
+        .is('deleted_at', null).gte('adj_date', from).lte('adj_date', to).range(0, 49999);
+      var stockLoss = -(adjRows || []).reduce(function (s, a) { return s + Number(a.cost_amount || 0); }, 0);
+
+      var operatingProfit = grossProfit + serviceRevenue + otherIncome - opEx - stockLoss;
       var netProfit = operatingProfit - financeCharges;
       var netMarginPct = netSales !== 0 ? (netProfit / netSales) * 100 : 0;
 
@@ -686,7 +693,8 @@
         '<tr class="note"><td colspan="2">Gross Margin: ' + grossMarginPct.toFixed(1) + '%</td></tr>' +
         row('Other Income (Loading/Cartage/Cutting)', otherIncome) + row('Service Revenue', serviceRevenue) +
         row('Total Revenue (Net Sales + Service Revenue)', totalRevenue) +
-        row('Operating Expenses', -opEx) + row('Operating Profit', operatingProfit, true) +
+        row('Operating Expenses', -opEx) + row('Stock nuqsaan / farq (Stock adjustments)', -stockLoss) +
+        row('Operating Profit', operatingProfit, true) +
         row('Finance/Bank Charges', -financeCharges) +
         '</tbody><tfoot>' +
         '<tr><td>Net Profit</td><td class="num mono' + (netProfit < 0 ? ' warn' : '') + '">' + fmt(netProfit) + '</td></tr>' +

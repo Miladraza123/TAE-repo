@@ -3551,7 +3551,7 @@
       '<div class="field"><select id="a_reason">' + ADJ_REASONS.map(function (r) {
         return '<option' + (r === h.reason_kind ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select></div>' +
       '<div class="field"><label>Tafseel (optional)</label><textarea id="a_notes" rows="2" placeholder="Jaise: loading ke waqt 2 sheet toot gayin">' + esc(h.notes) + '</textarea>' +
-      '<div class="hint">Stock sirf qty mein badalta hai, average cost ke hisaab se. Ye kisi party ke khaate par asar nahi karta.</div></div>';
+      '<div class="hint">Stock average cost ke hisaab se kam/zyada hota hai, aur is ki value P&amp;L mein \u201cStock nuqsaan / farq\u201d line mein aati hai. Kisi party ke khaate par asar nahi.</div></div>';
 
     var ftr = (!t.isNew ? '<button type="button" class="btn dgr" id="adjDeleteBtn">Delete</button>' : '') +
       (!t.isNew ? '<button type="button" class="btn" id="adjPrintBtn">Print</button>' : '') +

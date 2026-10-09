@@ -5,7 +5,7 @@
 // queue, never the service-worker cache.
 'use strict';
 
-const CACHE_NAME = 'tae-shell-v7';
+const CACHE_NAME = 'tae-shell-v8';
 const PRECACHE_URLS = [
   './index.html', './masters.html', './billing.html', './daily-ledger.html', './reports.html',
   './logo-trim.js', './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
