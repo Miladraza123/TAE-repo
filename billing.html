@@ -121,6 +121,11 @@
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 8h13"/><path d="m12 4 4 4-4 4"/><path d="M21 16H8"/><path d="m12 12-4 4 4 4"/></svg>
         <span>Stock transfer</span>
       </button>
+
+      <button class="navitem" id="navAdjust" data-tab="adjust">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><path d="M2 14h4"/><path d="M10 8h4"/><path d="M18 16h4"/></svg>
+        <span>Stock adjustment</span>
+      </button>
     </div>
   </nav>
 
@@ -627,7 +632,7 @@
   // Which controls make sense for the tab on screen.
   function showFiltersFor(tab) {
     var unpaidOk = tab === 'sale' || tab === 'purchase' || tab === 'sinvoice';
-    var firmOk = tab !== 'return' && tab !== 'transfer';
+    var firmOk = tab !== 'return' && tab !== 'transfer' && tab !== 'adjust';
     document.getElementById('blf_unpaid').hidden = !unpaidOk;
     document.getElementById('firmFld').hidden = !firmOk;
     document.getElementById('whFld').hidden = tab !== 'transfer';
@@ -753,6 +758,7 @@
     else if (state.mode === 'quotation' || state.mode === 'po') renderDocsList(state.mode);
     else if (state.mode === 'sinvoice' || state.mode === 'squote') renderServiceDocsList(state.mode);
     else if (state.mode === 'transfer') renderTransfersList();
+    else if (state.mode === 'adjust') renderAdjustList();
     else if (state.mode === 'dc') renderDcList();
     else renderList();
   }
@@ -786,12 +792,12 @@
   document.getElementById('sheetScrim').addEventListener('click', closeEditor);
 
   state.mode = 'voucher';
-  var ALL_TABS = { sale: 'navSale', purchase: 'navPurchase', return: 'navReturn', quotation: 'navQuotation', dc: 'navDC', po: 'navPO', sinvoice: 'navServiceInvoice', squote: 'navServiceQuotation', transfer: 'navTransfer' };
-  var TAB_TITLES = { sale: 'Sales', purchase: 'Purchases', return: 'Sales Returns', quotation: 'Quotations', dc: 'Delivery Challans', po: 'Purchase Orders', sinvoice: 'Service Invoices', squote: 'Service Quotations', transfer: 'Stock Transfers' };
+  var ALL_TABS = { sale: 'navSale', purchase: 'navPurchase', return: 'navReturn', quotation: 'navQuotation', dc: 'navDC', po: 'navPO', sinvoice: 'navServiceInvoice', squote: 'navServiceQuotation', transfer: 'navTransfer', adjust: 'navAdjust' };
+  var TAB_TITLES = { sale: 'Sales', purchase: 'Purchases', return: 'Sales Returns', quotation: 'Quotations', dc: 'Delivery Challans', po: 'Purchase Orders', sinvoice: 'Service Invoices', squote: 'Service Quotations', transfer: 'Stock Transfers', adjust: 'Stock Adjustments' };
   Object.keys(ALL_TABS).forEach(function (k) {
     document.getElementById(ALL_TABS[k]).addEventListener('click', function () { switchTab(k); });
   });
-  var CARD_TITLES = { sale: 'Sales invoices', purchase: 'Purchase bills', return: 'Sales returns', quotation: 'Quotations', dc: 'Delivery challans', po: 'Purchase orders', sinvoice: 'Service invoices', squote: 'Service quotations', transfer: 'Stock transfers' };
+  var CARD_TITLES = { sale: 'Sales invoices', purchase: 'Purchase bills', return: 'Sales returns', quotation: 'Quotations', dc: 'Delivery challans', po: 'Purchase orders', sinvoice: 'Service invoices', squote: 'Service quotations', transfer: 'Stock transfers', adjust: 'Stock adjustments' };
   // Per-tab draft persistence (§14): each of the 8 tabs gets its own slot
   // here, keyed by its ALL_TABS key, so an unsaved editor left open on one
   // tab is hidden (never discarded) when the sidebar switches to another,
@@ -808,6 +814,7 @@
     else if ((state.mode === 'quotation' || state.mode === 'po') && docEditing) parkedEditors[key] = { kind: 'doc', data: docEditing };
     else if ((state.mode === 'sinvoice' || state.mode === 'squote') && svcEditing) parkedEditors[key] = { kind: 'service', data: svcEditing };
     else if (state.mode === 'transfer' && transferEditing) parkedEditors[key] = { kind: 'transfer', data: transferEditing };
+    else if (state.mode === 'adjust' && adjEditing) parkedEditors[key] = { kind: 'adjust', data: adjEditing };
     else if (state.mode === 'dc' && dcEditing) parkedEditors[key] = { kind: 'dc', data: dcEditing };
     else if (state.editing) parkedEditors[key] = { kind: 'voucher', data: state.editing };
     hideSheet();
@@ -819,6 +826,7 @@
     else if (parked.kind === 'doc') { docEditing = parked.data; renderDocEditor(); showSheet(); }
     else if (parked.kind === 'service') { svcEditing = parked.data; renderServiceDocEditor(); showSheet(); }
     else if (parked.kind === 'transfer') { transferEditing = parked.data; renderTransferEditor(); showSheet(); }
+    else if (parked.kind === 'adjust') { adjEditing = parked.data; renderAdjustEditor(); showSheet(); }
     else if (parked.kind === 'dc') { dcEditing = parked.data; renderDcEditor(); showSheet(); }
     else if (parked.kind === 'voucher') { state.editing = parked.data; renderEditor(); showSheet(); }
   }
@@ -853,6 +861,9 @@
     } else if (vt === 'transfer') {
       state.mode = 'transfer';
       loadTransfersList();
+    } else if (vt === 'adjust') {
+      state.mode = 'adjust';
+      loadAdjustList();
     } else if (vt === 'dc') {
       state.mode = 'dc';
       loadDcList();
@@ -868,6 +879,7 @@
     else if (state.mode === 'quotation' || state.mode === 'po') openDocEditor(state.mode, null);
     else if (state.mode === 'sinvoice' || state.mode === 'squote') openServiceDocEditor(state.mode, null);
     else if (state.mode === 'transfer') openTransferEditor(null);
+    else if (state.mode === 'adjust') openAdjustEditor(null);
     else if (state.mode === 'dc') openDcEditor(null);
     else openEditor(null);
   });
@@ -1014,6 +1026,7 @@
     svc: { h: ['sidate', 'sqdate', 'party_id', 'walkin_name', 'company_id', 'billing_label', 'notes', 'tax_on', 'discount', 'paid', 'valid_till'],
       l: ['service_id', 'description', 'qty', 'rate', 'tax_pct'] },
     transfer: { h: ['tdate', 'from_warehouse', 'to_warehouse', 'narration'], l: ['item_id', 'qty'] },
+    adjust: { h: ['adj_date', 'item_id', 'dir', 'qty_abs', 'reason_kind', 'notes'], l: [] },
     dc: { h: ['dc_date', 'party_id', 'company_id', 'narration'], l: ['item_id', 'custom_name', 'custom_unit', 'description', 'qty', 'consumption_type', 'warehouse_id'] }
   };
   function normVal(v) {
@@ -1051,6 +1064,7 @@
     if (lastEditorRender === renderEditor) { o = state.editing; keep.push('printBtn'); }
     else if (lastEditorRender === renderServiceDocEditor) { o = svcEditing; keep.push('svcPrintBtn'); }
     else if (lastEditorRender === renderTransferEditor) { o = transferEditing; keep.push('trPrintBtn'); }
+    else if (lastEditorRender === renderAdjustEditor) { o = adjEditing; keep.push('adjPrintBtn'); }
     else if (lastEditorRender === renderDcEditor) { o = dcEditing; keep.push('dcPrintBtn', 'dcInvoiceBtn', 'dcMiBtn'); }
     if (!o || !o.locked) return;
     var card = document.getElementById('editorCard');
@@ -1079,6 +1093,7 @@
     docEditing = null;
     svcEditing = null;
     transferEditing = null;
+    adjEditing = null;
     dcEditing = null;
     miEditing = null;
   }
@@ -3421,6 +3436,202 @@
   }
 
   // ---------------------------------------------------------------
+  // Stock Adjustments — toota/kharab maal, ginti ka farq, gum/chori.
+  // One item per adjustment (SA-0001). qty is signed in the table:
+  // negative removes stock, positive adds it. The costing engine moves
+  // only the quantity at the current average cost; Period Lock, the
+  // Recycle Bin, the audit log and the Item Stock Ledger already cover
+  // this table on the database side.
+  // ---------------------------------------------------------------
+  var ADJ_REASONS = ['Toot gaya / kharab', 'Ginti mein kam nikla', 'Ginti mein zyada nikla', 'Gum / chori', 'Apna istemal / sample', 'Other'];
+  var adjEditing = null;
+  var adjState = { list: [] };
+
+  async function loadAdjustList() {
+    var { data, error } = await sb.from('stock_adjustments').select('*').is('deleted_at', null).order('adj_date', { ascending: false }).order('created_at', { ascending: false }).limit(500);
+    if (state.mode !== 'adjust') return; // the user moved to another tab meanwhile
+    if (error) { showListError(error); return; }
+    adjState.list = data || [];
+    renderAdjustList();
+  }
+  function fmtQty(n) { var v = Math.round(Number(n || 0) * 1000) / 1000; return v.toLocaleString('en-US', { maximumFractionDigits: 3 }); }
+
+  function renderAdjustList() {
+    var term = (document.getElementById('search').value || '').toLowerCase();
+    var rows = adjState.list.filter(function (a) {
+      if (!passesFilter(a.adj_date, null, 0)) return false;
+      var it = itemById(a.item_id);
+      return !term || (a.adjno || '').toLowerCase().indexOf(term) >= 0 ||
+        (it && it.name.toLowerCase().indexOf(term) >= 0) || (a.reason || '').toLowerCase().indexOf(term) >= 0;
+    });
+    var html = rows.length ? '' : emptyStateHtml('No stock adjustments yet',
+      term ? 'Nothing matches “' + term + '”.' : 'Toota hua maal, ginti ka farq ya gum hua maal yahan se stock mein kam/zyada karein.');
+    var outN = 0, inN = 0;
+    rows.forEach(function (a) {
+      var it = itemById(a.item_id), q = Number(a.qty);
+      if (q < 0) outN++; else inN++;
+      html += listRowHtml({
+        id: a.id, code: 'SA', name: (a.adjno || 'SA') + ' · ' + (it ? it.name : '—'),
+        sub: a.adj_date + (a.reason ? ' · ' + a.reason : ''),
+        tag: (q < 0 ? '− ' : '+ ') + fmtQty(Math.abs(q)) + (it && it.unit ? ' ' + it.unit : ''), tagCls: q < 0 ? 'b-void' : 'b-ok'
+      });
+    });
+    document.getElementById('listArea').innerHTML = html;
+    wireListRows(function (id) { openAdjustEditor(id); });
+    setListKpis([
+      { label: 'Adjustments', text: String(rows.length), cls: 'n', ring: '#' },
+      { label: 'Stock kam kiya', text: String(outN), cls: 'dr', ring: '−' },
+      { label: 'Stock barhaya', text: String(inN), cls: 'cash', ring: '+' }
+    ]);
+    setListCount(rows.length, rows.length === 1 ? 'adjustment' : 'adjustments');
+    setListSub(rows.length + ' of ' + adjState.list.length + ' · ' + rangeLabel());
+  }
+
+  function splitReason(r) {
+    r = r || '';
+    for (var i = 0; i < ADJ_REASONS.length; i++) {
+      var k = ADJ_REASONS[i];
+      if (r === k) return { kind: k, notes: '' };
+      if (r.indexOf(k + ' — ') === 0) return { kind: k, notes: r.slice(k.length + 3) };
+    }
+    return { kind: r ? 'Other' : ADJ_REASONS[0], notes: r };
+  }
+
+  async function openAdjustEditor(id) {
+    var seq = ++viewSeq;
+    await loadMasters();
+    if (seq !== viewSeq) return; // user moved to another tab/document meanwhile
+    if (!id) {
+      adjEditing = { isNew: true, id: null, header: { adj_date: todayStr(), item_id: null, dir: 'out', qty_abs: '', reason_kind: ADJ_REASONS[0], notes: '', adjno: '' } };
+    } else {
+      var { data: a } = await sb.from('stock_adjustments').select('*').eq('id', id).maybeSingle();
+      if (seq !== viewSeq) return;
+      if (!a || a.deleted_at) { toast('This record was deleted by someone else.', true); loadAdjustList(); return; }
+      var rs = splitReason(a.reason);
+      adjEditing = { isNew: false, id: id, origItem: a.item_id, origQty: Number(a.qty),
+        header: { adj_date: a.adj_date, item_id: a.item_id, dir: Number(a.qty) < 0 ? 'out' : 'in', qty_abs: Math.abs(Number(a.qty)),
+          reason_kind: rs.kind, notes: rs.notes, adjno: a.adjno },
+        locked: isLockedDate(a.adj_date) };
+    }
+    renderAdjustEditor();
+    markSaved('adjust', adjEditing);
+    showSheet();
+  }
+
+  // "Abhi stock → Save ke baad" for the item on screen. When editing, the
+  // saved adjustment is already inside the live stock, so take it out first.
+  function adjPreviewText() {
+    var t = adjEditing, h = t.header, it = itemById(h.item_id);
+    if (!it) return 'Item chunein — us ka abhi ka stock yahan nazar aayega.';
+    var now = Number(it.stock_qty || 0);
+    var base = now - (!t.isNew && t.origItem === h.item_id ? t.origQty : 0);
+    var q = Number(h.qty_abs) || 0;
+    var after = base + (h.dir === 'out' ? -q : q);
+    var u = it.unit ? ' ' + it.unit : '';
+    return 'Abhi stock: ' + fmtQty(base) + u + '  →  Save ke baad: ' + fmtQty(after) + u + (after < 0 ? '  (minus mein chala jayega!)' : '');
+  }
+
+  function renderAdjustEditor() {
+    lastEditorRender = renderAdjustEditor;
+    var t = adjEditing, h = t.header;
+    var it = itemById(h.item_id);
+    var html = '<div class="field"><label>Date</label><input type="date" id="a_date" value="' + esc(h.adj_date) + '"></div>' +
+      '<div class="group-lbl">Item</div>' +
+      '<div class="field">' + comboHtml({ value: h.item_id, options: itemComboOptions('buy_rate'), placeholder: 'Search item…', empty: ITEM_EMPTY,
+        onPick: function (id) { h.item_id = id || null; renderAdjustEditor(); } }) + '</div>' +
+      '<div class="f2">' +
+      '<div class="field"><label>Kya karna hai</label><select id="a_dir">' +
+        '<option value="out"' + (h.dir === 'out' ? ' selected' : '') + '>Stock kam karein (−)</option>' +
+        '<option value="in"' + (h.dir === 'in' ? ' selected' : '') + '>Stock barhayein (+)</option></select></div>' +
+      '<div class="field"><label>Qty' + (it && it.unit ? ' (' + esc(it.unit) + ')' : '') + '</label>' +
+        '<input type="number" step="0.001" min="0" id="a_qty" class="num" value="' + esc(h.qty_abs) + '"></div>' +
+      '</div>' +
+      '<div class="hint" id="a_preview" style="font-weight:600">' + esc(adjPreviewText()) + '</div>' +
+      '<div class="group-lbl">Wajah</div>' +
+      '<div class="field"><select id="a_reason">' + ADJ_REASONS.map(function (r) {
+        return '<option' + (r === h.reason_kind ? ' selected' : '') + '>' + esc(r) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label>Tafseel (optional)</label><textarea id="a_notes" rows="2" placeholder="Jaise: loading ke waqt 2 sheet toot gayin">' + esc(h.notes) + '</textarea>' +
+      '<div class="hint">Stock sirf qty mein badalta hai, average cost ke hisaab se. Ye kisi party ke khaate par asar nahi karta.</div></div>';
+
+    var ftr = (!t.isNew ? '<button type="button" class="btn dgr" id="adjDeleteBtn">Delete</button>' : '') +
+      (!t.isNew ? '<button type="button" class="btn" id="adjPrintBtn">Print</button>' : '') +
+      '<button type="button" class="btn" id="cancelBtn">Cancel</button>' +
+      '<button type="button" class="btn pri" id="adjSaveBtn">Save</button>';
+    renderSheet('Stock Adjustment' + (t.isNew ? ' — New' : ' — ' + h.adjno), html, ftr);
+    wireCombos(document.getElementById('editorCard'));
+
+    var upd = function () { var el = document.getElementById('a_preview'); if (el) el.textContent = adjPreviewText(); };
+    document.getElementById('cancelBtn').addEventListener('click', closeEditor);
+    document.getElementById('a_date').addEventListener('input', function () { h.adj_date = this.value; });
+    document.getElementById('a_dir').addEventListener('change', function () { h.dir = this.value; upd(); });
+    document.getElementById('a_qty').addEventListener('input', function () { h.qty_abs = this.value; upd(); });
+    document.getElementById('a_reason').addEventListener('change', function () { h.reason_kind = this.value; });
+    document.getElementById('a_notes').addEventListener('input', function () { h.notes = this.value; });
+    document.getElementById('adjSaveBtn').addEventListener('click', saveAdjust);
+    var d = document.getElementById('adjDeleteBtn'); if (d) d.addEventListener('click', deleteAdjust);
+    var pb = document.getElementById('adjPrintBtn'); if (pb) pb.addEventListener('click', printAdjust);
+  }
+
+  var adjSaving = false;
+  async function saveAdjust() {
+    if (adjSaving) return;
+    var t = adjEditing, h = t.header;
+    var errEl = document.getElementById('editorErr');
+    errEl.textContent = '';
+    var q = Number(h.qty_abs);
+    if (!h.item_id) { errEl.textContent = 'Item chunein'; return; }
+    if (!h.adj_date) { errEl.textContent = 'Date likhein'; return; }
+    if (!(q > 0)) { errEl.textContent = 'Qty 0 se zyada likhein'; return; }
+    if (isLockedDate(h.adj_date)) { errEl.textContent = 'Ye tareekh Period Lock mein hai — is din ki entry nahi ho sakti.'; return; }
+    if (!navigator.onLine) { errEl.textContent = 'Stock adjustment ke liye internet zaroori hai.'; return; }
+    var reason = h.reason_kind + (String(h.notes || '').trim() ? ' — ' + String(h.notes).trim() : '');
+    var payload = { item_id: h.item_id, adj_date: h.adj_date, qty: h.dir === 'out' ? -q : q, reason: reason };
+    adjSaving = true;
+    var res = t.isNew
+      ? await sb.from('stock_adjustments').insert(payload).select('adjno').single()
+      : await sb.from('stock_adjustments').update(payload).eq('id', t.id).select('adjno').single();
+    adjSaving = false;
+    if (res.error) { errEl.textContent = res.error.message; return; }
+    toast((res.data && res.data.adjno ? res.data.adjno + ' ' : '') + 'saved — stock updated');
+    closeEditor(); await loadMasters(); loadAdjustList(); broadcastRefresh('stock_adjustments'); broadcastRefresh('items');
+  }
+
+  async function deleteAdjust() {
+    var t = adjEditing;
+    var ok = await confirmDialog('Delete ' + t.header.adjno + '?',
+      'Ye adjustment hat jayega aur stock pehle jaisa ho jayega. Recycle Bin se wapas laya ja sakta hai.', 'Delete', true);
+    if (!ok) return;
+    var { error } = await sb.from('stock_adjustments').update({ deleted_at: new Date().toISOString() }).eq('id', t.id);
+    if (error) { sheetErr(error.message); return; }
+    toast(t.header.adjno + ' deleted — restore it from the Recycle Bin');
+    closeEditor(); await loadMasters(); loadAdjustList(); broadcastRefresh('stock_adjustments'); broadcastRefresh('items');
+  }
+
+  async function printAdjust() {
+    var t = adjEditing, h = t.header;
+    if (!(await printGuard('adjust', t))) return;
+    var company = await firmForPrint(null);
+    var sigLabels = ['Prepared by', 'Approved by'];
+    var po = await askPrintOptions(company, sigLabels);
+    if (!po) return;
+    var it = itemById(h.item_id), u = it && it.unit ? ' ' + it.unit : '';
+    var html = buildPdDoc({
+      firm: company, tag: 'Stock adjustment', noAmounts: true,
+      docTitle: 'Stock Adjustment', sub: h.adjno + ' · ' + h.adj_date,
+      metaRows: [['Adjustment no', h.adjno], ['Date', h.adj_date], ['Printed', printStamp()]],
+      parties: null,
+      cols: [{ label: 'Item' }, { label: 'Kam / Zyada' }, { label: 'Qty', cls: 'num' }],
+      rows: [['<td>' + esc(it ? it.name : '') + '</td>', '<td>' + (h.dir === 'out' ? 'Stock kam (−)' : 'Stock zyada (+)') + '</td>',
+        '<td class="num">' + esc(fmtQty(h.qty_abs)) + esc(u) + '</td>']],
+      totals: null,
+      narrationLabel: 'Wajah', narration: h.reason_kind + (String(h.notes || '').trim() ? ' — ' + h.notes : ''),
+      sigLabels: sigLabels, sigIndex: po.sigIndex, sigImg: company.signature, stampImg: po.stampOn ? company.stamp : null,
+      footerRight: 'Stock Adjustment · ' + h.adjno
+    });
+    showPrintDoc(html, h.adjno + '.pdf');
+  }
+
+  // ---------------------------------------------------------------
   // Delivery Challans — Quotation → DC (partial, as many as needed) →
   // Sales Invoice (from one or more DCs). A DC carries NO rates; rates go
   // on the invoice. Stock leaves at the DC for "General supply" lines and
@@ -4446,6 +4657,7 @@
     else if (state.mode === 'quotation' || state.mode === 'po') loadDocsList(state.mode);
     else if (state.mode === 'sinvoice' || state.mode === 'squote') loadServiceDocsList(state.mode);
     else if (state.mode === 'transfer') loadTransfersList();
+    else if (state.mode === 'adjust') loadAdjustList();
     else if (state.mode === 'dc') loadDcList();
     else loadList();
   }
